@@ -1,0 +1,23 @@
+{
+  "name": "ai-hub",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "npm@11.11.0",
+  "description": "Tailored AI hub — run an organization's Skills, Agents, and MCPs on their existing AI licenses.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "turbo run dev",
+    "build": "turbo run build",
+    "start": "turbo run start",
+    "lint": "turbo run lint"
+  },
+  "devDependencies": {
+    "turbo": "^2"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
