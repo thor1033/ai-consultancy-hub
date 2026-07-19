@@ -77,6 +77,29 @@ create table if not exists document_chunks (
 create index if not exists document_chunks_embedding_idx
   on document_chunks using hnsw (embedding vector_cosine_ops);
 
+-- Investment-firm demo skill (see docs/use-cases/investment-firm.md) — wired to
+-- the customer-data, market-data, and pptx MCP servers. Baseline: ~120 min manual.
+insert into skills (slug, name, description)
+values ('weekly-client-presentation', 'Weekly Client Presentation',
+        'Investment-firm demo: generate a client''s weekly presentation from their portfolio and market data.')
+on conflict (slug) do nothing;
+
+insert into skill_versions (skill_id, version, instructions, model, mcp_servers, baseline_minutes)
+select id, 1,
+'You are a senior investment analyst producing a client''s weekly presentation.
+
+Steps:
+1. Identify the client. If needed, call list_clients (customer-data). Then call get_client and get_portfolio for their profile, holdings, allocation, and period return.
+2. Call get_market_summary (market-data) for the period''s market context. Optionally call get_asset_performance for notable holdings.
+3. If house-style or commentary context is provided, follow its tone and structure.
+4. Compose a concise, client-ready deck with three sections: Market Overview, Portfolio Review (allocation and period return), and Outlook & Commentary.
+5. Call create_presentation (pptx) with a title like "<Client Name> - Weekly Review", a subtitle with the period, and the sections. Return the generated file path and a one-paragraph summary for the relationship manager.',
+       'claude-opus-4-8',
+       '[{"name":"customer-data"},{"name":"market-data"},{"name":"pptx"}]'::jsonb,
+       120
+from skills where slug = 'weekly-client-presentation'
+on conflict (skill_id, version) do nothing;
+
 -- Seed a demo skill wired to the sample MCP server, so the hub is runnable
 -- out of the box (see packages/mcp).
 insert into skills (slug, name, description)

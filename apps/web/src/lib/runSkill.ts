@@ -3,19 +3,24 @@ import { runAgent, type ModelId } from "@ai-hub/agent";
 import {
   connectMcpServers,
   sampleMcpConfig,
+  builtinServerConfig,
   type ConnectedMcp,
   type McpStdioConfig,
 } from "@ai-hub/mcp";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 
-// Turn stored MCP entries into runnable stdio configs. The bare {name:"sample"}
-// marker resolves to the bundled sample server; everything else is passed through.
+// Turn stored MCP entries into runnable stdio configs. A bare {name:"..."} marker
+// resolves to a built-in server (sample, or the investment-firm demo servers);
+// a full {name, command, args} entry is passed through unchanged.
 function resolveMcp(entries: McpEntry[]): McpStdioConfig[] {
-  return entries.map((e) =>
-    e.name === "sample" && !e.command
-      ? sampleMcpConfig()
-      : (e as unknown as McpStdioConfig),
-  );
+  return entries.map((e) => {
+    if (!e.command && typeof e.name === "string") {
+      if (e.name === "sample") return sampleMcpConfig();
+      const builtin = builtinServerConfig(e.name);
+      if (builtin) return builtin;
+    }
+    return e as unknown as McpStdioConfig;
+  });
 }
 
 export interface RunSkillOptions {
