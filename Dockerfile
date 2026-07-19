@@ -6,6 +6,11 @@ WORKDIR /app
 RUN apk add --no-cache libc6-compat
 COPY package.json package-lock.json ./
 COPY apps/web/package.json ./apps/web/package.json
+COPY packages/agent/package.json ./packages/agent/package.json
+COPY packages/mcp/package.json ./packages/mcp/package.json
+COPY packages/db/package.json ./packages/db/package.json
+COPY packages/rag/package.json ./packages/rag/package.json
+COPY packages/authz/package.json ./packages/authz/package.json
 RUN npm ci
 
 # --- builder: build the Next.js standalone output ---

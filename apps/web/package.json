@@ -9,6 +9,11 @@
     "lint": "next lint"
   },
   "dependencies": {
+    "@ai-hub/agent": "*",
+    "@ai-hub/authz": "*",
+    "@ai-hub/db": "*",
+    "@ai-hub/mcp": "*",
+    "@ai-hub/rag": "*",
     "next": "^15",
     "react": "^19",
     "react-dom": "^19"

@@ -6,6 +6,14 @@ const nextConfig: NextConfig = {
   output: "standalone",
   // In a monorepo, trace workspace deps from the repo root.
   outputFileTracingRoot: path.join(__dirname, "../../"),
+  // Compile the workspace packages (shipped as TS source, no build step).
+  transpilePackages: [
+    "@ai-hub/agent",
+    "@ai-hub/mcp",
+    "@ai-hub/db",
+    "@ai-hub/rag",
+    "@ai-hub/authz",
+  ],
 };
 
 export default nextConfig;

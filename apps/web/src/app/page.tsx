@@ -1,21 +1,70 @@
-export default function Home() {
+import Link from "next/link";
+import { listSkills } from "@ai-hub/db";
+
+// Reads the DB at request time — never prerender at build.
+export const dynamic = "force-dynamic";
+
+export default async function DashboardPage() {
+  let skills: Awaited<ReturnType<typeof listSkills>> = [];
+  let error: string | null = null;
+  try {
+    skills = await listSkills();
+  } catch (e) {
+    error = e instanceof Error ? e.message : "Failed to load skills.";
+  }
+
   return (
-    <main className="mx-auto flex min-h-screen max-w-3xl flex-col justify-center gap-6 px-6">
-      <div className="flex items-center gap-3">
-        <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
-        <span className="text-sm text-neutral-400">Hub online</span>
-      </div>
+    <main className="mx-auto max-w-5xl px-6 py-12">
+      <header className="mb-10">
+        <div className="flex items-center gap-2 text-sm text-neutral-400">
+          <span className="h-2 w-2 rounded-full bg-emerald-400" /> Hub online
+        </div>
+        <h1 className="mt-2 text-3xl font-semibold tracking-tight">AI Hub</h1>
+        <p className="mt-1 text-neutral-400">
+          Run your organization&apos;s Skills — backed by your own data, context, and security.
+        </p>
+      </header>
 
-      <h1 className="text-5xl font-semibold tracking-tight">AI Hub</h1>
+      <section>
+        <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-neutral-500">
+          Skills
+        </h2>
 
-      <p className="text-lg leading-relaxed text-neutral-400">
-        Your tailored AI hub. Run your organization&apos;s Skills and Agents — backed by
-        your own data, context, and security — on the AI licenses you already pay for.
-      </p>
-
-      <div className="text-sm text-neutral-500">
-        MVP scaffold · Thing 1 of 7 (repo skeleton) complete
-      </div>
+        {error ? (
+          <div className="rounded-lg border border-amber-900/50 bg-amber-950/30 p-4 text-sm text-amber-300">
+            Couldn&apos;t load skills: {error}
+            <div className="mt-2 text-amber-400/80">
+              Set <code>DATABASE_URL</code> and run{" "}
+              <code>npm run migrate -w @ai-hub/db</code>.
+            </div>
+          </div>
+        ) : skills.length === 0 ? (
+          <p className="text-neutral-500">No skills yet.</p>
+        ) : (
+          <div className="grid gap-4 sm:grid-cols-2">
+            {skills.map((s) => (
+              <Link
+                key={s.id}
+                href={`/skills/${s.slug}`}
+                className="group rounded-lg border border-neutral-800 bg-neutral-900/40 p-5 transition hover:border-neutral-700 hover:bg-neutral-900"
+              >
+                <div className="flex items-center justify-between">
+                  <h3 className="font-medium">{s.name}</h3>
+                  <span className="rounded-full border border-neutral-700 px-2 py-0.5 text-xs text-neutral-400">
+                    v{s.latestVersion ?? "—"}
+                  </span>
+                </div>
+                <p className="mt-2 line-clamp-2 text-sm text-neutral-400">
+                  {s.description || "No description."}
+                </p>
+                <span className="mt-4 inline-block text-sm text-emerald-400 group-hover:underline">
+                  Open →
+                </span>
+              </Link>
+            ))}
+          </div>
+        )}
+      </section>
     </main>
   );
 }
