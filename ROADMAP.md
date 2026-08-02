@@ -1,7 +1,8 @@
 # AI Hub — MVP Build Roadmap
 
-The generic hub MVP is **complete** — all 7 things built and verified. Next up is a
-demo integration of the **investment-firm use case** on top of it.
+The generic hub MVP is **complete** — all 7 things built and verified. The
+**investment-firm demo** plus two post-MVP capabilities — **ROI reporting** and the
+**Skillification capture loop** — are built and verified live against a real key.
 
 Status: ✅ done
 
@@ -37,10 +38,25 @@ baseline vs actual cost/latency). Server components + a server action.
 
 ---
 
-## Next — Investment-firm demo
-The weekly/monthly client-presentation workflow: PowerPoint-template MCP, market-data
-MCP, customer-data MCP; an analyst skill; a real ROI number. See parent repo
+## ✅ Investment-firm demo
+The weekly client-presentation workflow: PowerPoint-template MCP, market-data MCP,
+customer-data MCP; the `weekly-client-presentation` skill. Verified end to end with a
+real ROI number (≈120 min manual → ~45s, ~$0.10). See parent repo
 `docs/use-cases/investment-firm.md`.
+
+## ✅ ROI / money-saved dashboard (docs/02)
+`@ai-hub/db` `roiSummary` aggregates every run against its version baseline; `/roi`
+prices saved time at a configurable `ANALYST_HOURLY_RATE` into a net-value readout —
+the number directors couldn't previously produce.
+
+## ✅ Skillification capture loop (docs/04)
+`/workbench` runs a practitioner's real workflow once (with MCP tools), persists the
+session, and distills it via Claude into a reusable, versioned Skill anyone can run.
+Answers the capture-and-package open question in docs/06.
+
+## Next candidates
+- **AI Readiness Assessment** — the free lead-gen on-ramp (docs/02).
+- **Phase 2 hardening** — see below.
 
 ## Deferred to Phase 2 (per docs/07-tech-stack)
 WorkOS SSO · OpenFGA engine · secrets manager · Docker-time migrations · dedicated
