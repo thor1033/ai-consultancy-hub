@@ -16,8 +16,24 @@ export default async function DashboardPage() {
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
       <header className="mb-10">
-        <div className="flex items-center gap-2 text-sm text-neutral-400">
-          <span className="h-2 w-2 rounded-full bg-emerald-400" /> Hub online
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2 text-sm text-neutral-400">
+            <span className="h-2 w-2 rounded-full bg-emerald-400" /> Hub online
+          </div>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/workbench"
+              className="rounded-full border border-neutral-700 px-3 py-1 text-sm text-neutral-300 transition hover:border-emerald-500/50 hover:text-emerald-400"
+            >
+              + Skillify a workflow
+            </Link>
+            <Link
+              href="/roi"
+              className="rounded-full border border-neutral-700 px-3 py-1 text-sm text-neutral-300 transition hover:border-emerald-500/50 hover:text-emerald-400"
+            >
+              Return on AI →
+            </Link>
+          </div>
         </div>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">AI Hub</h1>
         <p className="mt-1 text-neutral-400">

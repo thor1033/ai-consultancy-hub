@@ -10,7 +10,9 @@ export type Action =
   | "document:read"
   | "document:write"
   | "rag:search"
-  | "agent:run";
+  | "agent:run"
+  | "roi:read"
+  | "session:read";
 
 // The policy we OWN (see docs/07-tech-stack — AuthZ is core product #4). Role →
 // allowed actions. `admin` is granted everything via a wildcard below.
@@ -24,8 +26,11 @@ const ROLE_GRANTS: Record<string, Action[]> = {
     "document:write",
     "rag:search",
     "agent:run",
+    "roi:read",
+    "session:read",
   ],
-  viewer: ["skill:read", "document:read", "rag:search"],
+  // Directors/viewers get the ROI readout — it's the number they came for.
+  viewer: ["skill:read", "document:read", "rag:search", "roi:read"],
 };
 
 // The PolicyEngine seam: a Zanzibar-style engine (OpenFGA/Cerbos, Phase 2)

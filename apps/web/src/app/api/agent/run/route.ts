@@ -1,11 +1,21 @@
 import { NextResponse } from "next/server";
-import { runAgent, type ModelId } from "@ai-hub/agent";
-import { connectMcpServers, sampleMcpConfig, type ConnectedMcp } from "@ai-hub/mcp";
+import { type ModelId } from "@ai-hub/agent";
+import { runSession, isKnownServer } from "@/lib/runSession";
 import { guard } from "@/lib/authz";
 
 // The Anthropic + MCP SDKs need the Node runtime (not edge). Agent turns can be slow.
 export const runtime = "nodejs";
 export const maxDuration = 60;
+
+// Normalizes the requested MCP servers. Accepts a string[] of names in `servers`,
+// or the legacy `mcp: "sample"` single-flag form.
+function requestedServers(b: Record<string, unknown>): string[] {
+  if (Array.isArray(b.servers)) {
+    return b.servers.filter((s): s is string => typeof s === "string");
+  }
+  if (typeof b.mcp === "string") return [b.mcp];
+  return [];
+}
 
 export async function POST(req: Request) {
   const gate = await guard(req, "agent:run");
@@ -26,29 +36,27 @@ export async function POST(req: Request) {
     );
   }
 
-  // `mcp: "sample"` connects the bundled sample MCP server for this request so
-  // Claude can call its tools. Real tailored MCP servers are configured per
-  // client; this flag exists to demonstrate the tool-call loop.
-  let mcp: ConnectedMcp | undefined;
-  try {
-    if (b.mcp === "sample") {
-      mcp = await connectMcpServers([sampleMcpConfig()]);
-    }
+  const servers = requestedServers(b);
+  const unknown = servers.filter((s) => !isKnownServer(s));
+  if (unknown.length > 0) {
+    return NextResponse.json(
+      { error: `Unknown MCP server(s): ${unknown.join(", ")}.` },
+      { status: 400 },
+    );
+  }
 
-    const result = await runAgent({
+  try {
+    const { sessionId, servers: used, result } = await runSession({
       prompt: b.prompt,
       system: typeof b.system === "string" ? b.system : undefined,
       model: typeof b.model === "string" ? (b.model as ModelId) : undefined,
       effort: b.effort as "low" | "medium" | "high" | "max" | undefined,
-      tools: mcp?.tools,
-      toolExecutor: mcp?.execute,
-      metadata: { source: "api/agent/run", mcp: b.mcp ?? null },
+      servers,
     });
-    return NextResponse.json(result);
+    return NextResponse.json({ sessionId, servers: used, ...result });
   } catch (err) {
+    // MCP connections are closed inside runSession; nothing to clean up here.
     const message = err instanceof Error ? err.message : "Unknown error.";
     return NextResponse.json({ error: message }, { status: 500 });
-  } finally {
-    await mcp?.close();
   }
 }

@@ -37,4 +37,12 @@ export interface RunAgentResult {
   latencyMs: number;
   /** Langfuse trace id, when tracing is configured. */
   traceId?: string;
+  /**
+   * The full message transcript (user + assistant turns, including tool_use and
+   * tool_result blocks). This is the raw material the Skillification loop
+   * distills into a reusable Skill (docs/04).
+   */
+  transcript: Anthropic.MessageParam[];
+  /** Distinct tool names Claude actually invoked this session, in first-use order. */
+  toolsUsed: string[];
 }

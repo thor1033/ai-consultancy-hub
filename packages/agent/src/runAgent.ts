@@ -71,6 +71,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   let iterations = 0;
   let stopReason: string | null = null;
   let finalText = "";
+  const toolsUsed: string[] = []; // distinct, in first-use order
 
   while (iterations < MAX_ITERATIONS) {
     iterations++;
@@ -139,6 +140,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     );
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const t of toolUses) {
+      if (!toolsUsed.includes(t.name)) toolsUsed.push(t.name);
       const span = trace?.span({ name: `tool.${t.name}`, input: t.input });
       let content: string;
       let isError = false;
@@ -182,5 +184,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     costUsd: cost,
     latencyMs,
     traceId: trace?.id,
+    transcript: messages,
+    toolsUsed,
   };
 }

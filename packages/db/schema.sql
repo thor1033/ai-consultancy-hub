@@ -45,6 +45,29 @@ create table if not exists skill_runs (
 );
 create index if not exists skill_runs_skill_idx on skill_runs (skill_id, created_at desc);
 
+-- Skillification (docs/04): an ad-hoc agent session run by a practitioner in the
+-- workbench. We persist the whole transcript so it can later be *distilled* into a
+-- reusable Skill. skill_id is set once the session has been skillified.
+create table if not exists agent_sessions (
+  id          uuid primary key default gen_random_uuid(),
+  prompt      text not null,
+  system      text,
+  model       text,
+  effort      text,
+  mcp_servers jsonb not null default '[]'::jsonb,   -- server names connected this session
+  transcript  jsonb not null default '[]'::jsonb,   -- full Anthropic message array
+  tools_used  jsonb not null default '[]'::jsonb,   -- tool names actually invoked
+  output      text,
+  status      text not null default 'succeeded',
+  cost_usd    numeric,
+  latency_ms  int,
+  tokens      jsonb,
+  trace_id    text,
+  skill_id    uuid references skills(id) on delete set null,  -- set when skillified
+  created_at  timestamptz not null default now()
+);
+create index if not exists agent_sessions_created_idx on agent_sessions (created_at desc);
+
 -- Security / AuthZ (Thing 6): explicit per-skill run grants. When a skill has
 -- any grants, only listed principals (or admins) may run it — this is the
 -- resource-level policy the OwnedPolicyEngine enforces.

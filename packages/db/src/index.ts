@@ -19,3 +19,16 @@ export type {
   NewVersionInput,
   RecordRunInput,
 } from "./skills";
+export { roiSummary } from "./roi";
+export type { SkillRoi, RoiTotals, RoiSummary } from "./roi";
+export {
+  recordSession,
+  listSessions,
+  getSession,
+  markSessionSkillified,
+} from "./sessions";
+export type {
+  SessionSummary,
+  SessionDetail,
+  RecordSessionInput,
+} from "./sessions";
