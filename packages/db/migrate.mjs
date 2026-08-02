@@ -22,7 +22,7 @@ function loadEnv() {
       const m = line.match(/^\s*([\w.-]+)\s*=\s*(.*)\s*$/);
       if (!m || line.trimStart().startsWith("#")) continue;
       const key = m[1];
-      if (process.env[key] !== undefined) continue;
+      if (process.env[key]) continue; // real (non-empty) env value wins
       let value = m[2].trim();
       if (
         (value.startsWith('"') && value.endsWith('"')) ||
