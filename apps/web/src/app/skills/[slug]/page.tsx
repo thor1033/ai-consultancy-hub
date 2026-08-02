@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getSkill } from "@ai-hub/db";
+import { getSkill, listSchedulesForSkill, type SkillSchedule } from "@ai-hub/db";
 import { listCollections } from "@ai-hub/rag";
 import { RunPanel } from "./RunPanel";
 import { KnowledgeScope } from "./KnowledgeScope";
+import { SkillSchedules } from "./SkillSchedules";
 
 export const dynamic = "force-dynamic";
 
@@ -16,9 +17,14 @@ export default async function SkillPage({
 
   let skill: Awaited<ReturnType<typeof getSkill>> = null;
   let collections: string[] = [];
+  let schedules: SkillSchedule[] = [];
   let error: string | null = null;
   try {
-    [skill, collections] = await Promise.all([getSkill(slug), listCollections()]);
+    [skill, collections, schedules] = await Promise.all([
+      getSkill(slug),
+      listCollections(),
+      listSchedulesForSkill(slug),
+    ]);
   } catch (e) {
     error = e instanceof Error ? e.message : "Failed to load skill.";
   }
@@ -81,6 +87,8 @@ export default async function SkillPage({
         collection={skill.knowledgeCollection}
         collections={collections}
       />
+
+      <SkillSchedules slug={skill.slug} initial={schedules} />
 
       <RunPanel slug={skill.slug} baselineMinutes={latest?.baselineMinutes ?? null} />
     </main>

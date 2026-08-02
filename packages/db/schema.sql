@@ -52,6 +52,29 @@ create table if not exists skill_runs (
 create index if not exists skill_runs_skill_idx on skill_runs (skill_id, created_at desc);
 alter table skill_runs add column if not exists retrieved jsonb not null default '[]'::jsonb;
 
+-- Scheduled automations: run a Skill unattended on a cadence (once/daily/weekly/
+-- monthly) with a fixed input. next_run_at is the computed fire time the runner
+-- polls; times are interpreted in the server's local timezone.
+create table if not exists skill_schedules (
+  id           uuid primary key default gen_random_uuid(),
+  skill_id     uuid not null references skills(id) on delete cascade,
+  input        text not null,                       -- the prompt to run each time
+  retrieve     boolean not null default false,      -- use the knowledge base (RAG)
+  kind         text not null,                       -- once | daily | weekly | monthly
+  time_of_day  text,                                -- 'HH:MM' (daily/weekly/monthly)
+  weekday      int,                                 -- 0=Sun..6=Sat (weekly)
+  day_of_month int,                                 -- 1..31 (monthly)
+  run_at       timestamptz,                         -- absolute instant (once)
+  enabled      boolean not null default true,
+  next_run_at  timestamptz,                         -- computed next fire; null once done
+  last_run_at  timestamptz,
+  last_status  text,
+  last_run_id  uuid,
+  created_at   timestamptz not null default now()
+);
+create index if not exists skill_schedules_due_idx
+  on skill_schedules (next_run_at) where enabled and next_run_at is not null;
+
 -- Skillification (docs/04): an ad-hoc agent session run by a practitioner in the
 -- workbench. We persist the whole transcript so it can later be *distilled* into a
 -- reusable Skill. skill_id is set once the session has been skillified.

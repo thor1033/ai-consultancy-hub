@@ -1,5 +1,11 @@
 import Link from "next/link";
-import { listSkills, roiSummary, roiDaily } from "@ai-hub/db";
+import {
+  listSkills,
+  roiSummary,
+  roiDaily,
+  listUpcomingSchedules,
+  type ScheduleWithSkill,
+} from "@ai-hub/db";
 import { valueRoi, fmtUsd, fmtHours } from "@/lib/roi";
 import { AreaTrend, Sparkline, RatioGauge } from "@/components/Charts";
 import { PageHeader } from "@/components/PageHeader";
@@ -39,6 +45,13 @@ export default async function OverviewPage() {
     }
   } catch {
     /* ROI is best-effort */
+  }
+
+  let upcoming: ScheduleWithSkill[] = [];
+  try {
+    upcoming = await listUpcomingSchedules(6);
+  } catch {
+    /* best-effort */
   }
 
   const overall = valued?.overall;
@@ -113,6 +126,43 @@ export default async function OverviewPage() {
         </section>
       )}
 
+      {/* Scheduled automations */}
+      {upcoming.length > 0 && (
+        <section className="mt-3">
+          <div className="panel fade-in overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-3.5">
+              <h2 className="text-sm font-medium text-[var(--text-soft)]">
+                Scheduled automations
+              </h2>
+              <span className="text-xs text-[var(--muted)]">next {upcoming.length}</span>
+            </div>
+            <ul>
+              {upcoming.map((s) => (
+                <li key={s.id} className="hairline">
+                  <Link
+                    href={`/skills/${s.skillSlug}`}
+                    className="group flex items-center gap-4 px-5 py-3 transition hover:bg-[var(--panel-2)]"
+                  >
+                    <span className="flex items-center gap-2 text-[var(--brand-ink)]" aria-hidden>
+                      <ClockIcon />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <div className="truncate font-medium">{s.skillName}</div>
+                      <div className="mono truncate text-xs text-[var(--muted)]">
+                        {cadence(s)}
+                      </div>
+                    </div>
+                    <span className="mono shrink-0 text-xs text-[var(--text-soft)]">
+                      {whenLabel(s.nextRunAt)}
+                    </span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      )}
+
       {/* Skills inventory */}
       <section className="mt-3">
         <div className="panel fade-in overflow-hidden">
@@ -169,6 +219,43 @@ export default async function OverviewPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function cadence(s: ScheduleWithSkill): string {
+  switch (s.kind) {
+    case "once":
+      return "Once";
+    case "daily":
+      return `Every day at ${s.timeOfDay}`;
+    case "weekly":
+      return `Every ${WEEKDAYS[s.weekday ?? 1]} at ${s.timeOfDay}`;
+    case "monthly":
+      return `Monthly, day ${s.dayOfMonth ?? 1} at ${s.timeOfDay}`;
+    default:
+      return s.kind;
+  }
+}
+
+function whenLabel(iso: string | null): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  const now = new Date();
+  const opts: Intl.DateTimeFormatOptions =
+    d.toDateString() === now.toDateString()
+      ? { hour: "2-digit", minute: "2-digit" }
+      : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" };
+  return d.toLocaleString(undefined, opts);
+}
+
+function ClockIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+      <circle cx="12" cy="12" r="9" />
+      <path d="M12 7v5l3 2" />
+    </svg>
   );
 }
 
