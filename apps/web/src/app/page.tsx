@@ -39,6 +39,12 @@ export default async function DashboardPage() {
             >
               Return on AI →
             </Link>
+            <Link
+              href="/admin"
+              className="rounded-full border border-neutral-700 px-3 py-1 text-sm text-neutral-300 transition hover:border-emerald-500/50 hover:text-emerald-400"
+            >
+              Control plane
+            </Link>
           </div>
         </div>
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">AI Hub</h1>

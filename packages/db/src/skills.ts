@@ -7,8 +7,16 @@ export interface SkillSummary {
   slug: string;
   name: string;
   description: string;
+  enabled: boolean;
   latestVersion: number | null;
   createdAt: string;
+}
+
+// The admin control-plane view of a skill: its on/off state plus the explicit
+// run grants (empty ⇒ any role with skill:run may run it).
+export interface SkillAdminRow extends SkillSummary {
+  mcpServers: McpEntry[];
+  grantedPrincipals: string[];
 }
 
 export interface SkillVersion {
@@ -55,24 +63,59 @@ export interface NewVersionInput {
   baselineMinutes?: number;
 }
 
+// The public catalog: only enabled, non-archived skills — what practitioners run.
 export async function listSkills(): Promise<SkillSummary[]> {
   const sql = getSql();
   return sql<SkillSummary[]>`
-    select s.id, s.slug, s.name, s.description,
+    select s.id, s.slug, s.name, s.description, s.enabled,
            max(v.version)::int as "latestVersion",
            s.created_at        as "createdAt"
     from skills s
     left join skill_versions v on v.skill_id = s.id
-    where s.archived_at is null
+    where s.archived_at is null and s.enabled
     group by s.id
     order by s.created_at desc
   `;
 }
 
+// The control-plane catalog: every non-archived skill (enabled or not), with the
+// latest version's MCP servers and its explicit run grants, for the admin console.
+export async function listSkillsAdmin(): Promise<SkillAdminRow[]> {
+  const sql = getSql();
+  return sql<SkillAdminRow[]>`
+    select s.id, s.slug, s.name, s.description, s.enabled,
+           lv.version as "latestVersion",
+           coalesce(lv.mcp_servers, '[]'::jsonb) as "mcpServers",
+           s.created_at as "createdAt",
+           coalesce(
+             array_agg(distinct g.principal_id) filter (where g.principal_id is not null),
+             '{}'
+           ) as "grantedPrincipals"
+    from skills s
+    left join lateral (
+      select version, mcp_servers from skill_versions
+      where skill_id = s.id order by version desc limit 1
+    ) lv on true
+    left join skill_grants g on g.skill_id = s.id
+    where s.archived_at is null
+    group by s.id, lv.version, lv.mcp_servers
+    order by s.created_at desc
+  `;
+}
+
+export async function setSkillEnabled(slug: string, enabled: boolean): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`
+    update skills set enabled = ${enabled}, updated_at = now()
+    where slug = ${slug} and archived_at is null
+  `;
+  return rows.count > 0;
+}
+
 export async function getSkill(slug: string): Promise<SkillDetail | null> {
   const sql = getSql();
-  const [skill] = await sql<{ id: string; slug: string; name: string; description: string; createdAt: string }[]>`
-    select id, slug, name, description, created_at as "createdAt"
+  const [skill] = await sql<{ id: string; slug: string; name: string; description: string; enabled: boolean; createdAt: string }[]>`
+    select id, slug, name, description, enabled, created_at as "createdAt"
     from skills where slug = ${slug} and archived_at is null
   `;
   if (!skill) return null;
@@ -156,7 +199,7 @@ export async function getRunnableSkill(slug: string): Promise<RunnableSkill | nu
            v.baseline_minutes as "baselineMinutes"
     from skills s
     join skill_versions v on v.skill_id = s.id
-    where s.slug = ${slug} and s.archived_at is null
+    where s.slug = ${slug} and s.archived_at is null and s.enabled
     order by v.version desc
     limit 1
   `;

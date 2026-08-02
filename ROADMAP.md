@@ -61,6 +61,15 @@ names what to skillify first and prices recoverable expert time at the analyst
 rate. Each submission persists to `assessments` as a reviewable lead, and the
 report links straight into `/workbench` — the top of the funnel into the paid hub.
 
+## ✅ MCP / Skill control plane
+`/admin` — an admin-gated console (verifies an `admin:manage` bearer token) to
+enable/disable MCP servers and Skills. Enforced, not cosmetic: a disabled skill
+can't run and drops off the catalog (`getRunnableSkill`/`listSkills`), and a
+disabled MCP server is dropped from every run (session and skill). Servers get a
+DB registry (`mcp_servers`) overlaying the code-owned runnable config; skills gain
+an `enabled` switch. Each skill also shows *why it can be run* — the roles allowed
+plus any explicit per-skill grants.
+
 ## Next candidates
 - **Phase 2 hardening** — see below.
 

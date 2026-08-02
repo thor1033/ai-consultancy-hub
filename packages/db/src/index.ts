@@ -1,6 +1,8 @@
 export { getSql } from "./client";
 export {
   listSkills,
+  listSkillsAdmin,
+  setSkillEnabled,
   getSkill,
   createSkill,
   addSkillVersion,
@@ -12,6 +14,7 @@ export {
 export type {
   McpEntry,
   SkillSummary,
+  SkillAdminRow,
   SkillVersion,
   SkillDetail,
   RunnableSkill,
@@ -19,6 +22,12 @@ export type {
   NewVersionInput,
   RecordRunInput,
 } from "./skills";
+export {
+  listMcpServers,
+  setMcpServerEnabled,
+  disabledMcpServerNames,
+} from "./mcpServers";
+export type { McpServerRow } from "./mcpServers";
 export { roiSummary } from "./roi";
 export type { SkillRoi, RoiTotals, RoiSummary } from "./roi";
 export {

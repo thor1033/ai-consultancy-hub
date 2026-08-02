@@ -12,7 +12,8 @@ export type Action =
   | "rag:search"
   | "agent:run"
   | "roi:read"
-  | "session:read";
+  | "session:read"
+  | "admin:manage";
 
 // The policy we OWN (see docs/07-tech-stack — AuthZ is core product #4). Role →
 // allowed actions. `admin` is granted everything via a wildcard below.
@@ -68,4 +69,14 @@ export function authorize(
   resource?: string,
 ): Promise<boolean> {
   return engine.check(principal, action, resource);
+}
+
+// Which roles may perform an action, ignoring resource-level grants. `admin` is
+// always included (it's granted everything). Used by the admin console to explain
+// "who can run this" independent of any per-skill grant list.
+export function rolesForAction(action: Action): string[] {
+  const roles = Object.entries(ROLE_GRANTS)
+    .filter(([, actions]) => actions.includes(action))
+    .map(([role]) => role);
+  return ["admin", ...roles];
 }

@@ -7,7 +7,7 @@ import {
   type ConnectedMcp,
   type McpStdioConfig,
 } from "@ai-hub/mcp";
-import { recordSession } from "@ai-hub/db";
+import { recordSession, disabledMcpServerNames } from "@ai-hub/db";
 
 // The selectable MCP servers for a workbench session: the sample server plus the
 // investment-firm demo servers. A real deployment resolves these from a
@@ -43,7 +43,11 @@ export interface RunSessionOutput {
 // Runs one ad-hoc agent session (the practitioner's workflow) with the chosen MCP
 // servers connected, then persists it so it can be distilled into a Skill.
 export async function runSession(input: RunSessionInput): Promise<RunSessionOutput> {
-  const servers = (input.servers ?? []).filter(isKnownServer);
+  // Known and not globally disabled by the control plane.
+  const disabled = await disabledMcpServerNames();
+  const servers = (input.servers ?? [])
+    .filter(isKnownServer)
+    .filter((name) => !disabled.has(name));
 
   let mcp: ConnectedMcp | undefined;
   try {

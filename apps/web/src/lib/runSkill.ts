@@ -1,4 +1,9 @@
-import { getRunnableSkill, recordRun, type McpEntry } from "@ai-hub/db";
+import {
+  getRunnableSkill,
+  recordRun,
+  disabledMcpServerNames,
+  type McpEntry,
+} from "@ai-hub/db";
 import { runAgent, type ModelId } from "@ai-hub/agent";
 import {
   connectMcpServers,
@@ -50,9 +55,16 @@ export async function runSkill(
     if (chunks.length > 0) context = chunksToContext(chunks);
   }
 
+  // Control plane: a globally-disabled MCP server is dropped from the run, so the
+  // skill runs with whatever tools remain rather than failing.
+  const disabled = await disabledMcpServerNames();
+  const activeServers = (skill.mcpServers ?? []).filter(
+    (e) => typeof e.name !== "string" || !disabled.has(e.name),
+  );
+
   let mcp: ConnectedMcp | undefined;
   try {
-    const configs = resolveMcp(skill.mcpServers ?? []);
+    const configs = resolveMcp(activeServers);
     if (configs.length > 0) mcp = await connectMcpServers(configs);
 
     const result = await runAgent({

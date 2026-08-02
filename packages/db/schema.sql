@@ -10,10 +10,13 @@ create table if not exists skills (
   slug        text unique not null,
   name        text not null,
   description text not null default '',
+  enabled     boolean not null default true,   -- admin control-plane on/off switch
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   archived_at timestamptz
 );
+-- Backfill for databases created before the control plane (idempotent).
+alter table skills add column if not exists enabled boolean not null default true;
 
 -- Skills are versioned IP — each version pins the captured process + its config.
 create table if not exists skill_versions (
@@ -96,6 +99,27 @@ create table if not exists skill_grants (
   created_at   timestamptz not null default now(),
   unique (skill_id, principal_id)
 );
+
+-- MCP server registry (control plane). The runnable stdio config lives in code
+-- (@ai-hub/mcp), keyed by name; this table is the admin-owned overlay: which
+-- servers are exposed and whether each is currently enabled. A disabled server is
+-- dropped from every run (session and skill), so it's a global kill switch.
+create table if not exists mcp_servers (
+  name        text primary key,
+  label       text not null default '',
+  description text not null default '',
+  enabled     boolean not null default true,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+-- Seed the built-in servers so the registry matches @ai-hub/mcp out of the box.
+insert into mcp_servers (name, label, description) values
+  ('sample',        'Sample',        'Reference MCP server (a simple add tool) used to smoke-test the runtime.'),
+  ('market-data',   'Market data',   'Investment-firm demo: market summaries and per-asset performance.'),
+  ('customer-data', 'Customer data', 'Investment-firm demo: client profiles, portfolios, and allocations.'),
+  ('pptx',          'PowerPoint',    'Investment-firm demo: renders a client-ready presentation from sections.')
+on conflict (name) do nothing;
 
 -- RAG / Memory (Thing 5): the client's docs become retrievable context.
 create table if not exists documents (
