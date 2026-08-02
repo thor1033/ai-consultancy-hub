@@ -3,12 +3,13 @@
 import {
   ingestDocument,
   listDocuments,
+  getDocument,
   deleteDocument,
   listCollections,
   retrieveChunks,
   syncSource,
 } from "@ai-hub/rag";
-import type { KnowledgeSnapshot, RetrievedRow } from "./types";
+import type { KnowledgeSnapshot, RetrievedRow, DocDetail } from "./types";
 
 // Server actions for the knowledge management page. Like the workbench, these run
 // server-trusted; binding them to a logged-in principal (so the PolicyEngine gates
@@ -40,6 +41,25 @@ export async function addDocumentAction(input: {
     return await snapshot();
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Ingest failed." };
+  }
+}
+
+// Lazily loads a document's full chunked content + metadata for the expandable
+// row, so the list stays light and content is only fetched when inspected.
+export async function getDocumentAction(
+  id: string,
+): Promise<DocDetail | { error: string }> {
+  try {
+    const doc = await getDocument(id);
+    if (!doc) return { error: "Document not found." };
+    return {
+      id: doc.id,
+      title: doc.title,
+      metadata: doc.metadata,
+      chunks: doc.chunks,
+    };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Failed to load document." };
   }
 }
 

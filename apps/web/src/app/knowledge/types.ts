@@ -8,7 +8,15 @@ export interface DocRow {
   collection: string | null;
   title: string;
   chunkCount: number;
+  preview: string | null;
   createdAt: string;
+}
+
+export interface DocDetail {
+  id: string;
+  title: string;
+  metadata: Record<string, unknown>;
+  chunks: { chunkIndex: number; content: string }[];
 }
 
 export interface KnowledgeSnapshot {

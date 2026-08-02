@@ -59,6 +59,7 @@ export interface DocumentSummary {
   collection: string | null;
   title: string;
   chunkCount: number;
+  preview: string | null; // first slice of the document, for an at-a-glance sense
   createdAt: string;
 }
 
@@ -67,10 +68,15 @@ export async function listDocuments(): Promise<DocumentSummary[]> {
   return sql<DocumentSummary[]>`
     select d.id, d.source_type as "sourceType", d.source, d.collection, d.title,
            count(c.id)::int as "chunkCount",
+           left(first_chunk.content, 220) as "preview",
            d.created_at      as "createdAt"
     from documents d
     left join document_chunks c on c.document_id = d.id
-    group by d.id
+    left join lateral (
+      select content from document_chunks
+      where document_id = d.id order by chunk_index limit 1
+    ) first_chunk on true
+    group by d.id, first_chunk.content
     order by d.created_at desc
   `;
 }

@@ -4,11 +4,13 @@ import { useState } from "react";
 import {
   addDocumentAction,
   deleteDocumentAction,
+  getDocumentAction,
   testRetrievalAction,
   syncSourceAction,
 } from "./actions";
 import type {
   DocRow,
+  DocDetail,
   KnowledgeSnapshot,
   RetrievedRow,
   SourceRow,
@@ -234,6 +236,23 @@ function DocumentRow({
   onDone: (out: KnowledgeSnapshot | { error: string }) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [detail, setDetail] = useState<DocDetail | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  async function toggle() {
+    const next = !open;
+    setOpen(next);
+    if (next && !detail && !loading) {
+      setLoading(true);
+      setLoadError(null);
+      const out = await getDocumentAction(doc.id);
+      if ("error" in out) setLoadError(out.error);
+      else setDetail(out);
+      setLoading(false);
+    }
+  }
 
   async function del() {
     if (!confirm(`Delete "${doc.title || "(untitled)"}" and its chunks?`)) return;
@@ -242,30 +261,85 @@ function DocumentRow({
     setBusy(false);
   }
 
+  const meta = detail ? Object.entries(detail.metadata ?? {}).filter(([, v]) => v != null) : [];
+
   return (
-    <li className="hairline flex items-start justify-between gap-4 px-5 py-3.5">
-      <div className="min-w-0">
-        <div className="flex flex-wrap items-center gap-2">
-          <h3 className="font-medium text-[var(--text)]">{doc.title || "(untitled)"}</h3>
-          {doc.collection && (
-            <span className="rounded bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--brand-ink)]">
-              {doc.collection}
+    <li className="hairline">
+      <div className="flex items-start">
+        <button
+          onClick={toggle}
+          aria-expanded={open}
+          className="flex min-w-0 flex-1 items-start gap-3 px-5 py-3.5 text-left transition hover:bg-[var(--panel-2)]"
+        >
+          <span
+            className={`mt-1 text-[var(--muted)] transition-transform ${open ? "rotate-90" : ""}`}
+            aria-hidden
+          >
+            ▸
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="flex flex-wrap items-center gap-2">
+              <span className="font-medium text-[var(--text)]">{doc.title || "(untitled)"}</span>
+              {doc.collection && (
+                <span className="rounded bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--brand-ink)]">
+                  {doc.collection}
+                </span>
+              )}
             </span>
-          )}
-        </div>
-        <div className="mono mt-1 text-xs text-[var(--muted)]">
-          {doc.chunkCount} chunk{doc.chunkCount === 1 ? "" : "s"} · {doc.sourceType}
-          {doc.source && ` · ${doc.source}`} ·{" "}
-          {new Date(doc.createdAt).toLocaleDateString()}
-        </div>
+            {doc.preview && !open && (
+              <span className="mt-1 line-clamp-2 block text-sm text-[var(--text-soft)]">
+                {doc.preview}…
+              </span>
+            )}
+            <span className="mono mt-1 block text-xs text-[var(--muted)]">
+              {doc.chunkCount} chunk{doc.chunkCount === 1 ? "" : "s"} · {doc.sourceType}
+              {doc.source && ` · ${doc.source}`} ·{" "}
+              {new Date(doc.createdAt).toLocaleDateString()}
+            </span>
+          </span>
+        </button>
+        <button
+          onClick={del}
+          disabled={busy}
+          className="shrink-0 px-5 py-3.5 text-xs text-[var(--muted)] transition hover:text-[var(--danger)] disabled:opacity-40"
+        >
+          {busy ? "Deleting…" : "Delete"}
+        </button>
       </div>
-      <button
-        onClick={del}
-        disabled={busy}
-        className="shrink-0 text-xs text-[var(--muted)] transition hover:text-[var(--danger)] disabled:opacity-40"
-      >
-        {busy ? "Deleting…" : "Delete"}
-      </button>
+
+      {open && (
+        <div className="px-5 pb-4 pl-11">
+          {loading ? (
+            <p className="text-sm text-[var(--muted)]">Loading content…</p>
+          ) : loadError ? (
+            <p className="text-sm text-[var(--danger)]">{loadError}</p>
+          ) : detail ? (
+            <div className="space-y-2">
+              {meta.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {meta.map(([k, v]) => (
+                    <span key={k} className="mono rounded border border-[var(--border)] px-2 py-0.5 text-[0.7rem] text-[var(--muted)]">
+                      {k}: {String(v)}
+                    </span>
+                  ))}
+                </div>
+              )}
+              <div className="max-h-80 space-y-2 overflow-y-auto">
+                {detail.chunks.map((c) => (
+                  <div key={c.chunkIndex} className="inset p-3">
+                    <div className="mono mb-1 text-[0.68rem] text-[var(--muted)]">
+                      chunk #{c.chunkIndex}
+                    </div>
+                    <p className="whitespace-pre-wrap text-sm text-[var(--text-soft)]">
+                      {c.content}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
+        </div>
+      )}
     </li>
   );
 }
