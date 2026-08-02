@@ -6,6 +6,7 @@ export {
   listDocuments,
   getDocument,
   deleteDocument,
+  deleteDocumentsBySource,
   listCollections,
 } from "./ingest";
 export type {
@@ -14,5 +15,18 @@ export type {
   DocumentSummary,
   DocumentDetail,
 } from "./ingest";
+export {
+  registerSource,
+  getSource,
+  listSources,
+  syncSource,
+  confluenceSource,
+} from "./sources";
+export type {
+  KnowledgeSource,
+  SourceDocument,
+  SourceInfo,
+  SyncResult,
+} from "./sources";
 export { retrieveChunks, chunksToContext } from "./retrieve";
 export type { RetrievedChunk, RetrieveOptions } from "./retrieve";

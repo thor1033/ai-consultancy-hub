@@ -1,7 +1,7 @@
 import Link from "next/link";
-import { listDocuments, listCollections, embedderStatus } from "@ai-hub/rag";
+import { listDocuments, listCollections, embedderStatus, listSources } from "@ai-hub/rag";
 import { KnowledgeConsole } from "./KnowledgeConsole";
-import type { KnowledgeSnapshot } from "./types";
+import type { KnowledgeSnapshot, SourceRow } from "./types";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 // so the context an agent gets is inspectable instead of a black box.
 export default async function KnowledgePage() {
   let snapshot: KnowledgeSnapshot = { documents: [], collections: [] };
+  let sources: SourceRow[] = [];
   let embedder: { name: string; production: boolean } | null = null;
   let error: string | null = null;
   try {
@@ -18,6 +19,7 @@ export default async function KnowledgePage() {
       listCollections(),
     ]);
     snapshot = { documents, collections };
+    sources = listSources();
     embedder = embedderStatus();
   } catch (e) {
     error = e instanceof Error ? e.message : "Failed to load knowledge.";
@@ -46,7 +48,7 @@ export default async function KnowledgePage() {
           </div>
         </div>
       ) : (
-        <KnowledgeConsole initial={snapshot} embedder={embedder} />
+        <KnowledgeConsole initial={snapshot} sources={sources} embedder={embedder} />
       )}
     </main>
   );

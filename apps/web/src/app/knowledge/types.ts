@@ -23,3 +23,9 @@ export interface RetrievedRow {
   score: number; // cosine similarity in [0,1]
   preview: string; // first slice of the chunk, for inspection
 }
+
+export interface SourceRow {
+  type: string;
+  label: string;
+  configured: boolean;
+}

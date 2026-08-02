@@ -41,7 +41,9 @@ connector breadth. So:
 
 ## Phased plan
 
-### Phase 1 — Management page (observability)  ← start here
+Status: Phases 1–3 shipped (the seam). Real connectors remain demand-driven.
+
+### Phase 1 — Management page (observability)  ✅
 A `/knowledge` page that answers "what does the RAG have, and when does it apply":
 - Overview of indexed documents: source, title, chunk count, when added, metadata.
 - Add a document (paste text) and delete a document — no more black-box API-only ingest.
@@ -51,13 +53,13 @@ A `/knowledge` page that answers "what does the RAG have, and when does it apply
   (title + score) in the run result — answers "what did the AI actually look at".
 - **Embedder status**: surface whether Voyage or the hash-fallback is live.
 
-### Phase 2 — Curation (scope knowledge to skills)
+### Phase 2 — Curation (scope knowledge to skills)  ✅
 - Group documents into **collections** (an editable label), curated in the UI.
 - `retrieveChunks` can filter by collection.
 - A skill can be assigned a collection, so its runs retrieve from a curated set
   instead of the global soup. This is where retrieval *quality* improves.
 
-### Phase 3 — Pluggable sources
+### Phase 3 — Pluggable sources  ✅ (seam)
 - A `KnowledgeSource` interface + registry so connectors slot in behind a document's
   `source_type` (manual today; confluence/sharepoint/office later).
 - Ship the manual/paste source; stub one connector to prove the seam.

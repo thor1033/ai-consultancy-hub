@@ -6,6 +6,7 @@ import {
   deleteDocument,
   listCollections,
   retrieveChunks,
+  syncSource,
 } from "@ai-hub/rag";
 import type { KnowledgeSnapshot, RetrievedRow } from "./types";
 
@@ -51,6 +52,18 @@ export async function deleteDocumentAction(
     return await snapshot();
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Delete failed." };
+  }
+}
+
+export async function syncSourceAction(
+  type: string,
+  collection?: string,
+): Promise<{ synced: number; chunks: number; snapshot: KnowledgeSnapshot } | { error: string }> {
+  try {
+    const result = await syncSource(type, { collection: collection?.trim() || undefined });
+    return { synced: result.documents, chunks: result.chunks, snapshot: await snapshot() };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Sync failed." };
   }
 }
 

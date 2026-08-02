@@ -104,6 +104,20 @@ export async function deleteDocument(id: string): Promise<boolean> {
   return rows.count > 0;
 }
 
+// Upsert primitive for connectors: drop any docs previously synced from this exact
+// (source_type, source) so a re-sync replaces rather than duplicates. Returns the
+// number removed.
+export async function deleteDocumentsBySource(
+  sourceType: string,
+  source: string,
+): Promise<number> {
+  const sql = getSql();
+  const rows = await sql`
+    delete from documents where source_type = ${sourceType} and source = ${source}
+  `;
+  return rows.count;
+}
+
 // The distinct curation labels in use, for the management UI's collection picker.
 export async function listCollections(): Promise<string[]> {
   const sql = getSql();

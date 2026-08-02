@@ -70,6 +70,16 @@ DB registry (`mcp_servers`) overlaying the code-owned runnable config; skills ga
 an `enabled` switch. Each skill also shows *why it can be run* — the roles allowed
 plus any explicit per-skill grants.
 
+## ✅ Knowledge base / RAG management (docs/knowledge-rag.md)
+`/knowledge` — the first per-pillar management page. Makes RAG inspectable: list/add/
+delete documents, **test retrieval** (see the exact chunks + scores a query pulls), and
+an embedder-status banner (warns on the dev hash fallback). Runs record their retrieval
+**provenance** (`skill_runs.retrieved`), surfaced as "Context used". **Curation**: docs
+carry a `collection`, retrieval can be scoped, and a skill can be pinned to a collection
+so it draws from a curated set. **Pluggable sources**: a `KnowledgeSource` registry with
+upsert-by-source; a Confluence connector ships as the seam (gated on credentials), with
+further connectors added demand-driven. Deliberately *not* a connect-everything platform.
+
 ## Next candidates
 - **Phase 2 hardening** — see below.
 

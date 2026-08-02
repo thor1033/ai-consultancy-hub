@@ -5,14 +5,22 @@ import {
   addDocumentAction,
   deleteDocumentAction,
   testRetrievalAction,
+  syncSourceAction,
 } from "./actions";
-import type { DocRow, KnowledgeSnapshot, RetrievedRow } from "./types";
+import type {
+  DocRow,
+  KnowledgeSnapshot,
+  RetrievedRow,
+  SourceRow,
+} from "./types";
 
 export function KnowledgeConsole({
   initial,
+  sources,
   embedder,
 }: {
   initial: KnowledgeSnapshot;
+  sources: SourceRow[];
   embedder: { name: string; production: boolean } | null;
 }) {
   const [snap, setSnap] = useState<KnowledgeSnapshot>(initial);
@@ -41,6 +49,8 @@ export function KnowledgeConsole({
           {error}
         </div>
       )}
+
+      {sources.length > 0 && <Sources sources={sources} onSynced={apply} />}
 
       <AddDocument collections={snap.collections} onDone={apply} />
 
@@ -140,6 +150,91 @@ function AddDocument({
           {busy ? "Indexing…" : "Index document"}
         </button>
       </div>
+      <style>{inputCss}</style>
+    </section>
+  );
+}
+
+function Sources({
+  sources,
+  onSynced,
+}: {
+  sources: SourceRow[];
+  onSynced: (out: KnowledgeSnapshot | { error: string }) => void;
+}) {
+  const [collection, setCollection] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [note, setNote] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  async function sync(type: string) {
+    setBusy(type);
+    setNote(null);
+    setError(null);
+    const out = await syncSourceAction(type, collection);
+    if ("error" in out) setError(out.error);
+    else {
+      setNote(`Synced ${out.synced} document${out.synced === 1 ? "" : "s"} (${out.chunks} chunks).`);
+      onSynced(out.snapshot);
+    }
+    setBusy(null);
+  }
+
+  return (
+    <section>
+      <div className="mb-1 flex items-baseline justify-between">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
+          Connected sources
+        </h2>
+        <input
+          value={collection}
+          onChange={(e) => setCollection(e.target.value)}
+          placeholder="sync into collection (optional)"
+          className="input max-w-[16rem] text-xs"
+        />
+      </div>
+      <p className="mb-4 text-sm text-neutral-500">
+        Connectors that pull documents in on demand. Re-syncing replaces a source&apos;s
+        docs, so it never duplicates.
+      </p>
+
+      <div className="space-y-2">
+        {sources.map((s) => (
+          <div
+            key={s.type}
+            className="flex items-center justify-between gap-4 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4"
+          >
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="font-medium text-neutral-100">{s.label}</h3>
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+                    s.configured
+                      ? "bg-emerald-500/10 text-emerald-400"
+                      : "bg-neutral-800 text-neutral-500"
+                  }`}
+                >
+                  {s.configured ? "Connected" : "Not configured"}
+                </span>
+              </div>
+              <div className="mt-1 text-xs text-neutral-500">
+                source type <code>{s.type}</code>
+              </div>
+            </div>
+            <button
+              onClick={() => sync(s.type)}
+              disabled={busy !== null || !s.configured}
+              title={s.configured ? "" : "Set this connector's credentials to enable sync"}
+              className="shrink-0 rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-200 transition hover:border-emerald-500/50 hover:text-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {busy === s.type ? "Syncing…" : "Sync"}
+            </button>
+          </div>
+        ))}
+      </div>
+
+      {note && <div className="mt-3 text-sm text-emerald-400">{note}</div>}
+      {error && <div className="mt-3 text-sm text-red-300">{error}</div>}
       <style>{inputCss}</style>
     </section>
   );
