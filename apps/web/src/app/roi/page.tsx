@@ -2,12 +2,16 @@ import Link from "next/link";
 import { roiSummary, roiDaily } from "@ai-hub/db";
 import { valueRoi, fmtUsd, fmtHours } from "@/lib/roi";
 import { AreaTrend, SkillBars, RatioGauge } from "@/components/Charts";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
 function shortDate(iso: string) {
-  const d = new Date(`${iso}T00:00:00Z`);
-  return d.toLocaleDateString("en-US", { month: "short", day: "numeric", timeZone: "UTC" });
+  return new Date(`${iso}T00:00:00Z`).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
 }
 
 export default async function RoiPage() {
@@ -30,10 +34,7 @@ export default async function RoiPage() {
   const successRate =
     overall && overall.runs > 0 ? (overall.succeededRuns / overall.runs) * 100 : 0;
   const multiple =
-    overall && overall.aiSpendUsd > 0
-      ? overall.laborValueUsd / overall.aiSpendUsd
-      : null;
-
+    overall && overall.aiSpendUsd > 0 ? overall.laborValueUsd / overall.aiSpendUsd : null;
   const bars =
     data?.bySkill
       .filter((s) => s.netValueUsd > 0)
@@ -41,98 +42,92 @@ export default async function RoiPage() {
       .map((s) => ({ name: s.name, value: Math.round(s.netValueUsd) })) ?? [];
 
   return (
-    <main className="mx-auto max-w-6xl px-4 pb-28 pt-10">
-      <header className="rise mb-10">
-        <h1 className="text-3xl font-semibold tracking-tight md:text-4xl">
-          Return on <span className="text-gradient">AI</span>
-        </h1>
-        <p className="mt-2 max-w-2xl text-[var(--text-soft)]">
-          Analyst time your Skills have replaced, priced at{" "}
-          <span className="text-[var(--text)]">{fmtUsd(data?.rate ?? 0)}/hr</span> — the
-          money-saved number, straight from real runs.
-        </p>
-      </header>
+    <main className="mx-auto max-w-[80rem] px-5 py-7 lg:px-8">
+      <PageHeader
+        eyebrow="Return on AI"
+        title="Money & time saved"
+        subtitle={`Analyst time your Skills replaced, priced at ${fmtUsd(data?.rate ?? 0)}/hr — straight from real runs.`}
+        actions={<span className="chip">Last 30 days</span>}
+      />
 
       {error ? (
-        <div className="glass rounded-2xl p-5 text-sm text-[var(--warning)]">
+        <div className="panel p-5 text-sm text-[var(--warning)]">
           Couldn&apos;t load ROI: {error}
         </div>
       ) : !overall || overall.runs === 0 ? (
-        <div className="glass rounded-2xl p-8 text-center text-[var(--muted)]">
+        <div className="panel p-10 text-center text-sm text-[var(--muted)]">
           No runs recorded yet. Run a Skill and its ROI shows up here.
         </div>
       ) : (
         <>
-          <div className="grid gap-4 lg:grid-cols-3">
-            {/* Hero trend */}
-            <div className="glass sheen rise rounded-3xl p-6 lg:col-span-2">
-              <div className="flex items-start justify-between">
-                <div>
-                  <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
-                    Net value created
-                  </div>
-                  <div className="mt-1 text-4xl font-semibold tracking-tight text-[var(--positive)]">
-                    {fmtUsd(overall.netValueUsd)}
-                  </div>
-                </div>
-                <span className="chip">last 30 days</span>
-              </div>
-              <div className="mt-4">
-                <AreaTrend points={trend} format="usd" height={240} />
-              </div>
-            </div>
+          <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+            <Stat label="Net value created" value={fmtUsd(overall.netValueUsd)} accent="positive" />
+            <Stat label="Analyst time saved" value={fmtHours(overall.hoursSaved)} />
+            <Stat label="AI spend" value={fmtUsd(overall.aiSpendUsd)} />
+            <Stat
+              label="Return multiple"
+              value={multiple ? `${Math.round(multiple).toLocaleString()}×` : "∞"}
+              accent="brand"
+            />
+          </section>
 
-            {/* Side: gauge + headline stats */}
-            <div className="glass sheen rise rounded-3xl p-6">
+          <section className="mt-3 grid gap-3 lg:grid-cols-3">
+            <div className="panel fade-in p-5 lg:col-span-2">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-sm font-medium text-[var(--text-soft)]">
+                  Cumulative value created
+                </h2>
+                <span className="metric text-sm font-semibold text-[var(--positive)]">
+                  {fmtUsd(overall.netValueUsd)}
+                </span>
+              </div>
+              <AreaTrend points={trend} format="usd" height={240} color="var(--positive)" />
+            </div>
+            <div className="panel fade-in p-5">
+              <h2 className="mb-1 text-sm font-medium text-[var(--text-soft)]">
+                Run reliability
+              </h2>
               <RatioGauge
                 percent={successRate}
                 center={`${Math.round(successRate)}%`}
-                label="Run success"
-                height={190}
+                label="succeeded"
+                height={176}
               />
-              <div className="mt-4 grid grid-cols-2 gap-3">
-                <MiniStat
-                  label="Return"
-                  value={multiple ? `${Math.round(multiple).toLocaleString()}×` : "∞"}
-                  accent
-                />
-                <MiniStat label="AI spend" value={fmtUsd(overall.aiSpendUsd)} />
+              <div className="mt-3 grid grid-cols-2 gap-2 text-center">
+                <Mini label="Runs" value={overall.succeededRuns.toLocaleString()} />
+                <Mini label="Labor value" value={fmtUsd(overall.laborValueUsd)} />
               </div>
             </div>
-          </div>
+          </section>
 
-          {/* KPI row */}
-          <div className="mt-4 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Kpi label="Analyst time saved" value={fmtHours(overall.hoursSaved)} />
-            <Kpi label="Labor value" value={fmtUsd(overall.laborValueUsd)} accent />
-            <Kpi label="AI spend" value={fmtUsd(overall.aiSpendUsd)} />
-            <Kpi label="Skill runs" value={overall.succeededRuns.toLocaleString()} />
-          </div>
-
-          {/* By skill */}
-          <section className="mt-10 grid gap-4 lg:grid-cols-2">
-            <div className="glass sheen rounded-3xl p-6">
-              <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-[var(--muted)]">
+          <section className="mt-3 grid gap-3 lg:grid-cols-2">
+            <div className="panel fade-in p-5">
+              <h2 className="mb-4 text-sm font-medium text-[var(--text-soft)]">
                 Net value by skill
               </h2>
               {bars.length > 0 ? (
-                <SkillBars data={bars} format="usd" height={Math.max(160, bars.length * 42)} />
+                <SkillBars data={bars} format="usd" height={Math.max(150, bars.length * 40)} />
               ) : (
                 <p className="text-sm text-[var(--muted)]">No positive-value skills yet.</p>
               )}
             </div>
 
-            <div className="glass sheen rounded-3xl p-6">
-              <h2 className="mb-4 text-sm font-medium uppercase tracking-wide text-[var(--muted)]">
+            <div className="panel fade-in overflow-hidden">
+              <h2 className="px-5 py-3.5 text-sm font-medium text-[var(--text-soft)]">
                 Breakdown
               </h2>
-              <div className="divide-y divide-[var(--border)]">
+              <div>
+                <div className="hairline grid grid-cols-[1fr_auto_auto] gap-4 px-5 py-2 text-[0.68rem] uppercase tracking-wide text-[var(--muted)]">
+                  <span>Skill</span>
+                  <span className="text-right">Time saved</span>
+                  <span className="text-right">Net value</span>
+                </div>
                 {data!.bySkill.map((s) => (
-                  <div key={s.slug} className="flex items-center justify-between py-3">
-                    <Link
-                      href={`/skills/${s.slug}`}
-                      className="font-medium hover:text-[var(--brand)]"
-                    >
+                  <div
+                    key={s.slug}
+                    className="hairline grid grid-cols-[1fr_auto_auto] items-center gap-4 px-5 py-3"
+                  >
+                    <Link href={`/skills/${s.slug}`} className="truncate font-medium hover:text-[var(--brand-ink)]">
                       {s.name}
                       {s.runs !== s.succeededRuns && (
                         <span className="ml-2 text-xs text-[var(--warning)]">
@@ -140,22 +135,21 @@ export default async function RoiPage() {
                         </span>
                       )}
                     </Link>
-                    <div className="flex items-center gap-4 text-sm tabular-nums">
-                      <span className="text-[var(--muted)]">{fmtHours(s.hoursSaved)}</span>
-                      <span className="font-medium text-[var(--positive)]">
-                        {fmtUsd(s.netValueUsd)}
-                      </span>
-                    </div>
+                    <span className="metric text-right text-sm text-[var(--muted)]">
+                      {fmtHours(s.hoursSaved)}
+                    </span>
+                    <span className="metric text-right text-sm font-semibold text-[var(--positive)]">
+                      {fmtUsd(s.netValueUsd)}
+                    </span>
                   </div>
                 ))}
               </div>
             </div>
           </section>
 
-          <p className="mt-6 text-xs text-[var(--muted)]">
-            Time saved credits each run with its skill version&apos;s manual baseline;
-            only succeeded runs count. Set <code>ANALYST_HOURLY_RATE</code> to price it
-            per client.
+          <p className="mt-4 text-xs text-[var(--muted)]">
+            Time saved credits each run with its skill version&apos;s manual baseline; only
+            succeeded runs count. Set <code>ANALYST_HOURLY_RATE</code> to price it per client.
           </p>
         </>
       )}
@@ -163,28 +157,34 @@ export default async function RoiPage() {
   );
 }
 
-function Kpi({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Stat({
+  label,
+  value,
+  accent,
+}: {
+  label: string;
+  value: string;
+  accent?: "positive" | "brand";
+}) {
+  const color =
+    accent === "positive"
+      ? "text-[var(--positive)]"
+      : accent === "brand"
+        ? "text-[var(--brand-ink)]"
+        : "text-[var(--text)]";
   return (
-    <div className="glass sheen rounded-2xl p-5">
-      <div className="text-xs uppercase tracking-wide text-[var(--muted)]">{label}</div>
-      <div
-        className={`mt-1.5 text-2xl font-semibold tracking-tight ${
-          accent ? "text-[var(--positive)]" : "text-[var(--text)]"
-        }`}
-      >
-        {value}
-      </div>
+    <div className="panel fade-in p-4">
+      <div className="text-xs text-[var(--muted)]">{label}</div>
+      <div className={`metric mt-1 text-2xl font-semibold ${color}`}>{value}</div>
     </div>
   );
 }
 
-function MiniStat({ label, value, accent }: { label: string; value: string; accent?: boolean }) {
+function Mini({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-xl border border-[var(--border)] bg-[var(--surface)] p-3">
-      <div className="text-[0.7rem] uppercase tracking-wide text-[var(--muted)]">{label}</div>
-      <div className={`mt-0.5 text-lg font-semibold ${accent ? "text-[var(--brand)]" : "text-[var(--text)]"}`}>
-        {value}
-      </div>
+    <div className="inset px-3 py-2">
+      <div className="text-[0.68rem] uppercase tracking-wide text-[var(--muted)]">{label}</div>
+      <div className="metric mt-0.5 text-sm font-semibold">{value}</div>
     </div>
   );
 }

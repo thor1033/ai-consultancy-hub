@@ -2,8 +2,9 @@ import type { Metadata } from "next";
 import { Inter, Sora } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
-import { Aurora } from "@/components/Aurora";
-import { SiteHeader } from "@/components/SiteHeader";
+import { Backdrop } from "@/components/Backdrop";
+import { Sidebar } from "@/components/Sidebar";
+import { MobileBar } from "@/components/MobileBar";
 
 const inter = Inter({
   subsets: ["latin"],
@@ -18,7 +19,7 @@ const sora = Sora({
 });
 
 export const metadata: Metadata = {
-  title: "AI Hub — run your organization's Skills",
+  title: "AI Hub — Console",
   description:
     "The tailored AI hub — run your organization's Skills, Agents, and MCPs on the AI licenses you already pay for.",
 };
@@ -34,9 +35,12 @@ export default function RootLayout({
     >
       <body>
         <ThemeProvider>
-          <Aurora />
-          <SiteHeader />
-          {children}
+          <Backdrop />
+          <Sidebar />
+          <div className="lg:pl-[15rem]">
+            <MobileBar />
+            {children}
+          </div>
         </ThemeProvider>
       </body>
     </html>

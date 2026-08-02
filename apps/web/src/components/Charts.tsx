@@ -43,7 +43,7 @@ function GlassTooltip({
   if (!active || !payload?.length) return null;
   const v = Number(payload[0]?.value ?? 0);
   return (
-    <div className="glass-strong rounded-xl px-3 py-2 text-xs">
+    <div className="panel rounded-lg px-3 py-2 text-xs">
       {label != null && <div className="mb-0.5 text-[var(--muted)]">{label}</div>}
       <div className="font-semibold text-[var(--text)]">{formatValue(v, format)}</div>
     </div>
@@ -92,7 +92,7 @@ export function AreaTrend({
           strokeWidth={2.5}
           fill={`url(#${gradientId})`}
           dot={false}
-          activeDot={{ r: 4, fill: color, stroke: "var(--surface-solid)", strokeWidth: 2 }}
+          activeDot={{ r: 4, fill: color, stroke: "var(--panel)", strokeWidth: 2 }}
         />
       </AreaChart>
     </ResponsiveContainer>
@@ -169,7 +169,7 @@ export function SkillBars({
           axisLine={false}
         />
         <Tooltip
-          cursor={{ fill: "var(--surface)" }}
+          cursor={{ fill: "var(--panel-inset)" }}
           content={<GlassTooltip format={format} />}
         />
         <Bar dataKey="value" fill="url(#bar-grad)" radius={[6, 6, 6, 6]} maxBarSize={22}>
@@ -216,7 +216,7 @@ export function RatioGauge({
             dataKey="value"
             cornerRadius={999}
             fill="url(#gauge-grad)"
-            background={{ fill: "var(--surface-strong)" }}
+            background={{ fill: "var(--panel-inset)" }}
           />
         </RadialBarChart>
       </ResponsiveContainer>
