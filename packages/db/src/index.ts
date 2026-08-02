@@ -29,8 +29,8 @@ export {
   disabledMcpServerNames,
 } from "./mcpServers";
 export type { McpServerRow } from "./mcpServers";
-export { roiSummary } from "./roi";
-export type { SkillRoi, RoiTotals, RoiSummary } from "./roi";
+export { roiSummary, roiDaily } from "./roi";
+export type { SkillRoi, RoiTotals, RoiSummary, RoiDay } from "./roi";
 export {
   recordSession,
   listSessions,

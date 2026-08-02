@@ -65,3 +65,45 @@ export async function roiSummary(): Promise<RoiSummary> {
 
   return { totals, bySkill };
 }
+
+export interface RoiDay {
+  day: string; // YYYY-MM-DD (UTC)
+  runs: number;
+  minutesSaved: number;
+  costUsd: number;
+}
+
+// Per-day ROI substrate for the trend chart: succeeded-run count, minutes saved
+// (against each run's version baseline), and model cost. Zero-fills missing days
+// so the series is continuous over the window.
+export async function roiDaily(days = 30): Promise<RoiDay[]> {
+  const sql = getSql();
+  return sql<RoiDay[]>`
+    with span as (
+      select generate_series(
+        (current_date - make_interval(days => ${days - 1})),
+        current_date,
+        interval '1 day'
+      )::date as day
+    ),
+    daily as (
+      select date_trunc('day', r.created_at)::date                     as day,
+             count(r.id) filter (where r.status = 'succeeded')::int     as runs,
+             coalesce(sum(v.baseline_minutes)
+               filter (where r.status = 'succeeded'), 0)::int           as "minutesSaved",
+             coalesce(sum(r.cost_usd), 0)::float8                       as "costUsd"
+      from skill_runs r
+      left join skill_versions v
+        on v.skill_id = r.skill_id and v.version = r.version
+      where r.created_at >= current_date - make_interval(days => ${days - 1})
+      group by 1
+    )
+    select to_char(span.day, 'YYYY-MM-DD')       as day,
+           coalesce(daily.runs, 0)               as runs,
+           coalesce(daily."minutesSaved", 0)     as "minutesSaved",
+           coalesce(daily."costUsd", 0)          as "costUsd"
+    from span
+    left join daily on daily.day = span.day
+    order by span.day
+  `;
+}

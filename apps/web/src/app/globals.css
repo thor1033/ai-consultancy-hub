@@ -1,15 +1,354 @@
 @import "tailwindcss";
 
-:root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
+/* Class-based dark mode (next-themes toggles .dark / .light on <html>). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ------------------------------------------------------------------ *
+ *  Design system — "Iris"
+ *  Brand: indigo-violet → cyan. Semantic layer (positive/warn/danger)
+ *  is kept separate from brand so meaning never rides on the accent.
+ *  Everything is a token so light/dark is a real re-theme, not an invert.
+ * ------------------------------------------------------------------ */
+
+:root,
+.light {
+  color-scheme: light;
+  --bg: #eef1fb;
+  --bg-deep: #e6eaf7;
+  --text: #0b1020;
+  --text-soft: #2b3350;
+  --muted: #5a6480;
+  --brand: #6a5cf6;
+  --brand-2: #12b5cf;
+  --brand-3: #d857b0;
+  --on-brand: #ffffff;
+  --positive: #059669;
+  --warning: #c2740a;
+  --danger: #e11d48;
+
+  /* Glass */
+  --surface: rgba(255, 255, 255, 0.58);
+  --surface-strong: rgba(255, 255, 255, 0.78);
+  --surface-solid: #ffffff;
+  --border: rgba(19, 26, 56, 0.10);
+  --border-strong: rgba(19, 26, 56, 0.18);
+  --highlight: rgba(255, 255, 255, 0.9);
+  --shadow: 0 18px 50px -24px rgba(31, 38, 90, 0.45);
+  --shadow-lg: 0 40px 80px -32px rgba(31, 38, 90, 0.5);
+
+  /* Aurora blobs */
+  --aurora-1: rgba(106, 92, 246, 0.5);
+  --aurora-2: rgba(18, 181, 207, 0.42);
+  --aurora-3: rgba(216, 87, 176, 0.34);
+  --grid-line: rgba(19, 26, 56, 0.05);
 }
 
-html,
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family:
-    ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
-    sans-serif;
+.dark {
+  color-scheme: dark;
+  --bg: #06070f;
+  --bg-deep: #030308;
+  --text: #eef1fe;
+  --text-soft: #c3c9e0;
+  --muted: #8b93ad;
+  --brand: #8b7bff;
+  --brand-2: #34dcef;
+  --brand-3: #f472c8;
+  --on-brand: #0a0b16;
+  --positive: #34d399;
+  --warning: #fbbf24;
+  --danger: #fb7185;
+
+  --surface: rgba(255, 255, 255, 0.045);
+  --surface-strong: rgba(255, 255, 255, 0.08);
+  --surface-solid: #0d0f1c;
+  --border: rgba(255, 255, 255, 0.10);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --highlight: rgba(255, 255, 255, 0.14);
+  --shadow: 0 30px 70px -30px rgba(0, 0, 0, 0.8);
+  --shadow-lg: 0 50px 100px -32px rgba(0, 0, 0, 0.85);
+
+  --aurora-1: rgba(123, 108, 255, 0.42);
+  --aurora-2: rgba(52, 220, 239, 0.32);
+  --aurora-3: rgba(244, 114, 200, 0.26);
+  --grid-line: rgba(255, 255, 255, 0.05);
+}
+
+/* Expose tokens as Tailwind color/utility names (inline = keep referencing the
+   var, so utilities re-theme with .dark). */
+@theme inline {
+  --color-bg: var(--bg);
+  --color-text: var(--text);
+  --color-text-soft: var(--text-soft);
+  --color-muted: var(--muted);
+  --color-brand: var(--brand);
+  --color-brand-2: var(--brand-2);
+  --color-brand-3: var(--brand-3);
+  --color-on-brand: var(--on-brand);
+  --color-positive: var(--positive);
+  --color-warning: var(--warning);
+  --color-danger: var(--danger);
+  --color-surface: var(--surface);
+  --color-surface-strong: var(--surface-strong);
+  --color-border: var(--border);
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+  --font-display: var(--font-display), var(--font-inter), sans-serif;
+
+  --radius-glass: 1.25rem;
+  --radius-glass-lg: 1.75rem;
+}
+
+@layer base {
+  * {
+    border-color: var(--border);
+  }
+  html {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+    scroll-behavior: smooth;
+  }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font-sans);
+    min-height: 100vh;
+    letter-spacing: -0.011em;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--brand) 32%, transparent);
+    color: var(--text);
+  }
+  h1,
+  h2,
+  h3 {
+    font-family: var(--font-display);
+    letter-spacing: -0.03em;
+  }
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--border-strong) transparent;
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Liquid-glass primitives
+ * ------------------------------------------------------------------ */
+@layer components {
+  .glass {
+    position: relative;
+    background: var(--surface);
+    backdrop-filter: blur(22px) saturate(150%);
+    -webkit-backdrop-filter: blur(22px) saturate(150%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-glass);
+    box-shadow: var(--shadow), inset 0 1px 0 0 var(--highlight);
+  }
+  .glass-strong {
+    background: var(--surface-strong);
+    backdrop-filter: blur(30px) saturate(160%);
+    -webkit-backdrop-filter: blur(30px) saturate(160%);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-glass);
+    box-shadow: var(--shadow-lg), inset 0 1px 0 0 var(--highlight);
+  }
+  /* Specular edge highlight (masked gradient border). */
+  .sheen::before {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: inherit;
+    padding: 1px;
+    background: linear-gradient(
+      135deg,
+      var(--highlight),
+      transparent 40%,
+      transparent 60%,
+      color-mix(in oklab, var(--brand) 18%, transparent)
+    );
+    -webkit-mask:
+      linear-gradient(#000 0 0) content-box,
+      linear-gradient(#000 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+    pointer-events: none;
+    opacity: 0.9;
+  }
+  .glass-hover {
+    transition:
+      transform 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+      box-shadow 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+      border-color 0.3s ease;
+  }
+  .glass-hover:hover {
+    transform: translateY(-4px);
+    border-color: var(--border-strong);
+    box-shadow: var(--shadow-lg), inset 0 1px 0 0 var(--highlight);
+  }
+
+  .text-gradient {
+    background: linear-gradient(115deg, var(--brand), var(--brand-2) 60%, var(--brand-3));
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+  }
+  .brand-gradient {
+    background: linear-gradient(115deg, var(--brand), var(--brand-2) 62%, var(--brand-3));
+  }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    backdrop-filter: blur(12px);
+    border-radius: 999px;
+    padding: 0.3rem 0.75rem;
+    font-size: 0.8rem;
+    color: var(--text-soft);
+    transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+  }
+  a.chip:hover {
+    border-color: color-mix(in oklab, var(--brand) 45%, var(--border));
+    color: var(--text);
+  }
+
+  .btn-brand {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    border-radius: 0.85rem;
+    padding: 0.6rem 1.1rem;
+    font-weight: 600;
+    font-size: 0.9rem;
+    color: var(--on-brand);
+    background: linear-gradient(115deg, var(--brand), var(--brand-2));
+    box-shadow: 0 10px 30px -10px color-mix(in oklab, var(--brand) 70%, transparent);
+    transition: transform 0.2s ease, box-shadow 0.3s ease, filter 0.2s ease;
+  }
+  .btn-brand:hover {
+    transform: translateY(-1px);
+    filter: brightness(1.06);
+    box-shadow: 0 16px 40px -12px color-mix(in oklab, var(--brand) 75%, transparent);
+  }
+  .btn-brand:disabled {
+    opacity: 0.45;
+    filter: grayscale(0.3);
+    transform: none;
+    cursor: not-allowed;
+  }
+
+  .field {
+    width: 100%;
+    border-radius: 0.85rem;
+    border: 1px solid var(--border);
+    background: var(--surface);
+    padding: 0.6rem 0.85rem;
+    font-size: 0.9rem;
+    color: var(--text);
+    outline: none;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .field::placeholder {
+    color: var(--muted);
+  }
+  .field:focus {
+    border-color: color-mix(in oklab, var(--brand) 55%, var(--border));
+    box-shadow: 0 0 0 4px color-mix(in oklab, var(--brand) 16%, transparent);
+  }
+}
+
+/* ------------------------------------------------------------------ *
+ *  Aurora background + motion
+ * ------------------------------------------------------------------ */
+.aurora {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  background: var(--bg);
+}
+.aurora::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(var(--grid-line) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 40%, transparent 100%);
+}
+.aurora-blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(70px);
+  opacity: 0.9;
+  will-change: transform;
+}
+.aurora-blob.b1 {
+  width: 46vw;
+  height: 46vw;
+  top: -14vw;
+  left: -8vw;
+  background: var(--aurora-1);
+  animation: drift1 22s ease-in-out infinite alternate;
+}
+.aurora-blob.b2 {
+  width: 40vw;
+  height: 40vw;
+  top: -6vw;
+  right: -10vw;
+  background: var(--aurora-2);
+  animation: drift2 26s ease-in-out infinite alternate;
+}
+.aurora-blob.b3 {
+  width: 38vw;
+  height: 38vw;
+  bottom: -16vw;
+  left: 30vw;
+  background: var(--aurora-3);
+  animation: drift3 30s ease-in-out infinite alternate;
+}
+
+@keyframes drift1 {
+  to {
+    transform: translate3d(8vw, 6vw, 0) scale(1.15);
+  }
+}
+@keyframes drift2 {
+  to {
+    transform: translate3d(-6vw, 8vw, 0) scale(1.1);
+  }
+}
+@keyframes drift3 {
+  to {
+    transform: translate3d(4vw, -6vw, 0) scale(1.2);
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-blob,
+  .rise {
+    animation: none !important;
+  }
+  html {
+    scroll-behavior: auto;
+  }
 }
