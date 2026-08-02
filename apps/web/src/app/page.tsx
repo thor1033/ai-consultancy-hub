@@ -40,6 +40,12 @@ export default async function DashboardPage() {
               Return on AI →
             </Link>
             <Link
+              href="/knowledge"
+              className="rounded-full border border-neutral-700 px-3 py-1 text-sm text-neutral-300 transition hover:border-emerald-500/50 hover:text-emerald-400"
+            >
+              Knowledge base
+            </Link>
+            <Link
               href="/admin"
               className="rounded-full border border-neutral-700 px-3 py-1 text-sm text-neutral-300 transition hover:border-emerald-500/50 hover:text-emerald-400"
             >

@@ -10,6 +10,8 @@ function toVector(arr: number[]): string {
 export interface IngestInput {
   title?: string;
   source?: string;
+  sourceType?: string; // the connector that produced this doc; defaults to "manual"
+  collection?: string; // curation label used to scope retrieval
   content: string;
   metadata?: Record<string, unknown>;
 }
@@ -32,8 +34,9 @@ export async function ingestDocument(input: IngestInput): Promise<IngestResult> 
 
   const documentId = await sql.begin(async (tx) => {
     const [doc] = await tx<{ id: string }[]>`
-      insert into documents (source, title, metadata)
-      values (${input.source ?? null}, ${input.title ?? ""},
+      insert into documents (source_type, source, collection, title, metadata)
+      values (${input.sourceType ?? "manual"}, ${input.source ?? null},
+              ${input.collection?.trim() || null}, ${input.title ?? ""},
               ${tx.json((input.metadata ?? {}) as never)})
       returning id
     `;
@@ -51,7 +54,9 @@ export async function ingestDocument(input: IngestInput): Promise<IngestResult> 
 
 export interface DocumentSummary {
   id: string;
+  sourceType: string;
   source: string | null;
+  collection: string | null;
   title: string;
   chunkCount: number;
   createdAt: string;
@@ -60,7 +65,7 @@ export interface DocumentSummary {
 export async function listDocuments(): Promise<DocumentSummary[]> {
   const sql = getSql();
   return sql<DocumentSummary[]>`
-    select d.id, d.source, d.title,
+    select d.id, d.source_type as "sourceType", d.source, d.collection, d.title,
            count(c.id)::int as "chunkCount",
            d.created_at      as "createdAt"
     from documents d
@@ -68,4 +73,44 @@ export async function listDocuments(): Promise<DocumentSummary[]> {
     group by d.id
     order by d.created_at desc
   `;
+}
+
+export interface DocumentDetail extends DocumentSummary {
+  metadata: Record<string, unknown>;
+  chunks: { chunkIndex: number; content: string }[];
+}
+
+export async function getDocument(id: string): Promise<DocumentDetail | null> {
+  const sql = getSql();
+  const [doc] = await sql<Omit<DocumentDetail, "chunks" | "chunkCount">[]>`
+    select id, source_type as "sourceType", source, collection, title, metadata,
+           created_at as "createdAt"
+    from documents where id = ${id}
+  `;
+  if (!doc) return null;
+
+  const chunks = await sql<{ chunkIndex: number; content: string }[]>`
+    select chunk_index as "chunkIndex", content
+    from document_chunks where document_id = ${id}
+    order by chunk_index
+  `;
+  return { ...doc, chunkCount: chunks.length, chunks };
+}
+
+// Deletes a document and its chunks (ON DELETE CASCADE handles the chunks).
+export async function deleteDocument(id: string): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`delete from documents where id = ${id}`;
+  return rows.count > 0;
+}
+
+// The distinct curation labels in use, for the management UI's collection picker.
+export async function listCollections(): Promise<string[]> {
+  const sql = getSql();
+  const rows = await sql<{ collection: string }[]>`
+    select distinct collection from documents
+    where collection is not null and collection <> ''
+    order by collection
+  `;
+  return rows.map((r) => r.collection);
 }

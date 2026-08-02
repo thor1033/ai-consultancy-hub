@@ -40,6 +40,8 @@ export async function POST(req: Request) {
       content: b.content,
       title: typeof b.title === "string" ? b.title : undefined,
       source: typeof b.source === "string" ? b.source : undefined,
+      sourceType: typeof b.sourceType === "string" ? b.sourceType : undefined,
+      collection: typeof b.collection === "string" ? b.collection : undefined,
       metadata:
         typeof b.metadata === "object" && b.metadata !== null
           ? (b.metadata as Record<string, unknown>)

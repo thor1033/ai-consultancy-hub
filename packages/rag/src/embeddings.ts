@@ -73,3 +73,15 @@ export function getEmbedder(): Embedder {
   }
   return embedder;
 }
+
+export interface EmbedderStatus {
+  name: string;
+  // false ⇒ the dev hash fallback: fine to demo, but its vectors are NOT
+  // compatible with Voyage's, so switching later requires re-ingesting everything.
+  production: boolean;
+}
+
+export function embedderStatus(): EmbedderStatus {
+  const e = getEmbedder();
+  return { name: e.name, production: e.name !== "hash-fallback" };
+}

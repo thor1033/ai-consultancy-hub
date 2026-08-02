@@ -47,13 +47,21 @@ export async function runSkill(
   const skill = await getRunnableSkill(slug);
   if (!skill) return { notFound: true as const };
 
+  // RAG provenance: keep the retrieved chunks (title + score, no full text) so the
+  // run records and shows exactly what context the agent was given.
   let context: string | undefined;
-  let retrievedCount = 0;
+  let retrieved: { title: string | null; documentId: string; chunkIndex: number; score: number }[] = [];
   if (opts.retrieve) {
     const chunks = await retrieveChunks(input, opts.retrieveK ?? 5);
-    retrievedCount = chunks.length;
+    retrieved = chunks.map((c) => ({
+      title: c.title,
+      documentId: c.documentId,
+      chunkIndex: c.chunkIndex,
+      score: c.score,
+    }));
     if (chunks.length > 0) context = chunksToContext(chunks);
   }
+  const retrievedCount = retrieved.length;
 
   // Control plane: a globally-disabled MCP server is dropped from the run, so the
   // skill runs with whatever tools remain rather than failing.
@@ -88,6 +96,7 @@ export async function runSkill(
       latencyMs: result.latencyMs,
       tokens: result.usage,
       traceId: result.traceId,
+      retrieved,
     });
 
     return {
@@ -95,6 +104,7 @@ export async function runSkill(
       skill: { slug, version: skill.version },
       result,
       retrievedCount,
+      retrieved,
       roi: {
         baselineMinutes: skill.baselineMinutes,
         costUsd: result.costUsd,

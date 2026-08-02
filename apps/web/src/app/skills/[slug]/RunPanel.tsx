@@ -16,6 +16,12 @@ interface RunOk {
     traceId?: string;
   };
   retrievedCount: number;
+  retrieved: {
+    title: string | null;
+    documentId: string;
+    chunkIndex: number;
+    score: number;
+  }[];
   roi: { baselineMinutes: number | null; costUsd: number; latencyMs: number };
 }
 
@@ -125,6 +131,31 @@ export function RunPanel({
               }`}
             {result.result.traceId && ` · trace ${result.result.traceId}`}
           </div>
+
+          {/* RAG provenance: exactly what context the agent was given. */}
+          {result.retrieved.length > 0 && (
+            <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
+              <div className="mb-2 text-xs uppercase tracking-wide text-neutral-500">
+                Context used ({result.retrieved.length})
+              </div>
+              <ul className="space-y-1 text-sm">
+                {result.retrieved.map((r) => (
+                  <li
+                    key={`${r.documentId}-${r.chunkIndex}`}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <span className="truncate text-neutral-300">
+                      {r.title || "(untitled)"}{" "}
+                      <span className="text-neutral-600">#{r.chunkIndex}</span>
+                    </span>
+                    <span className="shrink-0 tabular-nums text-xs text-neutral-500">
+                      {(r.score * 100).toFixed(0)}% match
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
     </div>

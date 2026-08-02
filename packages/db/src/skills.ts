@@ -216,6 +216,7 @@ export interface RecordRunInput {
   latencyMs?: number;
   tokens?: unknown;
   traceId?: string;
+  retrieved?: unknown; // RAG provenance: the chunks this run pulled
 }
 
 export async function listSkillGrantPrincipals(slug: string): Promise<string[]> {
@@ -247,11 +248,13 @@ export async function recordRun(run: RecordRunInput): Promise<string> {
   const sql = getSql();
   const [row] = await sql<{ id: string }[]>`
     insert into skill_runs
-      (skill_id, version, input, output, status, cost_usd, latency_ms, tokens, trace_id)
+      (skill_id, version, input, output, status, cost_usd, latency_ms, tokens,
+       trace_id, retrieved)
     values
       (${run.skillId}, ${run.version}, ${run.input}, ${run.output ?? null},
        ${run.status ?? "succeeded"}, ${run.costUsd ?? null}, ${run.latencyMs ?? null},
-       ${sql.json((run.tokens ?? null) as never)}, ${run.traceId ?? null})
+       ${sql.json((run.tokens ?? null) as never)}, ${run.traceId ?? null},
+       ${sql.json((run.retrieved ?? []) as never)})
     returning id
   `;
   return row.id;

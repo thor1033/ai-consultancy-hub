@@ -44,9 +44,11 @@ create table if not exists skill_runs (
   latency_ms int,
   tokens     jsonb,
   trace_id   text,
+  retrieved  jsonb not null default '[]'::jsonb,   -- RAG provenance: chunks this run pulled
   created_at timestamptz not null default now()
 );
 create index if not exists skill_runs_skill_idx on skill_runs (skill_id, created_at desc);
+alter table skill_runs add column if not exists retrieved jsonb not null default '[]'::jsonb;
 
 -- Skillification (docs/04): an ad-hoc agent session run by a practitioner in the
 -- workbench. We persist the whole transcript so it can later be *distilled* into a
@@ -122,13 +124,23 @@ insert into mcp_servers (name, label, description) values
 on conflict (name) do nothing;
 
 -- RAG / Memory (Thing 5): the client's docs become retrievable context.
+-- source_type names the connector that produced the doc (manual today; confluence/
+-- sharepoint/office later) so pluggable sources layer on without a schema change.
+-- collection is a curation label so retrieval can be scoped to a set (see docs/knowledge-rag.md).
 create table if not exists documents (
-  id         uuid primary key default gen_random_uuid(),
-  source     text,
-  title      text not null default '',
-  metadata   jsonb not null default '{}'::jsonb,
-  created_at timestamptz not null default now()
+  id          uuid primary key default gen_random_uuid(),
+  source_type text not null default 'manual',
+  source      text,
+  collection  text,
+  title       text not null default '',
+  metadata    jsonb not null default '{}'::jsonb,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
 );
+-- Backfills for databases created before the knowledge management work (idempotent).
+alter table documents add column if not exists source_type text not null default 'manual';
+alter table documents add column if not exists collection  text;
+alter table documents add column if not exists updated_at   timestamptz not null default now();
 
 -- Chunk embeddings. 1024 dims matches Voyage (voyage-3.5) and the dev fallback.
 create table if not exists document_chunks (
