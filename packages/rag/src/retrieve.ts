@@ -13,11 +13,26 @@ export interface RetrievedChunk {
   score: number; // cosine similarity in [0, 1]
 }
 
-// Embeds the query and returns the top-k most similar chunks (pgvector cosine).
-export async function retrieveChunks(query: string, k = 5): Promise<RetrievedChunk[]> {
+export interface RetrieveOptions {
+  // Curation (docs/knowledge-rag.md, Phase 2): scope retrieval to one collection,
+  // so a skill draws from its curated set instead of the whole index. Omit for global.
+  collection?: string;
+}
+
+// Embeds the query and returns the top-k most similar chunks (pgvector cosine),
+// optionally scoped to a single collection.
+export async function retrieveChunks(
+  query: string,
+  k = 5,
+  opts: RetrieveOptions = {},
+): Promise<RetrievedChunk[]> {
   const sql = getSql();
   const [vec] = await getEmbedder().embed([query]);
   const qv = toVector(vec);
+
+  const scope = opts.collection
+    ? sql`where d.collection = ${opts.collection}`
+    : sql``;
 
   return sql<RetrievedChunk[]>`
     select dc.content,
@@ -27,6 +42,7 @@ export async function retrieveChunks(query: string, k = 5): Promise<RetrievedChu
            1 - (dc.embedding <=> ${qv}::vector) as score
     from document_chunks dc
     join documents d on d.id = dc.document_id
+    ${scope}
     order by dc.embedding <=> ${qv}::vector
     limit ${k}
   `;

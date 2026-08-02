@@ -30,6 +30,7 @@ export interface SkillVersion {
 }
 
 export interface SkillDetail extends SkillSummary {
+  knowledgeCollection: string | null;
   versions: SkillVersion[];
 }
 
@@ -42,6 +43,7 @@ export interface RunnableSkill {
   effort: string | null;
   mcpServers: McpEntry[];
   baselineMinutes: number | null;
+  knowledgeCollection: string | null; // curation: RAG scope for this skill
 }
 
 export interface CreateSkillInput {
@@ -112,10 +114,25 @@ export async function setSkillEnabled(slug: string, enabled: boolean): Promise<b
   return rows.count > 0;
 }
 
+// Curation: scope a skill's RAG retrieval to a collection (null ⇒ whole index).
+export async function setSkillKnowledgeCollection(
+  slug: string,
+  collection: string | null,
+): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`
+    update skills set knowledge_collection = ${collection?.trim() || null}, updated_at = now()
+    where slug = ${slug} and archived_at is null
+  `;
+  return rows.count > 0;
+}
+
 export async function getSkill(slug: string): Promise<SkillDetail | null> {
   const sql = getSql();
-  const [skill] = await sql<{ id: string; slug: string; name: string; description: string; enabled: boolean; createdAt: string }[]>`
-    select id, slug, name, description, enabled, created_at as "createdAt"
+  const [skill] = await sql<{ id: string; slug: string; name: string; description: string; enabled: boolean; knowledgeCollection: string | null; createdAt: string }[]>`
+    select id, slug, name, description, enabled,
+           knowledge_collection as "knowledgeCollection",
+           created_at as "createdAt"
     from skills where slug = ${slug} and archived_at is null
   `;
   if (!skill) return null;
@@ -196,7 +213,8 @@ export async function getRunnableSkill(slug: string): Promise<RunnableSkill | nu
            v.model,
            v.effort,
            v.mcp_servers      as "mcpServers",
-           v.baseline_minutes as "baselineMinutes"
+           v.baseline_minutes as "baselineMinutes",
+           s.knowledge_collection as "knowledgeCollection"
     from skills s
     join skill_versions v on v.skill_id = s.id
     where s.slug = ${slug} and s.archived_at is null and s.enabled

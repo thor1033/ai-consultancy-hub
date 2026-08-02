@@ -3,6 +3,7 @@ export {
   listSkills,
   listSkillsAdmin,
   setSkillEnabled,
+  setSkillKnowledgeCollection,
   getSkill,
   createSkill,
   addSkillVersion,

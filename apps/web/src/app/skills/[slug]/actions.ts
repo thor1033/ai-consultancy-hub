@@ -1,5 +1,6 @@
 "use server";
 
+import { setSkillKnowledgeCollection } from "@ai-hub/db";
 import { runSkill } from "@/lib/runSkill";
 
 // Server action invoked from the dashboard. Runs on the trusted server; binding
@@ -13,5 +14,16 @@ export async function runSkillAction(slug: string, input: string, retrieve: bool
     return out;
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Run failed." };
+  }
+}
+
+// Curation: scope this skill's RAG retrieval to a collection ("" ⇒ whole index).
+export async function setSkillCollectionAction(slug: string, collection: string) {
+  try {
+    const ok = await setSkillKnowledgeCollection(slug, collection || null);
+    if (!ok) return { error: "Skill not found." };
+    return { collection: collection || null };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Save failed." };
   }
 }

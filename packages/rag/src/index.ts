@@ -15,4 +15,4 @@ export type {
   DocumentDetail,
 } from "./ingest";
 export { retrieveChunks, chunksToContext } from "./retrieve";
-export type { RetrievedChunk } from "./retrieve";
+export type { RetrievedChunk, RetrieveOptions } from "./retrieve";

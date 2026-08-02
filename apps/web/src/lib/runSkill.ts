@@ -52,7 +52,9 @@ export async function runSkill(
   let context: string | undefined;
   let retrieved: { title: string | null; documentId: string; chunkIndex: number; score: number }[] = [];
   if (opts.retrieve) {
-    const chunks = await retrieveChunks(input, opts.retrieveK ?? 5);
+    const chunks = await retrieveChunks(input, opts.retrieveK ?? 5, {
+      collection: skill.knowledgeCollection ?? undefined,
+    });
     retrieved = chunks.map((c) => ({
       title: c.title,
       documentId: c.documentId,

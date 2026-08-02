@@ -11,12 +11,14 @@ create table if not exists skills (
   name        text not null,
   description text not null default '',
   enabled     boolean not null default true,   -- admin control-plane on/off switch
+  knowledge_collection text,                    -- curation: RAG scope for this skill's runs
   created_at  timestamptz not null default now(),
   updated_at  timestamptz not null default now(),
   archived_at timestamptz
 );
--- Backfill for databases created before the control plane (idempotent).
+-- Backfills for databases created before these columns existed (idempotent).
 alter table skills add column if not exists enabled boolean not null default true;
+alter table skills add column if not exists knowledge_collection text;
 
 -- Skills are versioned IP — each version pins the captured process + its config.
 create table if not exists skill_versions (
