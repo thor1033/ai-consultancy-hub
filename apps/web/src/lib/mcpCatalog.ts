@@ -61,6 +61,23 @@ export async function describeMcpServer(name: string): Promise<McpToolInfo[]> {
   }
 }
 
+// Lean tool count for the overview cards — connect, count, close. Returns null
+// if the server can't be reached (so the card can show "—" instead of failing).
+export async function countMcpTools(name: string): Promise<number | null> {
+  const cfg = resolveServerConfig(name);
+  if (!cfg) return null;
+  try {
+    const mcp = await connectMcpServers([cfg]);
+    try {
+      return mcp.tools.length;
+    } finally {
+      await mcp.close();
+    }
+  } catch {
+    return null;
+  }
+}
+
 // Which skills reference a given server in their latest version (for "used by").
 export async function skillsUsingServer(name: string): Promise<string[]> {
   const skills = await listSkillsAdmin();

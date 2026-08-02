@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { listMcpServers, listSkillsAdmin } from "@ai-hub/db";
+import { countMcpTools } from "@/lib/mcpCatalog";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -9,6 +10,7 @@ export const dynamic = "force-dynamic";
 export default async function McpOverviewPage() {
   let servers: Awaited<ReturnType<typeof listMcpServers>> = [];
   const usedBy = new Map<string, string[]>();
+  const toolCounts = new Map<string, number | null>();
   let error: string | null = null;
   try {
     const [srv, skills] = await Promise.all([listMcpServers(), listSkillsAdmin()]);
@@ -20,6 +22,9 @@ export default async function McpOverviewPage() {
         }
       }
     }
+    // Introspect every server's tool count in parallel; failures show "—".
+    const counts = await Promise.all(servers.map((s) => countMcpTools(s.name)));
+    servers.forEach((s, i) => toolCounts.set(s.name, counts[i]));
   } catch (e) {
     error = e instanceof Error ? e.message : "Failed to load MCP servers.";
   }
@@ -44,6 +49,7 @@ export default async function McpOverviewPage() {
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {servers.map((s) => {
             const skills = usedBy.get(s.name) ?? [];
+            const count = toolCounts.get(s.name);
             return (
               <Link key={s.name} href={`/mcp/${s.name}`} className="panel panel-hover group p-5">
                 <div className="flex items-center justify-between">
@@ -61,9 +67,14 @@ export default async function McpOverviewPage() {
                   {s.description || "No description."}
                 </p>
                 <div className="mt-4 flex items-center justify-between text-xs">
-                  <span className="text-[var(--muted)]">
-                    {skills.length > 0 ? `Used by ${skills.length} skill${skills.length === 1 ? "" : "s"}` : "Unused"}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="mono rounded border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--brand-ink)]">
+                      {count == null ? "—" : count} tool{count === 1 ? "" : "s"}
+                    </span>
+                    <span className="text-[var(--muted)]">
+                      {skills.length > 0 ? `${skills.length} skill${skills.length === 1 ? "" : "s"}` : "unused"}
+                    </span>
+                  </div>
                   <span className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-[var(--brand-ink)]">
                     Inspect →
                   </span>
