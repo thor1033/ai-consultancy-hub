@@ -39,7 +39,6 @@ export function Workbench({ servers }: { servers: string[] }) {
   const [session, setSession] = useState<SessionResult | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Skillify sub-flow state.
   const [draft, setDraft] = useState<SkillDraft | null>(null);
   const [distilling, setDistilling] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -84,50 +83,49 @@ export function Workbench({ servers }: { servers: string[] }) {
   const latencyS = session ? (session.latencyMs / 1000).toFixed(1) : null;
 
   return (
-    <div>
+    <div className="panel p-5">
       {/* 1. Run a session */}
       <textarea
         value={prompt}
         onChange={(e) => setPrompt(e.target.value)}
         placeholder="Describe the task and do it, e.g. “Generate this week's client presentation for CUST-001.”"
         rows={4}
-        className="w-full resize-y rounded-lg border border-neutral-800 bg-neutral-900/60 p-3 text-sm outline-none focus:border-neutral-600"
+        className="field resize-y"
       />
 
       <div className="mt-3 flex flex-wrap items-center gap-2">
-        <span className="text-xs uppercase tracking-wide text-neutral-500">Tools:</span>
-        {servers.map((name) => (
-          <label
-            key={name}
-            className={`cursor-pointer rounded-full border px-3 py-1 text-sm transition ${
-              selected.includes(name)
-                ? "border-emerald-500/50 bg-emerald-500/10 text-emerald-300"
-                : "border-neutral-700 text-neutral-400 hover:border-neutral-600"
-            }`}
-          >
-            <input
-              type="checkbox"
-              checked={selected.includes(name)}
-              onChange={() => toggle(name)}
-              className="hidden"
-            />
-            {SERVER_LABELS[name] ?? name}
-          </label>
-        ))}
+        <span className="text-xs uppercase tracking-wide text-[var(--muted)]">Tools:</span>
+        {servers.map((name) => {
+          const on = selected.includes(name);
+          return (
+            <label
+              key={name}
+              className={`cursor-pointer rounded-lg border px-3 py-1 text-sm transition ${
+                on
+                  ? "border-[color:color-mix(in_oklab,var(--brand)_45%,transparent)] bg-[var(--brand-soft)] text-[var(--brand-ink)]"
+                  : "border-[var(--border)] text-[var(--muted)] hover:border-[var(--border-strong)] hover:text-[var(--text)]"
+              }`}
+            >
+              <input
+                type="checkbox"
+                checked={on}
+                onChange={() => toggle(name)}
+                className="hidden"
+              />
+              {SERVER_LABELS[name] ?? name}
+            </label>
+          );
+        })}
       </div>
 
       <div className="mt-3 flex justify-end">
-        <button
-          onClick={run}
-          disabled={running || !prompt.trim()}
-          className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-        >
+        <button onClick={run} disabled={running || !prompt.trim()} className="btn-brand">
           {running ? "Running…" : "Run session"}
         </button>
       </div>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300">
+        <div className="mt-4 rounded-lg border border-[var(--border)] border-l-2 border-l-[var(--danger)] p-4 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}
@@ -135,33 +133,25 @@ export function Workbench({ servers }: { servers: string[] }) {
       {/* 2. Session result */}
       {session && (
         <div className="mt-6 space-y-4">
-          <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
-            <div className="mb-2 text-xs uppercase tracking-wide text-neutral-500">
-              Output
-            </div>
-            <pre className="whitespace-pre-wrap break-words text-sm text-neutral-100">
+          <div className="inset p-4">
+            <div className="mb-2 text-xs uppercase tracking-wide text-[var(--muted)]">Output</div>
+            <pre className="whitespace-pre-wrap break-words text-sm text-[var(--text)]">
               {session.text || "(no text output)"}
             </pre>
           </div>
 
-          <div className="flex flex-wrap gap-2 text-xs text-neutral-500">
+          <div className="mono flex flex-wrap gap-2 text-xs text-[var(--muted)]">
             <span>{session.model}</span>
             <span>· {session.iterations} turns</span>
             <span>· ran in {latencyS}s</span>
             <span>· {fmtUsd(session.costUsd)}</span>
             <span>· {session.totalTokens.toLocaleString()} tokens</span>
-            {session.toolsUsed.length > 0 && (
-              <span>· tools: {session.toolsUsed.join(", ")}</span>
-            )}
+            {session.toolsUsed.length > 0 && <span>· tools: {session.toolsUsed.join(", ")}</span>}
           </div>
 
           {/* 3. Skillify */}
           {!draft && !created && (
-            <button
-              onClick={distill}
-              disabled={distilling}
-              className="rounded-lg border border-emerald-500/40 px-4 py-2 text-sm font-medium text-emerald-300 transition hover:bg-emerald-500/10 disabled:opacity-40"
-            >
+            <button onClick={distill} disabled={distilling} className="btn">
               {distilling ? "Distilling…" : "Skillify this session →"}
             </button>
           )}
@@ -170,25 +160,15 @@ export function Workbench({ servers }: { servers: string[] }) {
 
       {/* 4. Draft review + create */}
       {draft && !created && (
-        <div className="mt-6 space-y-4 rounded-lg border border-emerald-900/40 bg-emerald-950/10 p-5">
-          <div className="text-sm font-medium text-emerald-300">
-            Review the captured Skill
-          </div>
+        <div className="mt-6 space-y-4 rounded-xl border border-[color:color-mix(in_oklab,var(--brand)_30%,var(--border))] bg-[var(--brand-soft)] p-5">
+          <div className="text-sm font-medium text-[var(--brand-ink)]">Review the captured Skill</div>
 
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Name">
-              <input
-                value={draft.name}
-                onChange={(e) => setDraft({ ...draft, name: e.target.value })}
-                className="input"
-              />
+              <input value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="field" />
             </Field>
             <Field label="Slug">
-              <input
-                value={draft.slug}
-                onChange={(e) => setDraft({ ...draft, slug: e.target.value })}
-                className="input"
-              />
+              <input value={draft.slug} onChange={(e) => setDraft({ ...draft, slug: e.target.value })} className="field" />
             </Field>
           </div>
 
@@ -196,7 +176,7 @@ export function Workbench({ servers }: { servers: string[] }) {
             <input
               value={draft.description}
               onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-              className="input"
+              className="field"
             />
           </Field>
 
@@ -205,12 +185,9 @@ export function Workbench({ servers }: { servers: string[] }) {
               type="number"
               value={draft.baselineMinutes ?? ""}
               onChange={(e) =>
-                setDraft({
-                  ...draft,
-                  baselineMinutes: e.target.value ? Number(e.target.value) : null,
-                })
+                setDraft({ ...draft, baselineMinutes: e.target.value ? Number(e.target.value) : null })
               }
-              className="input w-32"
+              className="field w-32"
             />
           </Field>
 
@@ -219,22 +196,15 @@ export function Workbench({ servers }: { servers: string[] }) {
               value={draft.instructions}
               onChange={(e) => setDraft({ ...draft, instructions: e.target.value })}
               rows={10}
-              className="input font-mono text-xs leading-relaxed"
+              className="field mono resize-y text-xs leading-relaxed"
             />
           </Field>
 
           <div className="flex items-center justify-between">
-            <button
-              onClick={() => setDraft(null)}
-              className="text-sm text-neutral-400 hover:text-neutral-200"
-            >
+            <button onClick={() => setDraft(null)} className="text-sm text-[var(--muted)] hover:text-[var(--text)]">
               Cancel
             </button>
-            <button
-              onClick={create}
-              disabled={creating}
-              className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 transition hover:bg-emerald-400 disabled:opacity-40"
-            >
+            <button onClick={create} disabled={creating} className="btn-brand">
               {creating ? "Creating…" : "Create Skill"}
             </button>
           </div>
@@ -243,33 +213,15 @@ export function Workbench({ servers }: { servers: string[] }) {
 
       {/* 5. Done */}
       {created && (
-        <div className="mt-6 rounded-lg border border-emerald-800/50 bg-emerald-950/30 p-5">
-          <div className="text-sm text-emerald-300">
-            Skill <span className="font-semibold">{created.name}</span> created — anyone
-            can run it now.
+        <div className="mt-6 rounded-xl border border-[color:color-mix(in_oklab,var(--positive)_35%,var(--border))] bg-[color:color-mix(in_oklab,var(--positive)_10%,transparent)] p-5">
+          <div className="text-sm text-[var(--positive)]">
+            Skill <span className="font-semibold">{created.name}</span> created — anyone can run it now.
           </div>
-          <Link
-            href={`/skills/${created.slug}`}
-            className="mt-3 inline-block rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 transition hover:bg-emerald-400"
-          >
+          <Link href={`/skills/${created.slug}`} className="btn-brand mt-3">
             Open the Skill →
           </Link>
         </div>
       )}
-
-      <style>{`
-        .input {
-          width: 100%;
-          border-radius: 0.5rem;
-          border: 1px solid rgb(38 38 38);
-          background: rgb(23 23 23 / 0.6);
-          padding: 0.5rem 0.75rem;
-          font-size: 0.875rem;
-          color: rgb(245 245 245);
-          outline: none;
-        }
-        .input:focus { border-color: rgb(82 82 82); }
-      `}</style>
     </div>
   );
 }
@@ -277,7 +229,7 @@ export function Workbench({ servers }: { servers: string[] }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <div className="mb-1 text-xs text-neutral-500">{label}</div>
+      <div className="mb-1 text-xs text-[var(--muted)]">{label}</div>
       {children}
     </label>
   );

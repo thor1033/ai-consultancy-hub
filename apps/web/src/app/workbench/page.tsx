@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { KNOWN_SERVERS } from "@/lib/runSession";
 import { Workbench } from "./Workbench";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -9,19 +9,12 @@ export const dynamic = "force-dynamic";
 // a reusable Skill anyone can run.
 export default function WorkbenchPage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      <Link href="/" className="text-sm text-neutral-400 hover:text-neutral-200">
-        ← Skills
-      </Link>
-
-      <header className="mt-6 mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Skillification workbench</h1>
-        <p className="mt-1 text-neutral-400">
-          Do the work once, end-to-end, with the tools it needs. Then capture the
-          session as a reusable Skill.
-        </p>
-      </header>
-
+    <main className="mx-auto max-w-3xl px-5 py-7 lg:px-8">
+      <PageHeader
+        eyebrow="Workbench"
+        title="Skillification"
+        subtitle="Do the work once, end-to-end, with the tools it needs. Then capture the session as a reusable Skill."
+      />
       <Workbench servers={[...KNOWN_SERVERS]} />
     </main>
   );

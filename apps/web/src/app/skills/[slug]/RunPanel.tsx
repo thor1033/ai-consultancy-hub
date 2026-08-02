@@ -55,8 +55,8 @@ export function RunPanel({
   const latencyS = result ? (result.result.latencyMs / 1000).toFixed(1) : null;
 
   return (
-    <div className="mt-8">
-      <h2 className="mb-3 text-sm font-medium uppercase tracking-wide text-neutral-500">
+    <div className="panel mt-6 p-5">
+      <h2 className="mb-3 text-xs font-medium uppercase tracking-wide text-[var(--muted)]">
         Run
       </h2>
 
@@ -65,41 +65,35 @@ export function RunPanel({
         onChange={(e) => setInput(e.target.value)}
         placeholder="Enter the input for this skill…"
         rows={4}
-        className="w-full resize-y rounded-lg border border-neutral-800 bg-neutral-900/60 p-3 text-sm outline-none focus:border-neutral-600"
+        className="field resize-y"
       />
 
       <div className="mt-3 flex items-center justify-between">
-        <label className="flex items-center gap-2 text-sm text-neutral-400">
+        <label className="flex items-center gap-2 text-sm text-[var(--muted)]">
           <input
             type="checkbox"
             checked={retrieve}
             onChange={(e) => setRetrieve(e.target.checked)}
-            className="accent-emerald-500"
+            className="accent-[var(--brand)]"
           />
           Use knowledge base (RAG)
         </label>
-        <button
-          onClick={run}
-          disabled={loading || !input.trim()}
-          className="rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 transition hover:bg-emerald-400 disabled:cursor-not-allowed disabled:opacity-40"
-        >
+        <button onClick={run} disabled={loading || !input.trim()} className="btn-brand">
           {loading ? "Running…" : "Run skill"}
         </button>
       </div>
 
       {error && (
-        <div className="mt-4 rounded-lg border border-red-900/50 bg-red-950/30 p-4 text-sm text-red-300">
+        <div className="mt-4 rounded-lg border border-[var(--border)] border-l-2 border-l-[var(--danger)] p-4 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}
 
       {result && (
         <div className="mt-6 space-y-4">
-          <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
-            <div className="mb-2 text-xs uppercase tracking-wide text-neutral-500">
-              Output
-            </div>
-            <pre className="whitespace-pre-wrap break-words text-sm text-neutral-100">
+          <div className="inset p-4">
+            <div className="mb-2 text-xs uppercase tracking-wide text-[var(--muted)]">Output</div>
+            <pre className="whitespace-pre-wrap break-words text-sm text-[var(--text)]">
               {result.result.text || "(no text output)"}
             </pre>
           </div>
@@ -108,47 +102,36 @@ export function RunPanel({
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
             <Metric
               label="Manual baseline"
-              value={
-                baselineMinutes != null ? `${baselineMinutes} min` : "—"
-              }
+              value={baselineMinutes != null ? `${baselineMinutes} min` : "—"}
               accent
             />
             <Metric label="Ran in" value={`${latencyS}s`} accent />
             <Metric label="Model cost" value={fmtUsd(result.result.costUsd)} />
-            <Metric
-              label="Tokens"
-              value={result.result.usage.totalTokens.toLocaleString()}
-            />
+            <Metric label="Tokens" value={result.result.usage.totalTokens.toLocaleString()} />
           </div>
 
-          <div className="text-xs text-neutral-500">
-            v{result.skill.version} · {result.result.model} ·{" "}
-            {result.result.iterations} turn
+          <div className="mono text-xs text-[var(--muted)]">
+            v{result.skill.version} · {result.result.model} · {result.result.iterations} turn
             {result.result.iterations === 1 ? "" : "s"}
             {result.retrievedCount > 0 &&
-              ` · ${result.retrievedCount} context chunk${
-                result.retrievedCount === 1 ? "" : "s"
-              }`}
+              ` · ${result.retrievedCount} context chunk${result.retrievedCount === 1 ? "" : "s"}`}
             {result.result.traceId && ` · trace ${result.result.traceId}`}
           </div>
 
           {/* RAG provenance: exactly what context the agent was given. */}
           {result.retrieved.length > 0 && (
-            <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
-              <div className="mb-2 text-xs uppercase tracking-wide text-neutral-500">
+            <div className="inset p-4">
+              <div className="mb-2 text-xs uppercase tracking-wide text-[var(--muted)]">
                 Context used ({result.retrieved.length})
               </div>
               <ul className="space-y-1 text-sm">
                 {result.retrieved.map((r) => (
-                  <li
-                    key={`${r.documentId}-${r.chunkIndex}`}
-                    className="flex items-center justify-between gap-3"
-                  >
-                    <span className="truncate text-neutral-300">
+                  <li key={`${r.documentId}-${r.chunkIndex}`} className="flex items-center justify-between gap-3">
+                    <span className="truncate text-[var(--text-soft)]">
                       {r.title || "(untitled)"}{" "}
-                      <span className="text-neutral-600">#{r.chunkIndex}</span>
+                      <span className="text-[var(--muted)]">#{r.chunkIndex}</span>
                     </span>
-                    <span className="shrink-0 tabular-nums text-xs text-neutral-500">
+                    <span className="mono shrink-0 text-xs text-[var(--brand-ink)]">
                       {(r.score * 100).toFixed(0)}% match
                     </span>
                   </li>
@@ -172,11 +155,11 @@ function Metric({
   accent?: boolean;
 }) {
   return (
-    <div className="rounded-lg border border-neutral-800 bg-neutral-900/40 p-3">
-      <div className="text-xs text-neutral-500">{label}</div>
+    <div className="inset p-3">
+      <div className="text-xs text-[var(--muted)]">{label}</div>
       <div
-        className={`mt-1 text-lg font-semibold ${
-          accent ? "text-emerald-400" : "text-neutral-100"
+        className={`metric mt-1 text-lg font-semibold ${
+          accent ? "text-[var(--positive)]" : "text-[var(--text)]"
         }`}
       >
         {value}

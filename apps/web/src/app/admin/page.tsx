@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { AdminConsole } from "./AdminConsole";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -8,19 +8,12 @@ export const dynamic = "force-dynamic";
 // see why each skill can be run — the roles allowed plus any explicit grants.
 export default function AdminPage() {
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
-      <Link href="/" className="text-sm text-neutral-400 hover:text-neutral-200">
-        ← Skills
-      </Link>
-
-      <header className="mt-6 mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Control plane</h1>
-        <p className="mt-1 text-neutral-400">
-          Enable or disable MCP servers and Skills, and see who can run what.
-          Changes take effect on the next run.
-        </p>
-      </header>
-
+    <main className="mx-auto max-w-[80rem] px-5 py-7 lg:px-8">
+      <PageHeader
+        eyebrow="Control plane"
+        title="MCP servers & Skills"
+        subtitle="Enable or disable MCP servers and Skills, and see who can run what. Changes take effect on the next run."
+      />
       <AdminConsole />
     </main>
   );

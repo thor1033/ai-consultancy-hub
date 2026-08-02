@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { QUESTIONS, CATEGORY_LABELS, WORKFLOW_PROMPT } from "@/lib/assessmentRubric";
 import { AssessmentForm } from "./AssessmentForm";
+import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
 
@@ -9,19 +9,12 @@ export const dynamic = "force-dynamic";
 // dollar-priced opportunity report — the top of the consultancy's funnel.
 export default function AssessmentPage() {
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      <Link href="/" className="text-sm text-neutral-400 hover:text-neutral-200">
-        ← Skills
-      </Link>
-
-      <header className="mt-6 mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">AI Readiness Assessment</h1>
-        <p className="mt-1 text-neutral-400">
-          Six questions and one workflow. Get a readiness score and a concrete,
-          dollar-valued view of what to automate first — free, no login.
-        </p>
-      </header>
-
+    <main className="mx-auto max-w-3xl px-5 py-7 lg:px-8">
+      <PageHeader
+        eyebrow="Assessment"
+        title="AI Readiness Assessment"
+        subtitle="Six questions and one workflow. Get a readiness score and a concrete, dollar-valued view of what to automate first — free, no login."
+      />
       <AssessmentForm
         questions={QUESTIONS}
         categoryLabels={CATEGORY_LABELS}

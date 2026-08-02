@@ -1,6 +1,6 @@
-import Link from "next/link";
 import { listDocuments, listCollections, embedderStatus, listSources } from "@ai-hub/rag";
 import { KnowledgeConsole } from "./KnowledgeConsole";
+import { PageHeader } from "@/components/PageHeader";
 import type { KnowledgeSnapshot, SourceRow } from "./types";
 
 export const dynamic = "force-dynamic";
@@ -26,23 +26,17 @@ export default async function KnowledgePage() {
   }
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
-      <Link href="/" className="text-sm text-neutral-400 hover:text-neutral-200">
-        ← Skills
-      </Link>
-
-      <header className="mt-6 mb-8">
-        <h1 className="text-2xl font-semibold tracking-tight">Knowledge base</h1>
-        <p className="mt-1 text-neutral-400">
-          The documents your Skills can retrieve as context. Add or remove sources,
-          and test exactly what a query would pull.
-        </p>
-      </header>
+    <main className="mx-auto max-w-[80rem] px-5 py-7 lg:px-8">
+      <PageHeader
+        eyebrow="Knowledge"
+        title="Knowledge base"
+        subtitle="The documents your Skills can retrieve as context. Add or remove sources, and test exactly what a query would pull."
+      />
 
       {error ? (
-        <div className="rounded-lg border border-amber-900/50 bg-amber-950/30 p-4 text-sm text-amber-300">
+        <div className="panel border-l-2 border-l-[var(--warning)] p-4 text-sm text-[var(--warning)]">
           Couldn&apos;t load knowledge: {error}
-          <div className="mt-2 text-amber-400/80">
+          <div className="mt-2 text-[var(--muted)]">
             Set <code>DATABASE_URL</code> and run{" "}
             <code>npm run migrate -w @ai-hub/db</code>.
           </div>

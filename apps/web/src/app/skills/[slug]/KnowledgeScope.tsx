@@ -31,15 +31,15 @@ export function KnowledgeScope({
   }
 
   return (
-    <div className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
-      <div className="text-xs uppercase tracking-wide text-neutral-500">
+    <div className="panel mt-6 p-4">
+      <div className="text-xs uppercase tracking-wide text-[var(--muted)]">
         Knowledge scope
       </div>
-      <p className="mt-1 text-sm text-neutral-400">
+      <p className="mt-1 text-sm text-[var(--muted)]">
         When RAG is on, this skill retrieves from{" "}
         {saved ? (
           <>
-            the <span className="text-emerald-400">{saved}</span> collection.
+            the <span className="text-[var(--brand-ink)]">{saved}</span> collection.
           </>
         ) : (
           <>the whole knowledge base.</>
@@ -50,7 +50,7 @@ export function KnowledgeScope({
         <select
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          className="rounded-lg border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
+          className="field max-w-[16rem]"
         >
           <option value="">Whole knowledge base</option>
           {collections.map((c) => (
@@ -59,16 +59,12 @@ export function KnowledgeScope({
             </option>
           ))}
         </select>
-        <button
-          onClick={save}
-          disabled={busy || !dirty}
-          className="rounded-lg border border-neutral-700 px-4 py-2 text-sm text-neutral-200 transition hover:border-emerald-500/50 hover:text-emerald-400 disabled:opacity-40"
-        >
+        <button onClick={save} disabled={busy || !dirty} className="btn">
           {busy ? "Saving…" : "Save"}
         </button>
       </div>
 
-      {error && <div className="mt-2 text-sm text-red-300">{error}</div>}
+      {error && <div className="mt-2 text-sm text-[var(--danger)]">{error}</div>}
     </div>
   );
 }

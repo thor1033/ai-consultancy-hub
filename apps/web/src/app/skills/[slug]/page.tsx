@@ -25,11 +25,8 @@ export default async function SkillPage({
 
   if (error) {
     return (
-      <main className="mx-auto max-w-3xl px-6 py-12">
-        <Link href="/" className="text-sm text-neutral-400 hover:text-neutral-200">
-          ← Skills
-        </Link>
-        <div className="mt-6 rounded-lg border border-amber-900/50 bg-amber-950/30 p-4 text-sm text-amber-300">
+      <main className="mx-auto max-w-3xl px-5 py-7 lg:px-8">
+        <div className="panel border-l-2 border-l-[var(--warning)] p-4 text-sm text-[var(--warning)]">
           Couldn&apos;t load this skill: {error}
         </div>
       </main>
@@ -41,46 +38,39 @@ export default async function SkillPage({
   const latest = skill.versions[0];
 
   return (
-    <main className="mx-auto max-w-3xl px-6 py-12">
-      <Link href="/" className="text-sm text-neutral-400 hover:text-neutral-200">
-        ← Skills
+    <main className="mx-auto max-w-3xl px-5 py-7 lg:px-8">
+      <Link href="/" className="chip mb-5">
+        ← Overview
       </Link>
 
-      <div className="mt-6 flex items-start justify-between gap-4">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">{skill.name}</h1>
-          <p className="mt-1 text-neutral-400">
-            {skill.description || "No description."}
-          </p>
+          <p className="mt-1 text-[var(--muted)]">{skill.description || "No description."}</p>
         </div>
-        <span className="shrink-0 rounded-full border border-neutral-700 px-2 py-0.5 text-xs text-neutral-400">
-          v{skill.latestVersion ?? "—"}
-        </span>
+        <span className="chip mono shrink-0">v{skill.latestVersion ?? "—"}</span>
       </div>
 
       {latest && (
         <div className="mt-4 flex flex-wrap gap-2 text-xs">
-          {latest.model && (
-            <Badge>{latest.model}</Badge>
-          )}
+          {latest.model && <span className="chip mono">{latest.model}</span>}
           {latest.baselineMinutes != null && (
-            <Badge>≈ {latest.baselineMinutes} min manual</Badge>
+            <span className="chip">≈ {latest.baselineMinutes} min manual</span>
           )}
           {Array.isArray(latest.mcpServers) && latest.mcpServers.length > 0 && (
-            <Badge>
-              {latest.mcpServers.length} MCP server
-              {latest.mcpServers.length === 1 ? "" : "s"}
-            </Badge>
+            <span className="chip">
+              {latest.mcpServers.length} MCP server{latest.mcpServers.length === 1 ? "" : "s"}
+            </span>
           )}
         </div>
       )}
 
       {latest && (
-        <details className="mt-6 rounded-lg border border-neutral-800 bg-neutral-900/40 p-4">
-          <summary className="cursor-pointer text-sm text-neutral-400">
+        <details className="panel mt-6 p-4">
+          <summary className="cursor-pointer text-sm text-[var(--text-soft)]">
             Skill instructions
           </summary>
-          <pre className="mt-3 whitespace-pre-wrap break-words text-sm text-neutral-300">
+          <pre className="mt-3 whitespace-pre-wrap break-words text-sm text-[var(--text-soft)]">
             {latest.instructions}
           </pre>
         </details>
@@ -94,13 +84,5 @@ export default async function SkillPage({
 
       <RunPanel slug={skill.slug} baselineMinutes={latest?.baselineMinutes ?? null} />
     </main>
-  );
-}
-
-function Badge({ children }: { children: React.ReactNode }) {
-  return (
-    <span className="rounded-full border border-neutral-700 bg-neutral-900 px-2.5 py-0.5 text-neutral-400">
-      {children}
-    </span>
   );
 }

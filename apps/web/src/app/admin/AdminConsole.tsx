@@ -34,7 +34,6 @@ export function AdminConsole() {
     setLoading(false);
   }, []);
 
-  // Resume a previously verified token so the console survives reloads.
   useEffect(() => {
     const saved = localStorage.getItem(TOKEN_KEY);
     if (saved) {
@@ -46,16 +45,14 @@ export function AdminConsole() {
   async function toggleSkill(s: AdminSkill) {
     setPending(`skill:${s.slug}`);
     setError(null);
-    const out = await setSkillEnabledAction(token, s.slug, !s.enabled);
-    applyResult(out);
+    applyResult(await setSkillEnabledAction(token, s.slug, !s.enabled));
     setPending(null);
   }
 
   async function toggleMcp(m: AdminMcp) {
     setPending(`mcp:${m.name}`);
     setError(null);
-    const out = await setMcpEnabledAction(token, m.name, !m.enabled);
-    applyResult(out);
+    applyResult(await setMcpEnabledAction(token, m.name, !m.enabled));
     setPending(null);
   }
 
@@ -73,31 +70,31 @@ export function AdminConsole() {
 
   if (!authed || !registry) {
     return (
-      <div className="max-w-md">
+      <div className="panel max-w-md p-5">
         <label className="block">
-          <div className="mb-1 text-xs text-neutral-500">Admin token</div>
+          <div className="mb-1 text-xs text-[var(--muted)]">Admin token</div>
           <input
             type="password"
             value={token}
             onChange={(e) => setToken(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && token.trim() && load(token.trim())}
             placeholder="Bearer token with the admin role"
-            className="w-full rounded-lg border border-neutral-800 bg-neutral-900/60 px-3 py-2 text-sm text-neutral-100 outline-none focus:border-neutral-600"
+            className="field"
           />
         </label>
         {error && (
-          <div className="mt-3 rounded-lg border border-red-900/50 bg-red-950/30 p-3 text-sm text-red-300">
+          <div className="mt-3 rounded-lg border border-[var(--border)] border-l-2 border-l-[var(--danger)] p-3 text-sm text-[var(--danger)]">
             {error}
           </div>
         )}
         <button
           onClick={() => token.trim() && load(token.trim())}
           disabled={loading || !token.trim()}
-          className="mt-4 rounded-lg bg-emerald-500 px-4 py-2 text-sm font-medium text-neutral-950 transition hover:bg-emerald-400 disabled:opacity-40"
+          className="btn-brand mt-4"
         >
           {loading ? "Verifying…" : "Unlock control plane"}
         </button>
-        <p className="mt-3 text-xs text-neutral-600">
+        <p className="mt-3 text-xs text-[var(--muted)]">
           Tokens are configured in <code>HUB_API_TOKENS</code>; only the{" "}
           <code>admin</code> role may manage the control plane.
         </p>
@@ -106,29 +103,28 @@ export function AdminConsole() {
   }
 
   return (
-    <div className="space-y-12">
+    <div className="space-y-8">
       <div className="flex justify-end">
         <button
           onClick={signOut}
-          className="text-xs text-neutral-500 hover:text-neutral-300"
+          className="chip"
         >
           Lock ↩
         </button>
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-900/50 bg-red-950/30 p-3 text-sm text-red-300">
+        <div className="panel border-l-2 border-l-[var(--danger)] p-3 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}
 
-      {/* MCP servers */}
       <section>
         <SectionHeading
           title="MCP servers"
           subtitle="Tool servers agents connect to. A disabled server is dropped from every run."
         />
-        <div className="space-y-3">
+        <div className="space-y-2">
           {registry.mcpServers.map((m) => (
             <Row
               key={m.name}
@@ -137,9 +133,9 @@ export function AdminConsole() {
               busy={pending === `mcp:${m.name}`}
               onToggle={() => toggleMcp(m)}
             >
-              <p className="text-sm text-neutral-400">{m.description}</p>
-              <div className="mt-1 text-xs text-neutral-500">
-                <code>{m.name}</code>
+              <p className="text-sm text-[var(--text-soft)]">{m.description}</p>
+              <div className="mono mt-1 text-xs text-[var(--muted)]">
+                {m.name}
                 {" · "}
                 {m.usedBySkills.length > 0
                   ? `used by ${m.usedBySkills.join(", ")}`
@@ -150,13 +146,12 @@ export function AdminConsole() {
         </div>
       </section>
 
-      {/* Skills */}
       <section>
         <SectionHeading
           title="Skills"
           subtitle="Captured workflows. Disabling one blocks it from running and hides it from the catalog."
         />
-        <div className="space-y-3">
+        <div className="space-y-2">
           {registry.skills.map((s) => (
             <Row
               key={s.slug}
@@ -165,8 +160,8 @@ export function AdminConsole() {
               busy={pending === `skill:${s.slug}`}
               onToggle={() => toggleSkill(s)}
             >
-              <div className="text-xs text-neutral-500">
-                <code>{s.slug}</code> · v{s.latestVersion ?? "—"}
+              <div className="mono text-xs text-[var(--muted)]">
+                {s.slug} · v{s.latestVersion ?? "—"}
                 {s.mcpServers.length > 0 && ` · tools: ${s.mcpServers.join(", ")}`}
               </div>
               <AccessNote skill={s} />
@@ -178,19 +173,21 @@ export function AdminConsole() {
   );
 }
 
-// The "why you can run this" explainer, straight from the policy model.
 function AccessNote({ skill }: { skill: AdminSkill }) {
   const roles = skill.runnableRoles.join(", ");
   return (
-    <p className="mt-1 text-xs text-neutral-500">
-      <span className="text-neutral-400">Who can run: </span>
+    <p className="mt-1 text-xs text-[var(--muted)]">
+      <span className="text-[var(--text-soft)]">Who can run: </span>
       {skill.grantedPrincipals.length > 0 ? (
         <>
-          only <span className="text-neutral-300">{skill.grantedPrincipals.join(", ")}</span>{" "}
+          only{" "}
+          <span className="text-[var(--text)]">{skill.grantedPrincipals.join(", ")}</span>{" "}
           (plus admins) — this skill has explicit grants.
         </>
       ) : (
-        <>any principal with the <span className="text-neutral-300">{roles}</span> role.</>
+        <>
+          any principal with the <span className="text-[var(--text)]">{roles}</span> role.
+        </>
       )}
     </p>
   );
@@ -198,11 +195,9 @@ function AccessNote({ skill }: { skill: AdminSkill }) {
 
 function SectionHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
-    <div className="mb-4">
-      <h2 className="text-sm font-medium uppercase tracking-wide text-neutral-500">
-        {title}
-      </h2>
-      <p className="mt-1 text-sm text-neutral-500">{subtitle}</p>
+    <div className="mb-3">
+      <h2 className="text-sm font-semibold">{title}</h2>
+      <p className="mt-0.5 text-sm text-[var(--muted)]">{subtitle}</p>
     </div>
   );
 }
@@ -221,21 +216,15 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div
-      className={`flex items-start justify-between gap-4 rounded-lg border p-4 transition ${
-        enabled
-          ? "border-neutral-800 bg-neutral-900/40"
-          : "border-neutral-800/60 bg-neutral-950/40 opacity-70"
-      }`}
-    >
+    <div className={`panel flex items-start justify-between gap-4 p-4 ${enabled ? "" : "opacity-65"}`}>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <h3 className="font-medium text-neutral-100">{title}</h3>
+          <h3 className="font-medium text-[var(--text)]">{title}</h3>
           <span
-            className={`rounded-full px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+            className={`rounded px-2 py-0.5 text-[10px] uppercase tracking-wide ${
               enabled
-                ? "bg-emerald-500/10 text-emerald-400"
-                : "bg-neutral-800 text-neutral-500"
+                ? "bg-[var(--brand-soft)] text-[var(--positive)]"
+                : "border border-[var(--border)] text-[var(--muted)]"
             }`}
           >
             {enabled ? "Enabled" : "Disabled"}
@@ -263,13 +252,13 @@ function Toggle({
       aria-checked={enabled}
       disabled={busy}
       onClick={onToggle}
-      className={`relative h-6 w-11 shrink-0 rounded-full transition disabled:opacity-50 ${
-        enabled ? "bg-emerald-500" : "bg-neutral-700"
+      className={`relative h-6 w-11 shrink-0 rounded-full border transition disabled:opacity-50 ${
+        enabled ? "brand-gradient border-transparent" : "border-[var(--border)] bg-[var(--panel-inset)]"
       }`}
     >
       <span
-        className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-transform ${
-          enabled ? "translate-x-5" : "translate-x-0.5"
+        className={`absolute top-0.5 h-5 w-5 rounded-full shadow transition-transform ${
+          enabled ? "translate-x-5 bg-white" : "translate-x-0.5 bg-[var(--muted)]"
         }`}
       />
     </button>
