@@ -7,14 +7,18 @@ import { NAV, isActive, Logo } from "./nav";
 import { ThemeToggle } from "./ThemeToggle";
 import { listMcpServersAction } from "@/app/mcp/actions";
 import type { McpNavItem } from "@/app/mcp/types";
+import { listSkillsNavAction } from "@/app/skills/actions";
+import type { SkillNavItem } from "@/app/skills/nav";
 
 // The persistent command rail (lg+). A slim MobileBar covers smaller screens.
 export function Sidebar() {
   const pathname = usePathname();
   const [servers, setServers] = useState<McpNavItem[]>([]);
+  const [skills, setSkills] = useState<SkillNavItem[]>([]);
 
-  // Live MCP registry, so the rail always mirrors what's actually available.
+  // Live registries, so the rail always mirrors what's actually available.
   useEffect(() => {
+    listSkillsNavAction().then(setSkills).catch(() => {});
     listMcpServersAction().then(setServers).catch(() => {});
   }, [pathname]);
 
@@ -39,6 +43,33 @@ export function Sidebar() {
           </Link>
         ))}
       </nav>
+
+      {skills.length > 0 && (
+        <div className="mt-4">
+          <div className="flex items-center justify-between px-1.5">
+            <Link
+              href="/"
+              className="text-[0.68rem] uppercase tracking-[0.14em] text-[var(--muted)] hover:text-[var(--text)]"
+            >
+              Skills
+            </Link>
+            <span className="mono text-[0.68rem] text-[var(--muted)]">{skills.length}</span>
+          </div>
+          <div className="mt-1.5 flex flex-col gap-0.5">
+            {skills.map((sk) => (
+              <Link
+                key={sk.slug}
+                href={`/skills/${sk.slug}`}
+                data-active={pathname === `/skills/${sk.slug}`}
+                className="nav-item !py-1.5 !text-[0.82rem]"
+              >
+                <span className="dot shrink-0 bg-[var(--brand)] text-[var(--brand)]" />
+                <span className="truncate">{sk.name}</span>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {servers.length > 0 && (
         <div className="mt-4">
