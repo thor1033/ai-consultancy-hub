@@ -68,6 +68,24 @@ create table if not exists agent_sessions (
 );
 create index if not exists agent_sessions_created_idx on agent_sessions (created_at desc);
 
+-- AI Readiness Assessment (docs/02 — the free on-ramp / lead-gen). Stores each
+-- prospect's questionnaire answers, the deterministic readiness scores, and the
+-- Claude-generated opportunity report, so the consultancy can review leads.
+create table if not exists assessments (
+  id           uuid primary key default gen_random_uuid(),
+  company      text,
+  answers      jsonb not null default '{}'::jsonb,   -- questionId -> option score
+  workflow     text,                                 -- described recurring workflow
+  usage_score  numeric,
+  data_score   numeric,
+  overall      numeric,
+  report       jsonb not null default '{}'::jsonb,   -- generated AssessmentReport
+  rate         numeric,                              -- analyst hourly rate used
+  monthly_value_usd numeric,                         -- priced recoverable time / mo
+  created_at   timestamptz not null default now()
+);
+create index if not exists assessments_created_idx on assessments (created_at desc);
+
 -- Security / AuthZ (Thing 6): explicit per-skill run grants. When a skill has
 -- any grants, only listed principals (or admins) may run it — this is the
 -- resource-level policy the OwnedPolicyEngine enforces.

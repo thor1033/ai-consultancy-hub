@@ -54,8 +54,14 @@ the number directors couldn't previously produce.
 session, and distills it via Claude into a reusable, versioned Skill anyone can run.
 Answers the capture-and-package open question in docs/06.
 
+## ✅ AI Readiness Assessment (docs/02)
+`/assessment` — a free, no-login questionnaire scoring AI-usage maturity + data
+readiness (deterministic rubric), plus a Claude-generated opportunity report that
+names what to skillify first and prices recoverable expert time at the analyst
+rate. Each submission persists to `assessments` as a reviewable lead, and the
+report links straight into `/workbench` — the top of the funnel into the paid hub.
+
 ## Next candidates
-- **AI Readiness Assessment** — the free lead-gen on-ramp (docs/02).
 - **Phase 2 hardening** — see below.
 
 ## Deferred to Phase 2 (per docs/07-tech-stack)

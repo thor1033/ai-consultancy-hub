@@ -32,3 +32,13 @@ export type {
   SessionDetail,
   RecordSessionInput,
 } from "./sessions";
+export {
+  recordAssessment,
+  getAssessment,
+  listAssessments,
+} from "./assessments";
+export type {
+  RecordAssessmentInput,
+  AssessmentSummary,
+  AssessmentRecord,
+} from "./assessments";
