@@ -121,6 +121,10 @@ export function PptxStudio({ initialTemplates }: { initialTemplates: StudioTempl
     if (!sel || sel.e < 0) return;
     mutate((t) => { Object.assign(((t.slides as Any[])[sel.s].elements as Any[])[sel.e], patch); });
   }
+  // Drag / resize on the canvas writes geometry straight to the element.
+  function setGeom(s: number, e: number, patch: Record<string, number>) {
+    mutate((t) => { Object.assign(((t.slides as Any[])[s].elements as Any[])[e], patch); });
+  }
   function patchTheme(patch: Any) { mutate((t) => { t.theme = { ...(t.theme as Any), ...patch }; }); }
   function addElement(type: string) {
     const el = newElement(type);
@@ -261,8 +265,8 @@ export function PptxStudio({ initialTemplates }: { initialTemplates: StudioTempl
         {/* Canvas */}
         <div className="flex flex-1 items-start justify-center overflow-auto bg-[var(--bg)] p-6" onClick={() => setSel(null)}>
           <div className="w-full max-w-[64rem]" onClick={(e) => e.stopPropagation()}>
-            <SlideView template={resolved} index={curSlide} selected={sel} onSelect={(s, e) => setSel(e < 0 ? null : { s, e })} />
-            <div className="mt-2 text-center text-xs text-[var(--muted)]">Slide {curSlide + 1} of {slides.length} · click an element to edit, or insert one from the right</div>
+            <SlideView template={resolved} index={curSlide} selected={sel} onSelect={(s, e) => setSel(e < 0 ? null : { s, e })} onGeom={setGeom} />
+            <div className="mt-2 text-center text-xs text-[var(--muted)]">Slide {curSlide + 1} of {slides.length} · drag to move · drag a handle to resize · click empty space to deselect</div>
           </div>
         </div>
 

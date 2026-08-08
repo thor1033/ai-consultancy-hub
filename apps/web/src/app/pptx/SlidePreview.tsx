@@ -1,9 +1,23 @@
 "use client";
 
-import type { ReactNode } from "react";
+import { useRef, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { LAYOUTS, cssColor, CHART_PALETTE, resolvePalette } from "./preview";
 
 type Palette = ReturnType<typeof resolvePalette>;
+const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
+const snap = (v: number) => Math.round(v * 20) / 20; // nearest 0.05in
+
+// Resize handles: fractional position within the element box + the edges each moves.
+const HANDLES: { mode: string; cx: number; cy: number; cursor: string }[] = [
+  { mode: "nw", cx: 0, cy: 0, cursor: "nwse-resize" },
+  { mode: "n", cx: 0.5, cy: 0, cursor: "ns-resize" },
+  { mode: "ne", cx: 1, cy: 0, cursor: "nesw-resize" },
+  { mode: "e", cx: 1, cy: 0.5, cursor: "ew-resize" },
+  { mode: "se", cx: 1, cy: 1, cursor: "nwse-resize" },
+  { mode: "s", cx: 0.5, cy: 1, cursor: "ns-resize" },
+  { mode: "sw", cx: 0, cy: 1, cursor: "nesw-resize" },
+  { mode: "w", cx: 0, cy: 0.5, cursor: "ew-resize" },
+];
 
 // Renders a resolved template (values already substituted) as scaled HTML/SVG.
 // When `onSelect` is provided the canvas becomes editable: elements are
@@ -56,11 +70,13 @@ export function SlideView({
   index,
   selected,
   onSelect,
+  onGeom,
 }: {
   template: Any | null;
   index: number;
   selected?: Selection | null;
   onSelect?: (s: number, e: number) => void;
+  onGeom?: (s: number, e: number, patch: Record<string, number>) => void;
 }) {
   const layout = str(template?.layout, "LAYOUT_WIDE");
   const dims = LAYOUTS[layout] ?? LAYOUTS.LAYOUT_WIDE;
@@ -69,7 +85,7 @@ export function SlideView({
   const slides = Array.isArray(template?.slides) ? (template!.slides as Any[]) : [];
   const slide = slides[index];
   if (!slide) return null;
-  return <Slide slide={slide} index={index} dims={dims} themeBg={str(theme.bg)} pal={pal} selected={selected} onSelect={onSelect} />;
+  return <Slide slide={slide} index={index} dims={dims} themeBg={str(theme.bg)} pal={pal} selected={selected} onSelect={onSelect} onGeom={onGeom} />;
 }
 
 function Slide({
@@ -80,6 +96,7 @@ function Slide({
   pal,
   selected,
   onSelect,
+  onGeom,
 }: {
   slide: Any;
   index: number;
@@ -88,12 +105,62 @@ function Slide({
   pal: Palette;
   selected?: Selection | null;
   onSelect?: (s: number, e: number) => void;
+  onGeom?: (s: number, e: number, patch: Record<string, number>) => void;
 }) {
   const W = dims.w;
   const H = dims.h;
   const bg = cssColor(str(slide.background) || themeBg) ?? "#FFFFFF";
   const elements = Array.isArray(slide.elements) ? (slide.elements as Any[]) : [];
   const editable = !!onSelect;
+  const draggable = editable && !!onGeom;
+
+  // --- drag / resize on the canvas ---
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const drag = useRef<{
+    mode: string; e: number; sx: number; sy: number;
+    ox: number; oy: number; ow: number; oh: number; ppi: number;
+  } | null>(null);
+
+  function beginDrag(ev: ReactPointerEvent, elIndex: number, mode: string) {
+    if (!draggable) return;
+    const rect = wrapRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    ev.stopPropagation();
+    const el = elements[elIndex];
+    drag.current = {
+      mode, e: elIndex, sx: ev.clientX, sy: ev.clientY,
+      ox: num(el.x), oy: num(el.y), ow: num(el.w), oh: num(el.h),
+      ppi: rect.width / W, // pixels per inch (width and height share the aspect ratio)
+    };
+    ev.currentTarget.setPointerCapture(ev.pointerId);
+    onSelect!(index, elIndex);
+  }
+
+  function moveDrag(ev: ReactPointerEvent) {
+    const d = drag.current;
+    if (!d || !onGeom) return;
+    const dx = (ev.clientX - d.sx) / d.ppi;
+    const dy = (ev.clientY - d.sy) / d.ppi;
+    if (d.mode === "move") {
+      onGeom(index, d.e, {
+        x: clamp(snap(d.ox + dx), 0, Math.max(0, W - d.ow)),
+        y: clamp(snap(d.oy + dy), 0, Math.max(0, H - d.oh)),
+      });
+      return;
+    }
+    const MIN = 0.2;
+    let { ox: nx, oy: ny, ow: nw, oh: nh } = d;
+    if (d.mode.includes("e")) nw = clamp(snap(d.ow + dx), MIN, W - d.ox);
+    if (d.mode.includes("s")) nh = clamp(snap(d.oh + dy), MIN, H - d.oy);
+    if (d.mode.includes("w")) { const right = d.ox + d.ow; nx = clamp(snap(d.ox + dx), 0, right - MIN); nw = right - nx; }
+    if (d.mode.includes("n")) { const bottom = d.oy + d.oh; ny = clamp(snap(d.oy + dy), 0, bottom - MIN); nh = bottom - ny; }
+    onGeom(index, d.e, { x: nx, y: ny, w: nw, h: nh });
+  }
+
+  function endDrag() { drag.current = null; }
+  const dragHandlers = draggable
+    ? { onPointerMove: moveDrag, onPointerUp: endDrag, onPointerCancel: endDrag }
+    : {};
 
   // 1 inch spans (100 / W) cqw; 1pt = (1/72) inch.
   const pt = (p: number) => `${(p / 72 / W) * 100}cqw`;
@@ -196,26 +263,56 @@ function Slide({
     return null;
   }
 
+  const selIdx = selected?.s === index && (selected?.e ?? -1) >= 0 ? selected!.e : -1;
+  const selEl = selIdx >= 0 ? elements[selIdx] : null;
+  const selIsLine = !!selEl && str(selEl.type) === "shape" && str(selEl.shape) === "line";
+
   return (
     <div
+      ref={wrapRef}
       className="rounded-lg border border-[var(--border)] shadow-sm"
       style={{ containerType: "size", position: "relative", width: "100%", aspectRatio: `${W} / ${H}`, background: bg }}
       onClick={editable ? () => onSelect!(index, -1) : undefined}
     >
       {elements.map((el, i) => {
-        const isSel = selected?.s === index && selected?.e === i;
+        const isSel = i === selIdx;
         // Hairlines carry zero thickness in the model; let them draw outside the box.
         const isLine = str(el.type) === "shape" && str(el.shape) === "line";
         return (
           <div
             key={i}
             onClick={editable ? (ev) => { ev.stopPropagation(); onSelect!(index, i); } : undefined}
-            style={{ ...box(el), cursor: editable ? "pointer" : "default", outline: isSel ? `2px solid ${pal.accent}` : editable ? "1px dashed transparent" : "none", outlineOffset: "1px", overflow: isLine ? "visible" : "hidden" }}
+            onPointerDown={draggable ? (ev) => beginDrag(ev, i, "move") : undefined}
+            {...dragHandlers}
+            style={{ ...box(el), cursor: draggable ? "move" : editable ? "pointer" : "default", touchAction: draggable ? "none" : undefined, userSelect: draggable ? "none" : undefined, outline: isSel ? `2px solid ${pal.accent}` : editable ? "1px dashed transparent" : "none", outlineOffset: "1px", overflow: isLine ? "visible" : "hidden" }}
           >
             {content(el)}
           </div>
         );
       })}
+
+      {/* Selection overlay — resize handles for the selected element. The body
+          drag is handled by the element itself; this sits above it, non-blocking
+          except on the handles. Lines resize via the panel, not handles. */}
+      {draggable && selEl && !selIsLine && (
+        <div style={{ ...box(selEl), pointerEvents: "none", zIndex: 20 }}>
+          {HANDLES.map((h) => (
+            <div
+              key={h.mode}
+              onPointerDown={(ev) => beginDrag(ev, selIdx, h.mode)}
+              onClick={(ev) => ev.stopPropagation()}
+              {...dragHandlers}
+              style={{
+                position: "absolute", left: `${h.cx * 100}%`, top: `${h.cy * 100}%`,
+                width: 9, height: 9, transform: "translate(-50%, -50%)",
+                background: "#fff", border: `1.5px solid ${pal.accent}`, borderRadius: 2,
+                boxShadow: "0 1px 2px rgba(0,0,0,0.25)", cursor: h.cursor,
+                pointerEvents: "auto", touchAction: "none",
+              }}
+            />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
