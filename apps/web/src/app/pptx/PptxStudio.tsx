@@ -381,6 +381,44 @@ function TextPanel({ el, onChange }: { el: Any; onChange: (p: Any) => void }) {
 
 // Default per-series colors (mirror the renderer/preview series palette).
 const SERIES_PALETTE = ["#2251FF", "#051C2C", "#00A9F4", "#8C9BB0", "#1B3A8C", "#C9D1DC"];
+
+// --- Excel / CSV import -----------------------------------------------------
+type ChartData = { cats: string[]; series: { name: string; values: number[] }[] };
+const cellNum = (s: string) => { const n = Number(String(s).replace(/[,$%\s]/g, "")); return Number.isFinite(n) ? n : 0; };
+const numlike = (s: string) => s.trim() !== "" && Number.isFinite(Number(s.replace(/[,$%\s]/g, "")));
+const yearish = (s: string) => /^(19|20|21)\d{2}$/.test(s.trim());
+
+// Parse a block of spreadsheet cells (tab-separated, as Excel copies) or CSV
+// into chart data. Convention: first column = categories, remaining columns =
+// series; an optional header row names the series.
+function parseGridText(text: string): ChartData | null {
+  const lines = text.replace(/\r/g, "").split("\n").filter((l) => l.trim().length);
+  if (!lines.length) return null;
+  const delim = lines[0].includes("\t") ? "\t" : lines[0].includes(";") ? ";" : ",";
+  const grid = lines.map((l) => l.split(delim).map((c) => c.trim()));
+  const cols = Math.max(...grid.map((r) => r.length));
+  if (cols < 2) return null; // need a label column + at least one value column
+  // Detect a header row: a blank top-left corner, any non-numeric series name,
+  // or all-year column names (e.g. 2024, 2025) all signal a header.
+  const row0vals = grid[0].slice(1);
+  const hasHeader = grid[0][0].trim() === ""
+    || row0vals.some((c) => c !== "" && !numlike(c))
+    || (row0vals.length > 0 && row0vals.every((c) => yearish(c)));
+  const header = hasHeader ? grid[0] : null;
+  const body = hasHeader ? grid.slice(1) : grid;
+  if (!body.length) return null;
+  const names = Array.from({ length: cols - 1 }, (_, i) => header?.[i + 1]?.trim() || `Series ${i + 1}`);
+  const cats = body.map((r, i) => r[0] || `Item ${i + 1}`);
+  const series = names.map((name, si) => ({ name, values: body.map((r) => cellNum(r[si + 1] ?? "")) }));
+  return { cats, series };
+}
+// Swap orientation — for data laid out with series down the rows.
+function transposeData(d: ChartData): ChartData {
+  return {
+    cats: d.series.map((s) => s.name),
+    series: d.cats.map((c, ci) => ({ name: c, values: d.series.map((s) => num(s.values[ci])) })),
+  };
+}
 const toggleCls = (on: boolean) => `rounded border px-2 py-1 text-xs ${on ? "border-[var(--brand-ink)] text-[var(--brand-ink)]" : "border-[var(--border)] text-[var(--muted)]"}`;
 
 // Friendly chart-type presets → the underlying (chartType, barDir, barGrouping).
@@ -418,9 +456,21 @@ function ChartPanel({ el, onChange }: { el: Any; onChange: (p: Any) => void }) {
     : [];
   const seriesColor = (si: number) => str((el.colors as string[] | undefined)?.[si]) || SERIES_PALETTE[si % SERIES_PALETTE.length];
 
+  const [pasteOpen, setPasteOpen] = useState(false);
+  const [pasteText, setPasteText] = useState("");
+  const [transpose, setTranspose] = useState(false);
+  const [pasteErr, setPasteErr] = useState<string | null>(null);
+
   // Data edits normalize to shared labels + {name, values} series.
   const commit = (nextSeries: Any[], nextCats: string[]) =>
     onChange({ labels: nextCats, series: nextSeries.map((s) => ({ name: str(s.name), values: (s.values as number[]) ?? [] })) });
+  function loadPaste() {
+    let d = parseGridText(pasteText);
+    if (!d) { setPasteErr("Couldn't read that — paste rows of tab- or comma-separated cells."); return; }
+    if (transpose) d = transposeData(d);
+    commit(d.series, d.cats);
+    setPasteOpen(false); setPasteText(""); setPasteErr(null);
+  }
   const setCell = (si: number, ci: number, v: number) =>
     commit(series.map((s, i) => i === si ? { ...s, values: cats.map((_, j) => j === ci ? v : num((s.values as number[])?.[j])) } : s), cats);
   const setName = (si: number, v: string) => commit(series.map((s, i) => i === si ? { ...s, name: v } : s), cats);
@@ -458,8 +508,31 @@ function ChartPanel({ el, onChange }: { el: Any; onChange: (p: Any) => void }) {
       <div>
         <div className="mb-1.5 flex items-center justify-between">
           <span className="text-xs font-medium">Data</span>
-          {!bound && <button onClick={addSeries} className="text-xs text-[var(--brand-ink)] hover:underline">+ series</button>}
+          <div className="flex items-center gap-2.5">
+            <button onClick={() => { setPasteOpen((v) => !v); setPasteErr(null); }} className="text-xs text-[var(--brand-ink)] hover:underline">Paste from Excel</button>
+            {!bound && <button onClick={addSeries} className="text-xs text-[var(--brand-ink)] hover:underline">+ series</button>}
+          </div>
         </div>
+        {pasteOpen && (
+          <div className="mb-2 rounded-md border border-[var(--border)] bg-[var(--panel-inset)] p-2">
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              rows={5}
+              spellCheck={false}
+              placeholder={"Paste cells from Excel (or CSV):\n\tQ1\tQ2\tQ3\nRevenue\t12\t19\t8\nCost\t9\t14\t7"}
+              className="field mono resize-y text-[0.7rem] leading-snug"
+            />
+            <label className="mt-1.5 flex items-center gap-1.5 text-[0.7rem] text-[var(--muted)]">
+              <input type="checkbox" checked={transpose} onChange={(e) => setTranspose(e.target.checked)} /> Series run down the rows (transpose)
+            </label>
+            {pasteErr && <p className="mt-1 text-[0.7rem] text-[var(--danger)]">{pasteErr}</p>}
+            <div className="mt-1.5 flex items-center justify-end gap-2">
+              <button onClick={() => { setPasteOpen(false); setPasteErr(null); }} className="btn py-1 text-xs">Cancel</button>
+              <button onClick={loadPaste} className="btn-brand py-1 text-xs">Load data</button>
+            </div>
+          </div>
+        )}
         {bound ? (
           <div className="rounded-md border border-[var(--border)] bg-[var(--panel-inset)] p-2 text-xs text-[var(--muted)]">
             Filled at runtime — bound to <code className="text-[var(--text)]">{str((el.series as Any).$bind)}</code>.
