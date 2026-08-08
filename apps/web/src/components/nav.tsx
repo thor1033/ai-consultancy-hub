@@ -91,6 +91,17 @@ export const NAV: NavItem[] = [
       </svg>
     ),
   },
+  {
+    href: "/pptx",
+    label: "PowerPoint",
+    icon: (
+      <svg {...s}>
+        <rect x="4" y="3" width="16" height="18" rx="1.5" />
+        <path d="M8 8h5a2.5 2.5 0 0 1 0 5H8z" />
+        <path d="M8 13v4" />
+      </svg>
+    ),
+  },
 ];
 
 export function isActive(pathname: string, href: string): boolean {

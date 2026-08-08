@@ -60,6 +60,14 @@ export type {
   RecordSessionInput,
 } from "./sessions";
 export {
+  listTemplates,
+  getTemplate,
+  createTemplate,
+  updateTemplate,
+  deleteTemplate,
+} from "./templates";
+export type { TemplateRow } from "./templates";
+export {
   recordAssessment,
   getAssessment,
   listAssessments,

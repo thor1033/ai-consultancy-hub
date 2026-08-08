@@ -179,6 +179,16 @@ create table if not exists document_chunks (
 create index if not exists document_chunks_embedding_idx
   on document_chunks using hnsw (embedding vector_cosine_ops);
 
+-- PowerPoint templates authored in the pptx Studio. `spec` is the structured
+-- template JSON (@ai-hub/mcp/pptx-template) — the library the agent fills.
+create table if not exists templates (
+  id         uuid primary key default gen_random_uuid(),
+  name       text not null,
+  spec       jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 -- Investment-firm demo skill (see docs/use-cases/investment-firm.md) — wired to
 -- the customer-data, market-data, and pptx MCP servers. Baseline: ~120 min manual.
 insert into skills (slug, name, description)

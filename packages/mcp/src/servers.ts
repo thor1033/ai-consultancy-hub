@@ -9,6 +9,7 @@ export const BUILTIN_SERVER_NAMES = [
   "market-data",
   "customer-data",
   "pptx",
+  "pptx-template",
 ] as const;
 
 const BUILTIN = new Set<string>(BUILTIN_SERVER_NAMES);
