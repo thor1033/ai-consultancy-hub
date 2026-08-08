@@ -33,6 +33,8 @@ const textEl = z.object({
   align: z.enum(["left", "center", "right"]).optional(),
   valign: z.enum(["top", "middle", "bottom"]).optional(),
   fontFace: z.string().optional(),
+  charSpacing: z.number().optional(),
+  lineSpacingMultiple: z.number().optional(),
 });
 
 const bulletsEl = z.object({
@@ -140,4 +142,52 @@ export const templateSchema = z.object({
 // templates from the editor may carry $bind markers, so validate post-resolve.
 export function parseTemplate(t) {
   return templateSchema.parse(t);
+}
+
+// Resource limits for untrusted (client-supplied) templates. A template is data,
+// but an oversized or pathological one can still exhaust memory or the renderer.
+export const LIMITS = {
+  maxJsonBytes: 1_000_000,   // 1 MB serialized
+  maxSlides: 100,
+  maxElementsPerSlide: 200,
+  maxTotalElements: 2000,
+  maxTextLen: 20_000,        // per text/kpi string
+  maxImageBytes: 2_000_000,  // per embedded data: image
+};
+
+// Structural + resource validation for a *raw* template (may carry $bind /
+// {{token}} markers — the schema permits those in bindable positions). Run this
+// before persisting or rendering anything a client sent. Returns {ok:true} or
+// {ok:false, error}. Does not mutate/return the spec, so extra fields survive.
+export function validateTemplate(spec) {
+  let bytes;
+  try { bytes = Buffer.byteLength(JSON.stringify(spec)); }
+  catch { return { ok: false, error: "Template is not serializable." }; }
+  if (bytes > LIMITS.maxJsonBytes) return { ok: false, error: `Template is too large (${bytes} bytes; max ${LIMITS.maxJsonBytes}).` };
+
+  const parsed = templateSchema.safeParse(spec);
+  if (!parsed.success) {
+    const i = parsed.error.issues?.[0];
+    return { ok: false, error: i ? `${i.path.join(".") || "template"}: ${i.message}` : "Template failed validation." };
+  }
+  const t = parsed.data;
+  if (t.slides.length > LIMITS.maxSlides) return { ok: false, error: `Too many slides (max ${LIMITS.maxSlides}).` };
+  let total = 0;
+  for (const s of t.slides) {
+    if (s.elements.length > LIMITS.maxElementsPerSlide) return { ok: false, error: `Too many elements on a slide (max ${LIMITS.maxElementsPerSlide}).` };
+    total += s.elements.length;
+    for (const el of s.elements) {
+      if (el.type === "image") {
+        const src = typeof el.data === "string" ? el.data : (typeof el.path === "string" ? el.path : "");
+        if (src && !src.startsWith("data:")) return { ok: false, error: "Images must be inline data: URIs, not file paths or URLs." };
+        if (src.length > LIMITS.maxImageBytes) return { ok: false, error: "An embedded image is too large." };
+      }
+      if ((el.type === "text" && typeof el.text === "string" && el.text.length > LIMITS.maxTextLen)
+        || (el.type === "kpi" && typeof el.value === "string" && el.value.length > LIMITS.maxTextLen)) {
+        return { ok: false, error: "A text value is too long." };
+      }
+    }
+  }
+  if (total > LIMITS.maxTotalElements) return { ok: false, error: `Too many elements total (max ${LIMITS.maxTotalElements}).` };
+  return { ok: true };
 }

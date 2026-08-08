@@ -1,7 +1,11 @@
 "use server";
 
-import { renderTemplateToBuffer, extractPlaceholders } from "@ai-hub/mcp/pptx-template";
+import { renderTemplateToBuffer, extractPlaceholders, validateTemplate } from "@ai-hub/mcp/pptx-template";
 import { createTemplate, updateTemplate, deleteTemplate } from "@ai-hub/db";
+
+// Guardrails for untrusted input reaching the renderer / agent.
+const MAX_VALUES_BYTES = 500_000; // filled values JSON
+const MAX_AI_CONTEXT = 2_000;     // chars of free-text prompt context
 import { runSession } from "@/lib/runSession";
 import { allStudioTemplates, resolveTemplateSpec, SAMPLE_ID } from "@/lib/pptxTemplates";
 
@@ -46,8 +50,14 @@ export async function generateDeckAction(templateId: string, valuesJson: string,
     if (!template) return { error: `Unknown template: ${templateId}` };
   }
 
-  let values: Record<string, unknown> = {};
+  // Validate structure + resource limits before anything reaches the renderer —
+  // the template may be fully client-supplied.
+  const check = validateTemplate(template);
+  if (!check.ok) return { error: check.error };
+
   const trimmed = valuesJson.trim();
+  if (trimmed.length > MAX_VALUES_BYTES) return { error: "Values payload is too large." };
+  let values: Record<string, unknown> = {};
   if (trimmed) {
     try {
       values = JSON.parse(trimmed);
@@ -71,6 +81,7 @@ export async function generateDeckAction(templateId: string, valuesJson: string,
 export async function fillWithAiAction(templateId: string, context: string) {
   const spec = await resolveTemplateSpec(templateId);
   if (!spec) return { error: `Unknown template: ${templateId}` };
+  context = (context ?? "").slice(0, MAX_AI_CONTEXT);
 
   const fields = extractPlaceholders(spec);
   const system =
@@ -112,7 +123,9 @@ export async function saveTemplateAction(id: string, name: string, templateJson:
   } catch {
     return { error: "Template is not valid JSON." };
   }
-  const cleanName = name.trim() || "Untitled template";
+  const check = validateTemplate(spec);
+  if (!check.ok) return { error: check.error };
+  const cleanName = name.trim().slice(0, 200) || "Untitled template";
 
   try {
     const row = isNew

@@ -163,10 +163,15 @@ function renderElement(pptx, slide, el, pal) {
       }
       break;
     }
-    case "image":
-      if (el.path) slide.addImage({ ...base, path: el.path });
-      else if (el.data) slide.addImage({ ...base, data: el.data });
+    case "image": {
+      // Only embed inline data: URIs. Raw file paths / URLs are refused — a
+      // template is untrusted data, and pptxgenjs would otherwise read arbitrary
+      // server files (or fetch internal URLs) into the deck.
+      const src = typeof el.data === "string" && el.data ? el.data
+        : (typeof el.path === "string" ? el.path : "");
+      if (src.startsWith("data:")) slide.addImage({ ...base, data: src });
       break;
+    }
     case "table": {
       const rows = (el.rows ?? [])
         .map((r) => (Array.isArray(r) ? r : [r]))

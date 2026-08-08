@@ -40,6 +40,17 @@ export function resolve(node: unknown, values: Record<string, unknown>): unknown
 export function parseTemplate(t: unknown): unknown;
 export const templateSchema: unknown;
 
+export type ValidateResult = { ok: true } | { ok: false; error: string };
+export function validateTemplate(spec: unknown): ValidateResult;
+export const LIMITS: {
+  maxJsonBytes: number;
+  maxSlides: number;
+  maxElementsPerSlide: number;
+  maxTotalElements: number;
+  maxTextLen: number;
+  maxImageBytes: number;
+};
+
 export function extractPlaceholders(template: unknown): Placeholder[];
 
 export function loadTemplates(): Map<string, StoredTemplate>;
