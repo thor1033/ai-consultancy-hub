@@ -34,7 +34,7 @@ function newElement(type: string): Any {
     case "text": return { type: "text", x: 0.7, y: 0.6, w: 6, h: 0.7, text: "New text", fontSize: 20, color: INK };
     case "kpi": return { type: "kpi", x: 0.7, y: 0.6, w: 3.4, h: 1.15, label: "Metric", value: "00", caption: "caption", color: ACCENT };
     case "bullets": return { type: "bullets", x: 0.7, y: 0.6, w: 6, h: 3, items: ["First point", "Second point", "Third point"], fontSize: 15, color: INK };
-    case "chart": return { type: "chart", x: 0.7, y: 0.6, w: 7, h: 4, chartType: "bar", title: "Chart", colors: [ACCENT, INK], series: [{ name: "Series 1", labels: ["A", "B", "C"], values: [4, 7, 3] }] };
+    case "chart": return { type: "chart", x: 0.7, y: 0.6, w: 7, h: 4, chartType: "bar", barDir: "col", barGrouping: "clustered", title: "Chart", colors: [ACCENT, INK], labels: ["Q1", "Q2", "Q3"], series: [{ name: "Series 1", values: [4, 7, 3] }] };
     case "table": return { type: "table", x: 0.7, y: 0.6, w: 6, h: 2.5, fontSize: 13, rows: [["Header 1", "Header 2"], ["Row 1", "1"], ["Row 2", "2"]] };
     case "divider": return { type: "shape", shape: "line", x: 0.7, y: 0.9, w: 11.93, h: 0, line: HAIRLINE, lineWidth: 1.5 };
     case "band": return { type: "shape", shape: "rect", x: 0.7, y: 0.6, w: 4, h: 3, fill: SURFACE, radius: 0.04 };
@@ -379,24 +379,164 @@ function TextPanel({ el, onChange }: { el: Any; onChange: (p: Any) => void }) {
   );
 }
 
+// Default per-series colors (mirror the renderer/preview series palette).
+const SERIES_PALETTE = ["#2251FF", "#051C2C", "#00A9F4", "#8C9BB0", "#1B3A8C", "#C9D1DC"];
+const toggleCls = (on: boolean) => `rounded border px-2 py-1 text-xs ${on ? "border-[var(--brand-ink)] text-[var(--brand-ink)]" : "border-[var(--border)] text-[var(--muted)]"}`;
+
+// Friendly chart-type presets → the underlying (chartType, barDir, barGrouping).
+const CHART_PRESETS: { value: string; label: string; patch: Any }[] = [
+  { value: "col", label: "Column", patch: { chartType: "bar", barDir: "col", barGrouping: "clustered" } },
+  { value: "colStacked", label: "Stacked column", patch: { chartType: "bar", barDir: "col", barGrouping: "stacked" } },
+  { value: "colPercent", label: "100% stacked column", patch: { chartType: "bar", barDir: "col", barGrouping: "percentStacked" } },
+  { value: "bar", label: "Bar (horizontal)", patch: { chartType: "bar", barDir: "bar", barGrouping: "clustered" } },
+  { value: "barStacked", label: "Stacked bar", patch: { chartType: "bar", barDir: "bar", barGrouping: "stacked" } },
+  { value: "line", label: "Line", patch: { chartType: "line" } },
+  { value: "area", label: "Area", patch: { chartType: "area" } },
+  { value: "pie", label: "Pie", patch: { chartType: "pie" } },
+  { value: "doughnut", label: "Doughnut", patch: { chartType: "doughnut", holeSize: 55 } },
+  { value: "radar", label: "Radar", patch: { chartType: "radar" } },
+];
+function chartPreset(el: Any): string {
+  const kind = str(el.chartType, "bar");
+  if (kind !== "bar") return kind;
+  const g = str(el.barGrouping, "clustered");
+  if (str(el.barDir, "col") === "bar") return g === "stacked" || g === "percentStacked" ? "barStacked" : "bar";
+  if (g === "stacked") return "colStacked";
+  if (g === "percentStacked") return "colPercent";
+  return "col";
+}
+
 function ChartPanel({ el, onChange }: { el: Any; onChange: (p: Any) => void }) {
-  const type = str(el.chartType, "bar");
-  const colors = Array.isArray(el.colors) ? (el.colors as string[]) : [];
+  const kind = str(el.chartType, "bar");
+  const isCircular = kind === "pie" || kind === "doughnut";
+  const bound = !!el.series && !Array.isArray(el.series) && typeof (el.series as Any).$bind === "string";
+  const series: Any[] = Array.isArray(el.series) ? (el.series as Any[]) : [];
+  const cats: string[] = Array.isArray(el.labels) && (el.labels as unknown[]).length
+    ? (el.labels as unknown[]).map(String)
+    : Array.isArray(series[0]?.labels) ? (series[0].labels as unknown[]).map(String)
+    : Array.isArray(series[0]?.values) ? (series[0].values as unknown[]).map((_, i) => String(i + 1))
+    : [];
+  const seriesColor = (si: number) => str((el.colors as string[] | undefined)?.[si]) || SERIES_PALETTE[si % SERIES_PALETTE.length];
+
+  // Data edits normalize to shared labels + {name, values} series.
+  const commit = (nextSeries: Any[], nextCats: string[]) =>
+    onChange({ labels: nextCats, series: nextSeries.map((s) => ({ name: str(s.name), values: (s.values as number[]) ?? [] })) });
+  const setCell = (si: number, ci: number, v: number) =>
+    commit(series.map((s, i) => i === si ? { ...s, values: cats.map((_, j) => j === ci ? v : num((s.values as number[])?.[j])) } : s), cats);
+  const setName = (si: number, v: string) => commit(series.map((s, i) => i === si ? { ...s, name: v } : s), cats);
+  const setCat = (ci: number, v: string) => commit(series, cats.map((c, i) => i === ci ? v : c));
+  const addCat = () => commit(series.map((s) => ({ ...s, values: [...((s.values as number[]) ?? []), 0] })), [...cats, `Item ${cats.length + 1}`]);
+  const delCat = (ci: number) => commit(series.map((s) => ({ ...s, values: ((s.values as number[]) ?? []).filter((_, i) => i !== ci) })), cats.filter((_, i) => i !== ci));
+  const addSeries = () => commit([...series, { name: `Series ${series.length + 1}`, values: cats.map(() => 0) }], cats);
+  function delSeries(si: number) {
+    if (series.length <= 1) return;
+    const nc = Array.isArray(el.colors) ? (el.colors as string[]).filter((_, i) => i !== si) : undefined;
+    onChange({ labels: cats, series: series.filter((_, i) => i !== si).map((s) => ({ name: str(s.name), values: (s.values as number[]) ?? [] })), ...(nc ? { colors: nc } : {}) });
+  }
+  function setColor(si: number, hex: string) {
+    const base = Array.isArray(el.colors) ? [...(el.colors as string[])] : [];
+    while (base.length <= si) base.push(SERIES_PALETTE[base.length % SERIES_PALETTE.length]);
+    base[si] = hex;
+    onChange({ colors: base });
+  }
+
   return (
-    <div>
-      <Row label="Type">
-        <select value={type} onChange={(e) => onChange({ chartType: e.target.value })} className="field w-24 text-xs">
-          <option value="bar">Bar</option><option value="line">Line</option><option value="area">Area</option><option value="pie">Pie</option>
+    <div className="space-y-3">
+      <label className="block">
+        <span className="mb-1 block text-xs text-[var(--muted)]">Chart type</span>
+        <select value={chartPreset(el)} onChange={(e) => { const p = CHART_PRESETS.find((x) => x.value === e.target.value); if (p) onChange({ barDir: undefined, barGrouping: undefined, holeSize: undefined, ...p.patch }); }} className="field h-8 py-0 text-sm">
+          {CHART_PRESETS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
         </select>
-      </Row>
-      <label className="mb-2.5 block">
-        <span className="mb-1 block text-xs text-[var(--muted)]">Title</span>
-        <input value={str(el.title)} onChange={(e) => onChange({ title: e.target.value })} className="field text-sm" />
       </label>
-      <Row label="Primary color"><input type="color" value={toHex(colors[0] ?? "#10B981")} onChange={(e) => onChange({ colors: [e.target.value, ...colors.slice(1)] })} className="h-7 w-9 rounded border border-[var(--border)] bg-transparent" /></Row>
-      <Row label="Legend">
-        <button onClick={() => onChange({ showLegend: el.showLegend === false })} className={`rounded border px-2 py-1 text-xs ${el.showLegend === false ? "border-[var(--border)] text-[var(--muted)]" : "border-[var(--brand-ink)] text-[var(--brand-ink)]"}`}>{el.showLegend === false ? "Off" : "On"}</button>
-      </Row>
+
+      <label className="block">
+        <span className="mb-1 block text-xs text-[var(--muted)]">Title</span>
+        <input value={str(el.title)} onChange={(e) => onChange({ title: e.target.value })} className="field text-sm" placeholder="Chart title" />
+      </label>
+
+      {/* Data grid */}
+      <div>
+        <div className="mb-1.5 flex items-center justify-between">
+          <span className="text-xs font-medium">Data</span>
+          {!bound && <button onClick={addSeries} className="text-xs text-[var(--brand-ink)] hover:underline">+ series</button>}
+        </div>
+        {bound ? (
+          <div className="rounded-md border border-[var(--border)] bg-[var(--panel-inset)] p-2 text-xs text-[var(--muted)]">
+            Filled at runtime — bound to <code className="text-[var(--text)]">{str((el.series as Any).$bind)}</code>.
+            <button onClick={() => commit([{ name: "Series 1", values: [4, 7, 3] }], ["A", "B", "C"])} className="mt-1.5 block text-[var(--brand-ink)] hover:underline">Replace with editable data</button>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="border-separate border-spacing-0.5 text-xs">
+              <thead>
+                <tr>
+                  <th />
+                  {series.map((s, si) => (
+                    <th key={si} className="font-normal">
+                      <div className="flex items-center gap-1">
+                        <input type="color" value={toHex(seriesColor(si))} onChange={(e) => setColor(si, e.target.value)} className="h-5 w-5 shrink-0 rounded border border-[var(--border)] bg-transparent" title="Series color" />
+                        <input value={str(s.name)} onChange={(e) => setName(si, e.target.value)} className="field h-6 w-16 px-1 py-0 text-xs" />
+                        {series.length > 1 && <button onClick={() => delSeries(si)} className="text-[var(--muted)] hover:text-[var(--danger)]" title="Remove series">✕</button>}
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {cats.map((c, ci) => (
+                  <tr key={ci}>
+                    <td>
+                      <div className="flex items-center gap-1">
+                        <input value={c} onChange={(e) => setCat(ci, e.target.value)} className="field h-6 w-20 px-1 py-0 text-xs" />
+                        {cats.length > 1 && <button onClick={() => delCat(ci)} className="text-[var(--muted)] hover:text-[var(--danger)]" title="Remove category">✕</button>}
+                      </div>
+                    </td>
+                    {series.map((s, si) => (
+                      <td key={si}>
+                        <input type="number" value={num((s.values as number[])?.[ci])} onChange={(e) => setCell(si, ci, Number(e.target.value))} className="field h-6 w-14 px-1 py-0 text-xs" />
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <button onClick={addCat} className="mt-1.5 text-xs text-[var(--brand-ink)] hover:underline">+ category</button>
+          </div>
+        )}
+        {isCircular && series.length > 1 && <p className="mt-1 text-[0.7rem] text-[var(--muted)]">Pie/doughnut charts the first series only.</p>}
+      </div>
+
+      {/* Options */}
+      <div className="space-y-2 border-t border-[var(--border)] pt-2.5">
+        <Row label="Legend">
+          <button onClick={() => onChange({ showLegend: el.showLegend === false })} className={toggleCls(el.showLegend !== false)}>{el.showLegend === false ? "Off" : "On"}</button>
+          {el.showLegend !== false && (
+            <select value={str(el.legendPos, "b")} onChange={(e) => onChange({ legendPos: e.target.value })} className="field h-7 w-[4.5rem] py-0 text-xs">
+              <option value="b">Bottom</option><option value="t">Top</option><option value="l">Left</option><option value="r">Right</option>
+            </select>
+          )}
+        </Row>
+        {!isCircular && (
+          <Row label="Data labels">
+            <button onClick={() => onChange({ dataLabels: !el.dataLabels })} className={toggleCls(!!el.dataLabels)}>{el.dataLabels ? "On" : "Off"}</button>
+          </Row>
+        )}
+        {kind === "doughnut" && (
+          <Row label="Hole size"><input type="number" min={20} max={85} value={num(el.holeSize, 55)} onChange={(e) => onChange({ holeSize: Number(e.target.value) })} className="field w-16 text-xs" /></Row>
+        )}
+        {!isCircular && kind !== "radar" && (
+          <>
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--muted)]">Value axis title</span>
+              <input value={str(el.valAxisTitle)} onChange={(e) => onChange({ valAxisTitle: e.target.value })} className="field text-sm" placeholder="e.g. % / $m" />
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--muted)]">Category axis title</span>
+              <input value={str(el.catAxisTitle)} onChange={(e) => onChange({ catAxisTitle: e.target.value })} className="field text-sm" />
+            </label>
+          </>
+        )}
+      </div>
     </div>
   );
 }

@@ -194,36 +194,57 @@ function renderElement(pptx, slide, el, pal) {
         line: pptx.ChartType.line,
         pie: pptx.ChartType.pie,
         area: pptx.ChartType.area,
+        doughnut: pptx.ChartType.doughnut,
+        radar: pptx.ChartType.radar,
       };
       const data = normalizeChartData(el);
       if (data.length) {
-        const isPie = el.chartType === "pie";
+        const kind = el.chartType ?? "bar";
+        const isCircular = kind === "pie" || kind === "doughnut";
+        const isBar = kind === "bar";
+        const grouping = el.barGrouping ?? "clustered";
+        const stacked = isBar && (grouping === "stacked" || grouping === "percentStacked");
         const colors = (el.colors?.map(hex)) ?? pal.series;
-        slide.addChart(typeMap[el.chartType] ?? pptx.ChartType.bar, data, {
+        // Value labels: circular charts show a % share; bars show values by
+        // default (off when stacked, to avoid clutter); line/area stay clean.
+        const showValue = isCircular ? false : (el.dataLabels ?? (isBar && !stacked));
+        slide.addChart(typeMap[kind] ?? pptx.ChartType.bar, data, {
           ...base,
           chartColors: colors,
+          ...(kind === "doughnut" ? { holeSize: el.holeSize ?? 55 } : {}),
+          ...(isBar ? { barDir: el.barDir ?? "col", barGrouping: grouping } : {}),
+          ...(kind === "radar" ? { radarStyle: "standard" } : {}),
           // Title.
           showTitle: !!el.title,
           title: el.title,
           titleColor: pal.ink,
           titleFontFace: FONT,
           titleFontSize: 13,
-          // Legend (bottom) when it aids reading.
-          showLegend: el.showLegend ?? (isPie || data.length > 1),
-          legendPos: "b",
+          // Legend.
+          showLegend: el.showLegend ?? (isCircular || data.length > 1),
+          legendPos: el.legendPos ?? "b",
           legendColor: pal.muted,
           legendFontFace: FONT,
           legendFontSize: 10,
           // Data labels.
-          showValue: !isPie && el.chartType !== "line",
-          showPercent: isPie,
-          dataLabelColor: isPie ? "FFFFFF" : pal.muted,
+          showValue,
+          showPercent: isCircular,
+          dataLabelColor: isCircular ? "FFFFFF" : pal.muted,
           dataLabelFontFace: FONT,
           dataLabelFontSize: 9,
-          dataLabelPosition: isPie ? "ctr" : "outEnd",
-          // Preserve decimals in value labels (e.g. 2.4, not a rounded 2).
-          dataLabelFormatCode: el.dataLabelFormatCode ?? "#,##0.0",
+          dataLabelPosition: isCircular ? "ctr" : "outEnd",
+          // Circular labels read as a % share; bars/lines keep one decimal.
+          dataLabelFormatCode: el.dataLabelFormatCode ?? (isCircular ? "0%" : "#,##0.0"),
           valAxisLabelFormatCode: el.valAxisLabelFormatCode,
+          // Axis titles (bar/line/area only).
+          showCatAxisTitle: !!el.catAxisTitle,
+          catAxisTitle: el.catAxisTitle,
+          catAxisTitleColor: pal.muted,
+          catAxisTitleFontSize: 10,
+          showValAxisTitle: !!el.valAxisTitle,
+          valAxisTitle: el.valAxisTitle,
+          valAxisTitleColor: pal.muted,
+          valAxisTitleFontSize: 10,
           // Axes + gridlines for a clean, professional read.
           catAxisLabelColor: pal.muted,
           catAxisLabelFontFace: FONT,
@@ -235,7 +256,7 @@ function renderElement(pptx, slide, el, pal) {
           valAxisLineShow: false,
           valGridLine: { color: pal.hairline, size: 1 },
           barGapWidthPct: 45,
-          ...(el.chartType === "line"
+          ...(kind === "line"
             ? { lineDataSymbol: "circle", lineDataSymbolSize: 5, lineSize: 2 }
             : {}),
         });

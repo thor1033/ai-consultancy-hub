@@ -85,7 +85,11 @@ const shapeEl = z.object({
 const chartEl = z.object({
   type: z.literal("chart"),
   ...geometry,
-  chartType: z.enum(["bar", "line", "pie", "area"]).default("bar"),
+  chartType: z.enum(["bar", "line", "pie", "area", "doughnut", "radar"]).default("bar"),
+  // Bar family: direction (col = vertical columns, bar = horizontal) + grouping.
+  barDir: z.enum(["col", "bar"]).optional(),
+  barGrouping: z.enum(["clustered", "stacked", "percentStacked"]).optional(),
+  holeSize: z.number().optional(),   // doughnut inner hole (0–90)
   // series: [{ name, labels?, values }]  — labels may be shared at top level.
   series: or(z.array(z.object({
     name: z.string().optional(),
@@ -95,6 +99,10 @@ const chartEl = z.object({
   labels: or(z.array(z.union([z.string(), z.number()]))).optional(),
   title: z.string().optional(),
   showLegend: z.boolean().optional(),
+  legendPos: z.enum(["b", "t", "l", "r"]).optional(),
+  dataLabels: z.boolean().optional(),   // force value labels on/off
+  catAxisTitle: z.string().optional(),
+  valAxisTitle: z.string().optional(),
   colors: z.array(z.string()).optional(),
   dataLabelFormatCode: z.string().optional(),
   valAxisLabelFormatCode: z.string().optional(),

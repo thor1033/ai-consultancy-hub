@@ -6,6 +6,12 @@ import { LAYOUTS, cssColor, CHART_PALETTE, resolvePalette } from "./preview";
 type Palette = ReturnType<typeof resolvePalette>;
 const clamp = (v: number, lo: number, hi: number) => Math.max(lo, Math.min(hi, v));
 const snap = (v: number) => Math.round(v * 20) / 20; // nearest 0.05in
+// Round an axis maximum up to a clean value (19 -> 20, 33 -> 40, 2.4 -> 3).
+const niceMax = (v: number) => {
+  if (v <= 0) return 1;
+  const step = Math.pow(10, Math.floor(Math.log10(v)));
+  return Math.max(step, Math.ceil(v / step) * step);
+};
 
 // Resize handles: fractional position within the element box + the edges each moves.
 const HANDLES: { mode: string; cx: number; cy: number; cursor: string }[] = [
@@ -246,7 +252,7 @@ function Slide({
         </table>
       );
     }
-    if (type === "chart") return <Chart el={el} />;
+    if (type === "chart") return <Chart el={el} pal={pal} />;
     if (type === "image") {
       const src = str(el.data) || str(el.path);
       return (
@@ -317,52 +323,67 @@ function Slide({
   );
 }
 
-// SVG chart for preview, styled to resemble the native pptx chart: axes,
-// gridlines, value + category labels, and a legend. Not pixel-identical to the
-// downloaded .pptx (that carries a real Office chart), but professional and close.
-function Chart({ el }: { el: Any }) {
-  const type = str(el.chartType, "bar");
+// SVG chart for preview, styled to resemble the native pptx chart across every
+// supported type (column/bar/stacked, line, area, pie, doughnut, radar). Not
+// pixel-identical to the downloaded .pptx (that carries a real Office chart),
+// but professional and close, and driven by the same data model + palette.
+function Chart({ el, pal }: { el: Any; pal: Palette }) {
+  const kind = str(el.chartType, "bar");
+  const horizontal = kind === "bar" && str(el.barDir, "col") === "bar";
+  const grouping = str(el.barGrouping, "clustered");
+  const stacked = kind === "bar" && (grouping === "stacked" || grouping === "percentStacked");
+  const percent = kind === "bar" && grouping === "percentStacked";
+  const isCircular = kind === "pie" || kind === "doughnut";
+  const isRadar = kind === "radar";
+  const isBar = kind === "bar";
   const title = str(el.title);
-  const series = (Array.isArray(el.series) ? el.series : []) as Any[];
-  const colors = (Array.isArray(el.colors) ? (el.colors as string[]).map((c) => cssColor(c)!) : CHART_PALETTE);
-  const clean = series
-    .map((s) => ({ name: str(s.name), values: (Array.isArray(s.values) ? s.values : []).map((v) => num(v)), labels: (Array.isArray(s.labels) ? s.labels : []).map(String) }))
+
+  const sharedLabels = (Array.isArray(el.labels) ? el.labels : []).map(String);
+  const clean = (Array.isArray(el.series) ? (el.series as Any[]) : [])
+    .map((s) => ({
+      name: str(s.name),
+      values: (Array.isArray(s.values) ? s.values : []).map((v: unknown) => num(v)),
+      labels: (Array.isArray(s.labels) && s.labels.length ? s.labels : sharedLabels).map(String),
+    }))
     .filter((s) => s.values.length);
+  const colors = Array.isArray(el.colors) && el.colors.length
+    ? (el.colors as string[]).map((c) => cssColor(c)!)
+    : CHART_PALETTE;
 
   if (!clean.length) {
-    return <div style={{ display: "grid", placeItems: "center", width: "100%", height: "100%", color: "#94A3B8", fontSize: "3cqw" }}>chart</div>;
+    return <div style={{ display: "grid", placeItems: "center", width: "100%", height: "100%", color: pal.muted, fontSize: "3cqw" }}>chart</div>;
   }
 
   const ar = Math.max(0.2, num(el.w, 4) / num(el.h, 3));
-  const VBH = 100;
-  const VBW = 100 * ar;
-  const FS = 4.2;
-
-  const isPie = type === "pie";
+  const VBH = 100, VBW = 100 * ar, FS = 4.2;
+  const font = "'Segoe UI', system-ui, sans-serif";
+  const cats = clean[0].labels;
+  const n = Math.max(...clean.map((s) => s.values.length));
   const names = clean.map((s, i) => s.name || `Series ${i + 1}`);
-  const showLegend = el.showLegend === false ? false : (isPie || clean.length > 1);
+  const legendItems = isCircular ? cats.slice(0, clean[0].values.length) : names;
+  const showLegend = el.showLegend === false ? false : (isCircular || clean.length > 1);
 
   const mTop = title ? 9 : 4;
-  const mBottom = 9 + (showLegend ? 7 : 0);
-  const mLeft = isPie ? 4 : 13;
+  const legendH = showLegend ? 7 : 0;
+  const mBottom = (isCircular || isRadar ? 3 : 8) + legendH;
+  const mLeft = isCircular || isRadar ? 4 : horizontal ? 17 : 13;
   const mRight = 4;
   const plotW = VBW - mLeft - mRight;
   const plotH = VBH - mTop - mBottom;
-  const font = "'Segoe UI', system-ui, sans-serif";
 
   const Frame = ({ children }: { children: ReactNode }) => (
     <svg viewBox={`0 0 ${VBW} ${VBH}`} preserveAspectRatio="none" style={{ width: "100%", height: "100%", fontFamily: font }}>
-      {title && <text x={VBW / 2} y={5.8} textAnchor="middle" fontSize={FS + 0.8} fontWeight={600} fill="#334155">{title}</text>}
+      {title && <text x={VBW / 2} y={5.8} textAnchor="middle" fontSize={FS + 0.8} fontWeight={600} fill={pal.ink}>{title}</text>}
       {children}
       {showLegend && (
         <g>
-          {names.map((nm, i) => {
-            const per = VBW / names.length;
+          {legendItems.map((nm, i) => {
+            const per = VBW / legendItems.length;
             const cx = per * i + per / 2;
             return (
               <g key={i} transform={`translate(${cx - 8}, ${VBH - 3})`}>
                 <rect x={0} y={-3.2} width={3.2} height={3.2} rx={0.6} fill={colors[i % colors.length]} />
-                <text x={4.4} y={-0.4} fontSize={FS - 0.4} fill="#64748B">{nm}</text>
+                <text x={4.4} y={-0.4} fontSize={FS - 0.6} fill={pal.muted}>{nm}</text>
               </g>
             );
           })}
@@ -371,27 +392,36 @@ function Chart({ el }: { el: Any }) {
     </svg>
   );
 
-  if (isPie) {
+  // --- circular: pie + doughnut ---
+  if (isCircular) {
     const vals = clean[0].values;
     const total = vals.reduce((a, b) => a + Math.abs(b), 0) || 1;
-    const cx = mLeft + plotW / 2, cy = mTop + plotH / 2, r = Math.min(plotW, plotH) / 2 - 2;
-    let angle = -Math.PI / 2;
+    const cx = mLeft + plotW / 2, cy = mTop + plotH / 2, R = Math.min(plotW, plotH) / 2 - 2;
+    const holeR = kind === "doughnut" ? R * clamp(num(el.holeSize, 55) / 100, 0.2, 0.85) : 0;
+    let a0 = -Math.PI / 2;
     return (
       <Frame>
         {vals.map((v, i) => {
           const frac = Math.abs(v) / total;
-          const next = angle + frac * Math.PI * 2;
-          const x1 = cx + r * Math.cos(angle), y1 = cy + r * Math.sin(angle);
-          const x2 = cx + r * Math.cos(next), y2 = cy + r * Math.sin(next);
-          const mid = (angle + next) / 2;
-          const lx = cx + r * 0.6 * Math.cos(mid), ly = cy + r * 0.6 * Math.sin(mid);
+          const a1 = a0 + frac * Math.PI * 2;
           const large = frac > 0.5 ? 1 : 0;
-          const d = `M${cx},${cy} L${x1},${y1} A${r},${r} 0 ${large} 1 ${x2},${y2} Z`;
-          angle = next;
+          const oS = `${cx + R * Math.cos(a0)},${cy + R * Math.sin(a0)}`;
+          const oE = `${cx + R * Math.cos(a1)},${cy + R * Math.sin(a1)}`;
+          let d: string;
+          if (holeR > 0) {
+            const iS = `${cx + holeR * Math.cos(a1)},${cy + holeR * Math.sin(a1)}`;
+            const iE = `${cx + holeR * Math.cos(a0)},${cy + holeR * Math.sin(a0)}`;
+            d = `M${oS} A${R},${R} 0 ${large} 1 ${oE} L${iS} A${holeR},${holeR} 0 ${large} 0 ${iE} Z`;
+          } else {
+            d = `M${cx},${cy} L${oS} A${R},${R} 0 ${large} 1 ${oE} Z`;
+          }
+          const mid = (a0 + a1) / 2, lr = holeR > 0 ? (R + holeR) / 2 : R * 0.6;
+          const lx = cx + lr * Math.cos(mid), ly = cy + lr * Math.sin(mid);
+          a0 = a1;
           return (
             <g key={i}>
               <path d={d} fill={colors[i % colors.length]} stroke="#fff" strokeWidth={0.5} />
-              {frac > 0.06 && <text x={lx} y={ly} textAnchor="middle" fontSize={FS - 0.6} fill="#fff" fontWeight={600}>{Math.round(frac * 100)}%</text>}
+              {frac > 0.06 && <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize={FS - 0.8} fill="#fff" fontWeight={600}>{Math.round(frac * 100)}%</text>}
             </g>
           );
         })}
@@ -399,80 +429,172 @@ function Chart({ el }: { el: Any }) {
     );
   }
 
-  const allVals = clean.flatMap((s) => s.values);
-  const rawMax = Math.max(0, ...allVals);
-  const step = Math.pow(10, Math.floor(Math.log10(rawMax || 1)));
-  const max = Math.max(step, Math.ceil((rawMax || 1) / step) * step) || 1;
-  const cats = clean[0].labels;
-  const n = Math.max(...clean.map((s) => s.values.length));
+  // --- radar ---
+  if (isRadar) {
+    const k = Math.max(...clean.map((s) => s.values.length));
+    const cx = mLeft + plotW / 2, cy = mTop + plotH / 2, R = Math.min(plotW, plotH) / 2 - 6;
+    const maxV = niceMax(Math.max(1, ...clean.flatMap((s) => s.values)));
+    const ang = (i: number) => -Math.PI / 2 + (i * 2 * Math.PI) / k;
+    const pt = (i: number, v: number) => `${cx + (v / maxV) * R * Math.cos(ang(i))},${cy + (v / maxV) * R * Math.sin(ang(i))}`;
+    const rings = 4;
+    return (
+      <Frame>
+        {Array.from({ length: rings }, (_, r) => {
+          const rr = (R / rings) * (r + 1);
+          const poly = Array.from({ length: k }, (_, i) => `${cx + rr * Math.cos(ang(i))},${cy + rr * Math.sin(ang(i))}`).join(" ");
+          return <polygon key={r} points={poly} fill="none" stroke={pal.hairline} strokeWidth={0.4} />;
+        })}
+        {Array.from({ length: k }, (_, i) => {
+          const ex = cx + R * Math.cos(ang(i)), ey = cy + R * Math.sin(ang(i));
+          const lx = cx + (R + 3.5) * Math.cos(ang(i)), ly = cy + (R + 3.5) * Math.sin(ang(i));
+          return (
+            <g key={i}>
+              <line x1={cx} y1={cy} x2={ex} y2={ey} stroke={pal.hairline} strokeWidth={0.4} />
+              <text x={lx} y={ly} textAnchor="middle" dominantBaseline="middle" fontSize={FS - 1.2} fill={pal.muted}>{cats[i] ?? ""}</text>
+            </g>
+          );
+        })}
+        {clean.map((s, si) => (
+          <polygon key={si} points={s.values.map((v, i) => pt(i, v)).join(" ")} fill={colors[si % colors.length]} fillOpacity={0.12} stroke={colors[si % colors.length]} strokeWidth={1.1} />
+        ))}
+      </Frame>
+    );
+  }
+
+  // --- cartesian: column / bar / line / area ---
+  const stackTotals = Array.from({ length: n }, (_, i) => clean.reduce((a, s) => a + Math.max(0, num(s.values[i])), 0));
+  const rawMax = stacked ? Math.max(1, ...stackTotals) : Math.max(1, ...clean.flatMap((s) => s.values));
+  const max = percent ? 1 : niceMax(rawMax);
   const x0 = mLeft, y0 = mTop + plotH;
   const yFor = (v: number) => y0 - (v / max) * plotH;
   const gridN = 4;
+  const tick = (v: number) => (percent ? `${Math.round(v * 100)}%` : String(Number(v.toFixed(max < 10 ? 1 : 0))));
 
-  const axis = (
+  const vAxis = (
     <g>
       {Array.from({ length: gridN + 1 }, (_, g) => {
         const gy = mTop + (plotH / gridN) * g;
         const val = max - (max / gridN) * g;
         return (
           <g key={g}>
-            <line x1={x0} y1={gy} x2={x0 + plotW} y2={gy} stroke="#EEF2F7" strokeWidth={0.5} />
-            <text x={x0 - 1.5} y={gy + 1.4} textAnchor="end" fontSize={FS - 0.8} fill="#94A3B8">{Number(val.toFixed(max < 10 ? 1 : 0))}</text>
+            <line x1={x0} y1={gy} x2={x0 + plotW} y2={gy} stroke={pal.hairline} strokeWidth={0.4} />
+            <text x={x0 - 1.5} y={gy + 1.3} textAnchor="end" fontSize={FS - 1.2} fill={pal.muted}>{tick(val)}</text>
           </g>
         );
       })}
-      <line x1={x0} y1={y0} x2={x0 + plotW} y2={y0} stroke="#E5E7EB" strokeWidth={0.6} />
+      <line x1={x0} y1={y0} x2={x0 + plotW} y2={y0} stroke={pal.hairline} strokeWidth={0.6} />
     </g>
   );
-
-  const catLabels = (
-    <g>
-      {cats.slice(0, n).map((c, i) => {
-        const cx = x0 + (plotW / n) * (i + 0.5);
-        return <text key={i} x={cx} y={y0 + 4.2} textAnchor="middle" fontSize={FS - 0.8} fill="#64748B">{c}</text>;
-      })}
-    </g>
+  const catLabelsBottom = (
+    <g>{cats.slice(0, n).map((c, i) => (
+      <text key={i} x={x0 + (plotW / n) * (i + 0.5)} y={y0 + 3.8} textAnchor="middle" fontSize={FS - 1.2} fill={pal.muted}>{c}</text>
+    ))}</g>
   );
 
-  if (type === "line" || type === "area") {
-    return (
-      <Frame>
-        {axis}
-        {clean.map((s, si) => {
-          const pts = s.values.map((v, i) => [x0 + (plotW / n) * (i + 0.5), yFor(v)] as const);
+  // horizontal bar: categories run down the left, values across the bottom.
+  if (isBar && horizontal) {
+    const rowH = plotH / n;
+    const hAxis = (
+      <g>
+        {Array.from({ length: gridN + 1 }, (_, g) => {
+          const gx = x0 + (plotW / gridN) * g;
           return (
-            <g key={si}>
-              {type === "area" && (
-                <polygon points={`${x0},${y0} ${pts.map((p) => p.join(",")).join(" ")} ${x0 + plotW},${y0}`} fill={colors[si % colors.length]} opacity={0.15} />
-              )}
-              <polyline points={pts.map((p) => p.join(",")).join(" ")} fill="none" stroke={colors[si % colors.length]} strokeWidth={1.3} strokeLinejoin="round" />
-              {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={1.1} fill={colors[si % colors.length]} />)}
+            <g key={g}>
+              <line x1={gx} y1={mTop} x2={gx} y2={y0} stroke={pal.hairline} strokeWidth={0.4} />
+              <text x={gx} y={y0 + 3.3} textAnchor="middle" fontSize={FS - 1.2} fill={pal.muted}>{tick((max / gridN) * g)}</text>
             </g>
           );
         })}
-        {catLabels}
+        <line x1={x0} y1={mTop} x2={x0} y2={y0} stroke={pal.hairline} strokeWidth={0.6} />
+      </g>
+    );
+    const catLabelsLeft = (
+      <g>{cats.slice(0, n).map((c, i) => (
+        <text key={i} x={x0 - 1.5} y={mTop + rowH * (i + 0.5) + 1.2} textAnchor="end" fontSize={FS - 1.2} fill={pal.muted}>{c}</text>
+      ))}</g>
+    );
+    return (
+      <Frame>
+        {hAxis}
+        {stacked
+          ? Array.from({ length: n }, (_, i) => {
+              const total = percent ? (stackTotals[i] || 1) : 1;
+              let acc = 0;
+              const bh = rowH * 0.6, by = mTop + rowH * i + (rowH - bh) / 2;
+              return (
+                <g key={i}>{clean.map((s, si) => {
+                  const val = (percent ? Math.max(0, num(s.values[i])) / total : Math.max(0, num(s.values[i])));
+                  const w = (val / max) * plotW, xL = x0 + acc; acc += w;
+                  return <rect key={si} x={xL} y={by} width={Math.max(0, w)} height={bh} fill={colors[si % colors.length]} />;
+                })}</g>
+              );
+            })
+          : clean.flatMap((s, si) => s.values.map((v, i) => {
+              const bh = (rowH * 0.7) / clean.length, by = mTop + rowH * i + rowH * 0.15 + si * bh;
+              const w = (Math.max(0, v) / max) * plotW;
+              return (
+                <g key={`${si}-${i}`}>
+                  <rect x={x0} y={by} width={Math.max(0, w)} height={bh * 0.92} fill={colors[si % colors.length]} rx={0.4} />
+                  {clean.length === 1 && <text x={x0 + w + 1} y={by + bh * 0.7} fontSize={FS - 1.4} fill={pal.muted}>{v}</text>}
+                </g>
+              );
+            }))}
+        {catLabelsLeft}
       </Frame>
     );
   }
 
-  const groupW = plotW / n;
-  const bw = (groupW * 0.62) / clean.length;
+  // vertical columns (clustered / stacked / 100%).
+  if (isBar) {
+    const groupW = plotW / n;
+    return (
+      <Frame>
+        {vAxis}
+        {stacked
+          ? Array.from({ length: n }, (_, i) => {
+              const total = percent ? (stackTotals[i] || 1) : 1;
+              let acc = 0;
+              const bw = groupW * 0.6, bx = x0 + groupW * i + (groupW - bw) / 2;
+              return (
+                <g key={i}>{clean.map((s, si) => {
+                  const val = (percent ? Math.max(0, num(s.values[i])) / total : Math.max(0, num(s.values[i])));
+                  const h = (val / max) * plotH, yT = y0 - acc - h; acc += h;
+                  return <rect key={si} x={bx} y={yT} width={bw} height={Math.max(0, h)} fill={colors[si % colors.length]} />;
+                })}</g>
+              );
+            })
+          : clean.flatMap((s, si) => s.values.map((v, i) => {
+              const bw = (groupW * 0.7) / clean.length, bx = x0 + groupW * i + groupW * 0.15 + si * bw;
+              const h = (Math.max(0, v) / max) * plotH;
+              return (
+                <g key={`${si}-${i}`}>
+                  <rect x={bx} y={y0 - h} width={bw * 0.92} height={Math.max(0, h)} fill={colors[si % colors.length]} rx={0.4} />
+                  {clean.length === 1 && <text x={bx + bw * 0.46} y={y0 - h - 1.2} textAnchor="middle" fontSize={FS - 1.4} fill={pal.muted}>{v}</text>}
+                </g>
+              );
+            }))}
+        {catLabelsBottom}
+      </Frame>
+    );
+  }
+
+  // line + area.
   return (
     <Frame>
-      {axis}
-      {clean.flatMap((s, si) =>
-        s.values.map((v, i) => {
-          const h = (v / max) * plotH;
-          const bx = x0 + groupW * i + groupW * 0.19 + si * bw;
-          return (
-            <g key={`${si}-${i}`}>
-              <rect x={bx} y={y0 - h} width={bw * 0.9} height={Math.max(0, h)} fill={colors[si % colors.length]} rx={0.5} />
-              {clean.length === 1 && <text x={bx + bw * 0.45} y={y0 - h - 1.2} textAnchor="middle" fontSize={FS - 1} fill="#64748B">{v}</text>}
-            </g>
-          );
-        }),
-      )}
-      {catLabels}
+      {vAxis}
+      {clean.map((s, si) => {
+        const pts = s.values.map((v, i) => [x0 + (plotW / n) * (i + 0.5), yFor(v)] as const);
+        return (
+          <g key={si}>
+            {kind === "area" && (
+              <polygon points={`${x0},${y0} ${pts.map((p) => p.join(",")).join(" ")} ${x0 + plotW},${y0}`} fill={colors[si % colors.length]} opacity={0.15} />
+            )}
+            <polyline points={pts.map((p) => p.join(",")).join(" ")} fill="none" stroke={colors[si % colors.length]} strokeWidth={1.3} strokeLinejoin="round" />
+            {pts.map((p, i) => <circle key={i} cx={p[0]} cy={p[1]} r={1.1} fill={colors[si % colors.length]} />)}
+          </g>
+        );
+      })}
+      {catLabelsBottom}
     </Frame>
   );
 }
