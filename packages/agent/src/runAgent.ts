@@ -53,6 +53,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   }
 
   const messages: Anthropic.MessageParam[] = [
+    ...(input.history ?? []),
     { role: "user", content: input.prompt },
   ];
 

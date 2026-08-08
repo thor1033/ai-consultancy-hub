@@ -4,6 +4,8 @@ import type { ModelId } from "./models";
 export interface RunAgentInput {
   /** The user's request for this turn (MVP: a single text message). */
   prompt: string;
+  /** Prior conversation turns, in order, that precede `prompt` (chat mode). */
+  history?: Anthropic.MessageParam[];
   /** Optional system prompt override; defaults to the hub agent persona. */
   system?: string;
   model?: ModelId;

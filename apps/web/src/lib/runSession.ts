@@ -28,6 +28,10 @@ function resolveServer(name: string): McpStdioConfig | null {
 
 export interface RunSessionInput {
   prompt: string;
+  /** Prior chat turns preceding `prompt` (chat mode). */
+  history?: { role: "user" | "assistant"; content: string }[];
+  /** Retrieved context (e.g. RAG) injected as a system block. */
+  context?: string;
   system?: string;
   model?: ModelId;
   effort?: "low" | "medium" | "high" | "max";
@@ -58,6 +62,8 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
 
     const result = await runAgent({
       prompt: input.prompt,
+      history: input.history,
+      context: input.context,
       system: input.system,
       model: input.model,
       effort: input.effort,
