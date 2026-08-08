@@ -47,5 +47,29 @@ export function cssColor(c?: string): string | undefined {
   return c.startsWith("#") ? c : `#${c}`;
 }
 
-// Mirrors the renderer's default palette so preview and .pptx use the same colors.
-export const CHART_PALETTE = ["#10B981", "#3B82F6", "#F59E0B", "#EF4444", "#8B5CF6", "#0EA5E9"];
+// Mirrors the renderer's McKinsey-style design system (resolvePalette in
+// render.mjs) so the on-screen preview matches the downloaded .pptx.
+export const PALETTE = {
+  ink: "#051C2C",
+  accent: "#2251FF",
+  accent2: "#00A9F4",
+  muted: "#6B7684",
+  hairline: "#D6DCE4",
+  surface: "#F2F4F7",
+};
+// Sequential blues + greys — one data family, not a rainbow.
+export const CHART_PALETTE = ["#2251FF", "#051C2C", "#00A9F4", "#8C9BB0", "#1B3A8C", "#C9D1DC"];
+
+// Resolve a deck theme onto the defaults (accepts legacy { bg, accent, text }
+// and the richer palette). Kept in lockstep with the renderer.
+export function resolvePalette(theme: Record<string, unknown> = {}): typeof PALETTE {
+  const pick = (v: unknown, d: string) => (typeof v === "string" && v ? cssColor(v)! : d);
+  return {
+    ink: pick(theme.ink, PALETTE.ink),
+    accent: pick(theme.accent, PALETTE.accent),
+    accent2: pick(theme.accent2, PALETTE.accent2),
+    muted: pick(theme.muted, PALETTE.muted),
+    hairline: pick(theme.hairline, PALETTE.hairline),
+    surface: pick(theme.surface, PALETTE.surface),
+  };
+}

@@ -1,7 +1,9 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { LAYOUTS, cssColor, CHART_PALETTE } from "./preview";
+import { LAYOUTS, cssColor, CHART_PALETTE, resolvePalette } from "./preview";
+
+type Palette = ReturnType<typeof resolvePalette>;
 
 // Renders a resolved template (values already substituted) as scaled HTML/SVG.
 // When `onSelect` is provided the canvas becomes editable: elements are
@@ -29,6 +31,7 @@ export function SlidePreview({
   const layout = str(template?.layout, "LAYOUT_WIDE");
   const dims = LAYOUTS[layout] ?? LAYOUTS.LAYOUT_WIDE;
   const theme = (template?.theme as Any) ?? {};
+  const pal = resolvePalette(theme);
   const slides = Array.isArray(template?.slides) ? (template!.slides as Any[]) : [];
 
   if (!slides.length) {
@@ -40,7 +43,7 @@ export function SlidePreview({
       {slides.map((slide, i) => (
         <div key={i}>
           <div className="mb-1 text-[0.65rem] uppercase tracking-wide text-[var(--muted)]">Slide {i + 1}</div>
-          <Slide slide={slide} index={i} dims={dims} themeBg={str(theme.bg)} selected={selected} onSelect={onSelect} />
+          <Slide slide={slide} index={i} dims={dims} themeBg={str(theme.bg)} pal={pal} selected={selected} onSelect={onSelect} />
         </div>
       ))}
     </div>
@@ -62,10 +65,11 @@ export function SlideView({
   const layout = str(template?.layout, "LAYOUT_WIDE");
   const dims = LAYOUTS[layout] ?? LAYOUTS.LAYOUT_WIDE;
   const theme = (template?.theme as Any) ?? {};
+  const pal = resolvePalette(theme);
   const slides = Array.isArray(template?.slides) ? (template!.slides as Any[]) : [];
   const slide = slides[index];
   if (!slide) return null;
-  return <Slide slide={slide} index={index} dims={dims} themeBg={str(theme.bg)} selected={selected} onSelect={onSelect} />;
+  return <Slide slide={slide} index={index} dims={dims} themeBg={str(theme.bg)} pal={pal} selected={selected} onSelect={onSelect} />;
 }
 
 function Slide({
@@ -73,6 +77,7 @@ function Slide({
   index,
   dims,
   themeBg,
+  pal,
   selected,
   onSelect,
 }: {
@@ -80,6 +85,7 @@ function Slide({
   index: number;
   dims: { w: number; h: number };
   themeBg?: string;
+  pal: Palette;
   selected?: Selection | null;
   onSelect?: (s: number, e: number) => void;
 }) {
@@ -103,30 +109,49 @@ function Slide({
     const type = str(el.type);
     if (type === "text") {
       const valign = str(el.valign, "top");
+      const fontFace = str(el.fontFace);
       return (
         <div
           style={{
             width: "100%", height: "100%", display: "flex",
             alignItems: valign === "middle" ? "center" : valign === "bottom" ? "flex-end" : "flex-start",
-            color: cssColor(str(el.color)) ?? "#1F2937",
+            color: cssColor(str(el.color)) ?? pal.ink,
             fontSize: pt(num(el.fontSize, 16)),
             fontWeight: el.bold ? 700 : 400,
             fontStyle: el.italic ? "italic" : "normal",
+            fontFamily: fontFace ? `${fontFace}, serif` : undefined,
+            letterSpacing: num(el.charSpacing) ? `${num(el.charSpacing) * 0.05}em` : undefined,
             textAlign: (str(el.align, "left") as "left" | "center" | "right"),
-            lineHeight: 1.15, overflow: "hidden",
+            lineHeight: num(el.lineSpacingMultiple) || 1.15, overflow: "hidden",
           }}
         >
           <span style={{ width: "100%" }}>{str(el.text)}</span>
         </div>
       );
     }
-    if (type === "bullets") {
-      const items = (Array.isArray(el.items) ? el.items : []).filter((x) => x != null && x !== "");
+    if (type === "kpi") {
+      const accent = cssColor(str(el.color)) ?? pal.accent;
+      const align = str(el.align, "left") as "left" | "center" | "right";
       return (
-        <ul style={{ width: "100%", height: "100%", color: cssColor(str(el.color)) ?? "#1F2937", fontSize: pt(num(el.fontSize, 16)), listStyle: "disc", paddingLeft: pt(18), margin: 0, lineHeight: 1.3, overflow: "hidden" }}>
-          {items.map((it, j) => <li key={j} style={{ marginBottom: pt(4) }}>{String(it)}</li>)}
-        </ul>
+        <div style={{ width: "100%", height: "100%", display: "flex", flexDirection: "column", justifyContent: "center", textAlign: align, overflow: "hidden" }}>
+          {!!el.label && (
+            <div style={{ fontSize: pt(11), fontWeight: 700, letterSpacing: "0.09em", textTransform: "uppercase", color: pal.muted, marginBottom: pt(3) }}>{str(el.label)}</div>
+          )}
+          <div style={{ fontSize: pt(num(el.valueSize, 40)), fontWeight: 700, color: accent, fontFamily: "Georgia, serif", lineHeight: 1 }}>{str(el.value)}</div>
+          {!!el.caption && <div style={{ fontSize: pt(11), color: pal.muted, marginTop: pt(3) }}>{str(el.caption)}</div>}
+        </div>
       );
+    }
+    if (type === "shape") {
+      if (str(el.shape) === "line") {
+        const color = cssColor(str(el.line)) ?? pal.hairline;
+        const vertical = num(el.h) > num(el.w);
+        const thick = `${Math.max(0.5, num(el.lineWidth, 1))}px`;
+        return vertical
+          ? <div style={{ position: "absolute", top: 0, left: 0, height: "100%", borderLeft: `${thick} solid ${color}` }} />
+          : <div style={{ position: "absolute", top: 0, left: 0, width: "100%", borderTop: `${thick} solid ${color}` }} />;
+      }
+      return <div style={{ width: "100%", height: "100%", background: cssColor(str(el.fill)) ?? pal.accent, borderRadius: pt(num(el.radius) * 72) }} />;
     }
     if (type === "table") {
       const rows = (Array.isArray(el.rows) ? el.rows : []) as unknown[];
@@ -142,7 +167,7 @@ function Slide({
                     const opts = (cell.options as Any) ?? {};
                     const fill = (opts.fill as Any)?.color;
                     return (
-                      <td key={ci} style={{ border: "1px solid #E5E7EB", padding: `${pt(3)} ${pt(6)}`, fontWeight: opts.bold ? 700 : 400, background: fill ? cssColor(String(fill)) : undefined, color: "#1F2937" }}>
+                      <td key={ci} style={{ border: `1px solid ${pal.hairline}`, padding: `${pt(4)} ${pt(7)}`, fontWeight: opts.bold ? 700 : 400, background: fill ? cssColor(String(fill)) : undefined, color: cssColor(str(opts.color)) ?? pal.ink, textAlign: (str(opts.align, "left") as "left" | "center" | "right") }}>
                         {String(cell.text ?? "")}
                       </td>
                     );
@@ -179,11 +204,13 @@ function Slide({
     >
       {elements.map((el, i) => {
         const isSel = selected?.s === index && selected?.e === i;
+        // Hairlines carry zero thickness in the model; let them draw outside the box.
+        const isLine = str(el.type) === "shape" && str(el.shape) === "line";
         return (
           <div
             key={i}
             onClick={editable ? (ev) => { ev.stopPropagation(); onSelect!(index, i); } : undefined}
-            style={{ ...box(el), cursor: editable ? "pointer" : "default", outline: isSel ? "2px solid #3B82F6" : editable ? "1px dashed transparent" : "none", outlineOffset: "1px", overflow: "hidden" }}
+            style={{ ...box(el), cursor: editable ? "pointer" : "default", outline: isSel ? `2px solid ${pal.accent}` : editable ? "1px dashed transparent" : "none", outlineOffset: "1px", overflow: isLine ? "visible" : "hidden" }}
           >
             {content(el)}
           </div>

@@ -21,20 +21,38 @@ const toHex = (c: unknown) => { const s = typeof c === "string" ? c : ""; return
 const str = (v: unknown, d = "") => (typeof v === "string" ? v : d);
 const num = (v: unknown, d = 0) => (typeof v === "number" ? v : d);
 
-// New-element factories (inches).
+// McKinsey-style palette (mirrors resolvePalette in the renderer/preview).
+const INK = "#051C2C";
+const ACCENT = "#2251FF";
+const HAIRLINE = "#D6DCE4";
+const SURFACE = "#F2F4F7";
+
+// New-element factories (inches). Defaults land on the deck palette so anything
+// inserted already looks consistent, not neon.
 function newElement(type: string): Any {
   switch (type) {
-    case "text": return { type: "text", x: 0.6, y: 0.6, w: 6, h: 1, text: "New text", fontSize: 20, color: "#1F2937" };
-    case "bullets": return { type: "bullets", x: 0.6, y: 0.6, w: 6, h: 3, items: ["First point", "Second point", "Third point"], fontSize: 16, color: "#1F2937" };
-    case "chart": return { type: "chart", x: 0.6, y: 0.6, w: 7, h: 4, chartType: "bar", title: "Chart", colors: ["#10B981"], series: [{ name: "Series 1", labels: ["A", "B", "C"], values: [4, 7, 3] }] };
-    case "table": return { type: "table", x: 0.6, y: 0.6, w: 6, h: 2.5, rows: [["Header 1", "Header 2"], ["Row 1", "1"], ["Row 2", "2"]] };
-    default: return { type: "text", x: 0.6, y: 0.6, w: 6, h: 1, text: "New text" };
+    case "text": return { type: "text", x: 0.7, y: 0.6, w: 6, h: 0.7, text: "New text", fontSize: 20, color: INK };
+    case "kpi": return { type: "kpi", x: 0.7, y: 0.6, w: 3.4, h: 1.15, label: "Metric", value: "00", caption: "caption", color: ACCENT };
+    case "bullets": return { type: "bullets", x: 0.7, y: 0.6, w: 6, h: 3, items: ["First point", "Second point", "Third point"], fontSize: 15, color: INK };
+    case "chart": return { type: "chart", x: 0.7, y: 0.6, w: 7, h: 4, chartType: "bar", title: "Chart", colors: [ACCENT, INK], series: [{ name: "Series 1", labels: ["A", "B", "C"], values: [4, 7, 3] }] };
+    case "table": return { type: "table", x: 0.7, y: 0.6, w: 6, h: 2.5, fontSize: 13, rows: [["Header 1", "Header 2"], ["Row 1", "1"], ["Row 2", "2"]] };
+    case "divider": return { type: "shape", shape: "line", x: 0.7, y: 0.9, w: 11.93, h: 0, line: HAIRLINE, lineWidth: 1.5 };
+    case "band": return { type: "shape", shape: "rect", x: 0.7, y: 0.6, w: 4, h: 3, fill: SURFACE, radius: 0.04 };
+    default: return { type: "text", x: 0.7, y: 0.6, w: 6, h: 0.7, text: "New text", color: INK };
   }
 }
 const blankSlide = (): Any => ({ background: "#FFFFFF", elements: [] });
 const blankTemplate = (): Any => ({
-  name: "Untitled", layout: "LAYOUT_WIDE", theme: { bg: "#0B1220", accent: "#10B981" },
-  slides: [{ background: "#0B1220", elements: [{ type: "text", x: 0.6, y: 2.6, w: 12, h: 1.2, text: "Title", fontSize: 40, bold: true, color: "#FFFFFF" }] }],
+  name: "Untitled", layout: "LAYOUT_WIDE",
+  theme: { bg: "#FFFFFF", ink: INK, accent: ACCENT, hairline: HAIRLINE, surface: SURFACE },
+  slides: [{
+    background: INK,
+    elements: [
+      { type: "shape", shape: "rect", x: 0.7, y: 1.95, w: 1.25, h: 0.1, fill: ACCENT },
+      { type: "text", x: 0.7, y: 2.2, w: 11, h: 0.35, text: "KICKER", fontSize: 13, bold: true, color: "#00A9F4", charSpacing: 2 },
+      { type: "text", x: 0.7, y: 2.6, w: 12, h: 1.3, text: "Presentation title", fontSize: 44, bold: true, color: "#FFFFFF", fontFace: "Georgia" },
+    ],
+  }],
 });
 
 export function PptxStudio({ initialTemplates }: { initialTemplates: StudioTemplate[] }) {
@@ -211,20 +229,32 @@ export function PptxStudio({ initialTemplates }: { initialTemplates: StudioTempl
 
       <div className="flex flex-1 overflow-hidden">
         {/* Slide thumbnails */}
-        <div className="flex w-44 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--panel-2)]">
+        <div className="flex w-48 shrink-0 flex-col border-r border-[var(--border)] bg-[var(--panel-2)]">
+          <div className="flex items-center justify-between border-b border-[var(--border)] px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--muted)]">Slides</span>
+            <span className="rounded-full bg-[var(--panel-inset)] px-1.5 py-0.5 text-[0.65rem] tabular-nums text-[var(--muted)]">{slides.length}</span>
+          </div>
           <div className="flex-1 space-y-2 overflow-y-auto p-2">
             {resolvedSlides.map((_, i) => (
               <button key={i} onClick={() => { setSlideIdx(i); setSel(null); }}
-                className={`block w-full rounded-md border p-1 text-left ${i === curSlide ? "border-[var(--brand-ink)]" : "border-[var(--border)] hover:border-[var(--border-strong)]"}`}>
-                <div className="mb-0.5 text-[0.6rem] text-[var(--muted)]">{i + 1}</div>
-                <div className="pointer-events-none"><SlideView template={resolved} index={i} /></div>
+                className={`flex w-full items-start gap-2 rounded-md border p-1 text-left transition-colors ${i === curSlide ? "border-[var(--brand-ink)] ring-1 ring-[var(--brand-ink)]" : "border-[var(--border)] hover:border-[var(--border-strong)]"}`}>
+                <span className={`mt-0.5 w-3 shrink-0 text-center text-[0.6rem] tabular-nums ${i === curSlide ? "text-[var(--brand-ink)]" : "text-[var(--muted)]"}`}>{i + 1}</span>
+                <span className="pointer-events-none min-w-0 flex-1"><SlideView template={resolved} index={i} /></span>
               </button>
             ))}
           </div>
-          <div className="grid grid-cols-3 gap-1 border-t border-[var(--border)] p-2 text-xs">
-            <button onClick={addSlide} className="btn py-1" title="Add slide">+ Add</button>
-            <button onClick={duplicateSlide} className="btn py-1" title="Duplicate slide">Dup</button>
-            <button onClick={deleteSlide} disabled={slides.length <= 1} className="btn py-1" title="Delete slide">Del</button>
+          <div className="space-y-1.5 border-t border-[var(--border)] p-2">
+            <button onClick={addSlide} className="btn-brand w-full py-1.5 text-xs" title="Add a blank slide">
+              <PlusIcon /> Add slide
+            </button>
+            <div className="grid grid-cols-2 gap-1.5">
+              <button onClick={duplicateSlide} className="btn py-1.5 text-xs" title="Duplicate this slide">
+                <CopyIcon /> Duplicate
+              </button>
+              <button onClick={deleteSlide} disabled={slides.length <= 1} className="btn py-1.5 text-xs text-[var(--danger)]" title="Delete this slide">
+                <TrashIcon /> Delete
+              </button>
+            </div>
           </div>
         </div>
 
@@ -242,7 +272,7 @@ export function PptxStudio({ initialTemplates }: { initialTemplates: StudioTempl
           <div>
             <div className="mb-2 text-xs uppercase tracking-wide text-[var(--muted)]">Insert</div>
             <div className="grid grid-cols-2 gap-2">
-              {(["text", "bullets", "chart", "table"] as const).map((t) => (
+              {(["text", "kpi", "bullets", "chart", "table", "divider"] as const).map((t) => (
                 <button key={t} onClick={() => addElement(t)} className="btn py-1.5 text-xs capitalize">+ {t}</button>
               ))}
             </div>
@@ -258,6 +288,10 @@ export function PptxStudio({ initialTemplates }: { initialTemplates: StudioTempl
               <ThemePanel theme={(editable.theme as Any) ?? {}} onChange={patchTheme} />
             ) : str(selEl.type) === "text" ? (
               <TextPanel el={selEl} onChange={patchSel} />
+            ) : str(selEl.type) === "kpi" ? (
+              <KpiPanel el={selEl} onChange={patchSel} />
+            ) : str(selEl.type) === "shape" ? (
+              <ShapePanel el={selEl} onChange={patchSel} />
             ) : str(selEl.type) === "chart" ? (
               <ChartPanel el={selEl} onChange={patchSel} />
             ) : (
@@ -363,12 +397,69 @@ function ChartPanel({ el, onChange }: { el: Any; onChange: (p: Any) => void }) {
   );
 }
 
+function KpiPanel({ el, onChange }: { el: Any; onChange: (p: Any) => void }) {
+  return (
+    <div>
+      <label className="mb-2.5 block">
+        <span className="mb-1 block text-xs text-[var(--muted)]">Label</span>
+        <input value={str(el.label)} onChange={(e) => onChange({ label: e.target.value })} className="field text-sm" placeholder="Week return" />
+      </label>
+      <label className="mb-2.5 block">
+        <span className="mb-1 block text-xs text-[var(--muted)]">Value</span>
+        <input value={str(el.value)} onChange={(e) => onChange({ value: e.target.value })} className="field text-sm" placeholder="+1.9% or {{week_return}}" />
+      </label>
+      <label className="mb-2.5 block">
+        <span className="mb-1 block text-xs text-[var(--muted)]">Caption</span>
+        <input value={str(el.caption)} onChange={(e) => onChange({ caption: e.target.value })} className="field text-sm" placeholder="vs. prior week" />
+      </label>
+      <Row label="Value size"><input type="number" min={12} max={96} value={num(el.valueSize, 40)} onChange={(e) => onChange({ valueSize: Number(e.target.value) })} className="field w-16 text-xs" /></Row>
+      <Row label="Color"><input type="color" value={toHex(el.color ?? ACCENT)} onChange={(e) => onChange({ color: e.target.value })} className="h-7 w-9 rounded border border-[var(--border)] bg-transparent" /></Row>
+      <Row label="Align">
+        {(["left", "center", "right"] as const).map((a) => (
+          <button key={a} onClick={() => onChange({ align: a })} className={`rounded border px-2 py-1 text-xs capitalize ${str(el.align, "left") === a ? "border-[var(--brand-ink)] text-[var(--brand-ink)]" : "border-[var(--border)] text-[var(--muted)]"}`}>{a[0]}</button>
+        ))}
+      </Row>
+    </div>
+  );
+}
+
+function ShapePanel({ el, onChange }: { el: Any; onChange: (p: Any) => void }) {
+  const isLine = str(el.shape, "rect") === "line";
+  return (
+    <div>
+      <Row label="Shape">
+        {(["rect", "line"] as const).map((s) => (
+          <button key={s} onClick={() => onChange({ shape: s })} className={`rounded border px-2 py-1 text-xs capitalize ${str(el.shape, "rect") === s ? "border-[var(--brand-ink)] text-[var(--brand-ink)]" : "border-[var(--border)] text-[var(--muted)]"}`}>{s}</button>
+        ))}
+      </Row>
+      {isLine ? (
+        <>
+          <Row label="Line color"><input type="color" value={toHex(el.line ?? HAIRLINE)} onChange={(e) => onChange({ line: e.target.value })} className="h-7 w-9 rounded border border-[var(--border)] bg-transparent" /></Row>
+          <Row label="Thickness"><input type="number" min={0.5} max={12} step={0.5} value={num(el.lineWidth, 1)} onChange={(e) => onChange({ lineWidth: Number(e.target.value) })} className="field w-16 text-xs" /></Row>
+        </>
+      ) : (
+        <>
+          <Row label="Fill"><input type="color" value={toHex(el.fill ?? ACCENT)} onChange={(e) => onChange({ fill: e.target.value })} className="h-7 w-9 rounded border border-[var(--border)] bg-transparent" /></Row>
+          <Row label="Corner radius"><input type="number" min={0} max={1} step={0.02} value={num(el.radius, 0)} onChange={(e) => onChange({ radius: Number(e.target.value) })} className="field w-16 text-xs" /></Row>
+        </>
+      )}
+    </div>
+  );
+}
+
 function ThemePanel({ theme, onChange }: { theme: Any; onChange: (p: Any) => void }) {
   return (
     <div>
       <p className="mb-2.5 text-xs text-[var(--muted)]">Nothing selected — editing the deck theme.</p>
-      <Row label="Background"><input type="color" value={toHex(theme.bg ?? "#0B1220")} onChange={(e) => onChange({ bg: e.target.value })} className="h-7 w-9 rounded border border-[var(--border)] bg-transparent" /></Row>
-      <Row label="Accent"><input type="color" value={toHex(theme.accent ?? "#10B981")} onChange={(e) => onChange({ accent: e.target.value })} className="h-7 w-9 rounded border border-[var(--border)] bg-transparent" /></Row>
+      <Row label="Background"><input type="color" value={toHex(theme.bg ?? "#FFFFFF")} onChange={(e) => onChange({ bg: e.target.value })} className="h-7 w-9 rounded border border-[var(--border)] bg-transparent" /></Row>
+      <Row label="Ink (text)"><input type="color" value={toHex(theme.ink ?? INK)} onChange={(e) => onChange({ ink: e.target.value })} className="h-7 w-9 rounded border border-[var(--border)] bg-transparent" /></Row>
+      <Row label="Accent"><input type="color" value={toHex(theme.accent ?? ACCENT)} onChange={(e) => onChange({ accent: e.target.value })} className="h-7 w-9 rounded border border-[var(--border)] bg-transparent" /></Row>
     </div>
   );
 }
+
+// --- inline icons ---
+const iconProps = { width: 13, height: 13, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
+function PlusIcon() { return <svg {...iconProps}><path d="M12 5v14M5 12h14" /></svg>; }
+function CopyIcon() { return <svg {...iconProps}><rect x="9" y="9" width="11" height="11" rx="1.5" /><path d="M6 15H5a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 5 3.5h8.5A1.5 1.5 0 0 1 15 5v1" /></svg>; }
+function TrashIcon() { return <svg {...iconProps}><path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13h10l1-13" /></svg>; }

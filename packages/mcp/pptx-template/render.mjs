@@ -11,14 +11,36 @@ const OUTPUT_DIR = process.env.HUB_OUTPUT_DIR ?? join(tmpdir(), "ai-hub-outputs"
 // Professional ("consulting-grade") design system — mirrored in the preview
 // (apps/web/src/app/pptx/preview.ts). Restrained palette: deep-navy ink, one
 // blue accent, sequential blues + greys for data. Serif titles, sans body.
-const INK = "051C2C";       // deep navy — titles/body
-const ACCENT = "2251FF";    // single brand accent
-const MUTED = "6B7684";     // secondary text / axis labels
-const GRID = "EDF0F3";      // hairline gridlines / rules
-const FONT = "Arial";       // body / labels
-const FONT_TITLE = "Georgia"; // action titles (serif)
-// Sequential blues + greys — data reads as one professional family, not a rainbow.
-const CHART_COLORS = ["2251FF", "051C2C", "00A9F4", "8C9BB0", "1B3A8C", "C9D1DC"];
+const FONT = "Arial";          // body / labels
+const FONT_TITLE = "Georgia";  // action titles + big numbers (serif)
+
+// The template palette. A deck theme may override any token; anything it omits
+// falls back to these McKinsey-style defaults so every deck is coherent by
+// default. Sequential blues + greys make data read as one family, not a rainbow.
+const DEFAULT_PALETTE = {
+  ink: "051C2C",       // deep navy — titles, primary text, dark backgrounds
+  accent: "2251FF",    // single brand accent — rules, emphasis, primary series
+  accent2: "00A9F4",   // cyan — secondary emphasis
+  muted: "6B7684",     // captions, axis + legend labels, sources
+  hairline: "D6DCE4",  // rules, gridlines, table borders
+  surface: "F2F4F7",   // table header / band fills
+  onDark: "FFFFFF",    // text on the ink background
+  series: ["2251FF", "051C2C", "00A9F4", "8C9BB0", "1B3A8C", "C9D1DC"],
+};
+
+// Merge a template theme onto the defaults. Accepts both the legacy shape
+// ({ bg, accent, text }) and the richer palette, so old templates still resolve.
+function resolvePalette(theme = {}) {
+  const p = { ...DEFAULT_PALETTE };
+  if (theme.accent) p.accent = hex(theme.accent);
+  if (theme.accent2) p.accent2 = hex(theme.accent2);
+  if (theme.ink) p.ink = hex(theme.ink);
+  if (theme.muted) p.muted = hex(theme.muted);
+  if (theme.hairline) p.hairline = hex(theme.hairline);
+  if (theme.surface) p.surface = hex(theme.surface);
+  if (Array.isArray(theme.series) && theme.series.length) p.series = theme.series.map(hex);
+  return p;
+}
 
 function get(obj, path) {
   return path.split(".").reduce((o, k) => (o == null ? undefined : o[k]), obj);
@@ -60,7 +82,7 @@ function normalizeChartData(el) {
     }));
 }
 
-function renderElement(pptx, slide, el) {
+function renderElement(pptx, slide, el, pal) {
   const base = { x: el.x, y: el.y, w: el.w, h: el.h };
   switch (el.type) {
     case "text":
@@ -69,18 +91,74 @@ function renderElement(pptx, slide, el) {
         fontSize: el.fontSize ?? 16,
         bold: !!el.bold,
         italic: !!el.italic,
-        color: hex(el.color) ?? "1F2937",
+        color: hex(el.color) ?? pal.ink,
         align: el.align ?? "left",
         valign: el.valign ?? "top",
-        fontFace: el.fontFace,
+        charSpacing: el.charSpacing,
+        lineSpacingMultiple: el.lineSpacingMultiple,
+        fontFace: el.fontFace ?? FONT,
       });
       break;
+    case "kpi": {
+      // A big-number callout: small-caps label, oversized value, muted caption.
+      const accent = hex(el.color) ?? pal.accent;
+      const capH = 0.3;
+      if (el.label) {
+        slide.addText(String(el.label).toUpperCase(), {
+          x: el.x, y: el.y, w: el.w, h: capH,
+          fontSize: 11, bold: true, color: pal.muted, charSpacing: 1.5,
+          fontFace: FONT, align: el.align ?? "left", valign: "top",
+        });
+      }
+      slide.addText(String(el.value ?? ""), {
+        x: el.x, y: el.y + (el.label ? capH : 0), w: el.w,
+        h: el.h - (el.label ? capH : 0) - (el.caption ? capH : 0),
+        fontSize: el.valueSize ?? 40, bold: true, color: accent,
+        fontFace: FONT_TITLE, align: el.align ?? "left", valign: "middle",
+      });
+      if (el.caption) {
+        slide.addText(String(el.caption), {
+          x: el.x, y: el.y + el.h - capH, w: el.w, h: capH,
+          fontSize: 11, color: pal.muted, fontFace: FONT,
+          align: el.align ?? "left", valign: "top",
+        });
+      }
+      break;
+    }
+    case "shape": {
+      // Rules, accent bars, bands. `line` draws a hairline; `rect` fills a block.
+      if (el.shape === "line") {
+        slide.addShape(pptx.ShapeType.line, {
+          ...base,
+          line: { color: hex(el.line) ?? pal.hairline, width: el.lineWidth ?? 1 },
+        });
+      } else {
+        slide.addShape(pptx.ShapeType.rect, {
+          ...base,
+          fill: { color: hex(el.fill) ?? pal.accent },
+          line: el.line ? { color: hex(el.line), width: el.lineWidth ?? 1 } : { type: "none" },
+          rectRadius: el.radius,
+        });
+      }
+      break;
+    }
     case "bullets": {
       const items = (el.items ?? []).filter((t) => t != null && t !== "");
       if (items.length) {
         slide.addText(
-          items.map((t) => ({ text: String(t), options: { bullet: true } })),
-          { ...base, fontSize: el.fontSize ?? 16, color: hex(el.color) ?? "1F2937" },
+          items.map((t) => ({
+            text: String(t),
+            options: { bullet: { code: "2022", indent: 16 } },
+          })),
+          {
+            ...base,
+            fontSize: el.fontSize ?? 15,
+            color: hex(el.color) ?? pal.ink,
+            fontFace: FONT,
+            lineSpacingMultiple: 1.15,
+            paraSpaceAfter: 8,
+            valign: el.valign ?? "top",
+          },
         );
       }
       break;
@@ -101,7 +179,11 @@ function renderElement(pptx, slide, el) {
         slide.addTable(rows, {
           ...base,
           fontSize: el.fontSize ?? 12,
-          border: { type: "solid", color: "E5E7EB", pt: 1 },
+          fontFace: FONT,
+          color: pal.ink,
+          valign: "middle",
+          margin: [4, 7, 4, 7],
+          border: { type: "solid", color: pal.hairline, pt: 0.75 },
         });
       }
       break;
@@ -116,40 +198,43 @@ function renderElement(pptx, slide, el) {
       const data = normalizeChartData(el);
       if (data.length) {
         const isPie = el.chartType === "pie";
-        const colors = (el.colors?.map(hex)) ?? CHART_COLORS;
+        const colors = (el.colors?.map(hex)) ?? pal.series;
         slide.addChart(typeMap[el.chartType] ?? pptx.ChartType.bar, data, {
           ...base,
           chartColors: colors,
           // Title.
           showTitle: !!el.title,
           title: el.title,
-          titleColor: "334155",
-          titleFontFace: "Segoe UI",
+          titleColor: pal.ink,
+          titleFontFace: FONT,
           titleFontSize: 13,
           // Legend (bottom) when it aids reading.
           showLegend: el.showLegend ?? (isPie || data.length > 1),
           legendPos: "b",
-          legendColor: "64748B",
-          legendFontFace: "Segoe UI",
+          legendColor: pal.muted,
+          legendFontFace: FONT,
           legendFontSize: 10,
           // Data labels.
           showValue: !isPie && el.chartType !== "line",
           showPercent: isPie,
-          dataLabelColor: isPie ? "FFFFFF" : "334155",
-          dataLabelFontFace: "Segoe UI",
+          dataLabelColor: isPie ? "FFFFFF" : pal.muted,
+          dataLabelFontFace: FONT,
           dataLabelFontSize: 9,
           dataLabelPosition: isPie ? "ctr" : "outEnd",
+          // Preserve decimals in value labels (e.g. 2.4, not a rounded 2).
+          dataLabelFormatCode: el.dataLabelFormatCode ?? "#,##0.0",
+          valAxisLabelFormatCode: el.valAxisLabelFormatCode,
           // Axes + gridlines for a clean, professional read.
-          catAxisLabelColor: "64748B",
-          catAxisLabelFontFace: "Segoe UI",
+          catAxisLabelColor: pal.muted,
+          catAxisLabelFontFace: FONT,
           catAxisLabelFontSize: 10,
-          catAxisLineColor: "E5E7EB",
-          valAxisLabelColor: "64748B",
-          valAxisLabelFontFace: "Segoe UI",
+          catAxisLineColor: pal.hairline,
+          valAxisLabelColor: pal.muted,
+          valAxisLabelFontFace: FONT,
           valAxisLabelFontSize: 10,
           valAxisLineShow: false,
-          valGridLine: { color: "EEF2F7", size: 1 },
-          barGapWidthPct: 40,
+          valGridLine: { color: pal.hairline, size: 1 },
+          barGapWidthPct: 45,
           ...(el.chartType === "line"
             ? { lineDataSymbol: "circle", lineDataSymbolSize: 5, lineSize: 2 }
             : {}),
@@ -167,12 +252,13 @@ function buildDeck(template, values) {
   const pptx = new pptxgen();
   pptx.layout = t.layout ?? "LAYOUT_WIDE";
   const theme = t.theme ?? {};
+  const pal = resolvePalette(theme);
 
   for (const s of t.slides ?? []) {
     const slide = pptx.addSlide();
     const bg = s.background ?? theme.bg;
     if (bg) slide.background = { color: hex(bg) };
-    for (const el of s.elements ?? []) renderElement(pptx, slide, el);
+    for (const el of s.elements ?? []) renderElement(pptx, slide, el, pal);
   }
 
   const safeName = (t.name ?? "presentation")

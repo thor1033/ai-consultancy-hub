@@ -57,6 +57,31 @@ const tableEl = z.object({
   fontSize: z.number().optional(),
 });
 
+// A big-number callout (KPI). value/label/caption are plain strings so {{tokens}}
+// fill them; the renderer stacks small-caps label · oversized value · caption.
+const kpiEl = z.object({
+  type: z.literal("kpi"),
+  ...geometry,
+  value: z.string().default(""),
+  label: z.string().optional(),
+  caption: z.string().optional(),
+  valueSize: z.number().optional(),
+  color: z.string().optional(),
+  align: z.enum(["left", "center", "right"]).optional(),
+});
+
+// A decorative primitive: `line` (a hairline rule) or `rect` (a filled band /
+// accent bar). Carries no fillable content — it's pure layout / branding.
+const shapeEl = z.object({
+  type: z.literal("shape"),
+  ...geometry,
+  shape: z.enum(["rect", "line"]).default("rect"),
+  fill: z.string().optional(),
+  line: z.string().optional(),
+  lineWidth: z.number().optional(),
+  radius: z.number().optional(),
+});
+
 const chartEl = z.object({
   type: z.literal("chart"),
   ...geometry,
@@ -71,10 +96,12 @@ const chartEl = z.object({
   title: z.string().optional(),
   showLegend: z.boolean().optional(),
   colors: z.array(z.string()).optional(),
+  dataLabelFormatCode: z.string().optional(),
+  valAxisLabelFormatCode: z.string().optional(),
 });
 
 export const elementSchema = z.discriminatedUnion("type", [
-  textEl, bulletsEl, imageEl, tableEl, chartEl,
+  textEl, bulletsEl, imageEl, tableEl, chartEl, kpiEl, shapeEl,
 ]);
 
 export const slideSchema = z.object({
@@ -85,10 +112,18 @@ export const slideSchema = z.object({
 export const templateSchema = z.object({
   name: z.string().default("presentation"),
   layout: z.enum(["LAYOUT_WIDE", "LAYOUT_16x9", "LAYOUT_16x10", "LAYOUT_4x3"]).default("LAYOUT_WIDE"),
+  // The deck palette. Any token omitted falls back to the renderer's McKinsey
+  // defaults (see resolvePalette in render.mjs). `bg`/`text` are the legacy names.
   theme: z.object({
     bg: z.string().optional(),
-    accent: z.string().optional(),
     text: z.string().optional(),
+    accent: z.string().optional(),
+    accent2: z.string().optional(),
+    ink: z.string().optional(),
+    muted: z.string().optional(),
+    hairline: z.string().optional(),
+    surface: z.string().optional(),
+    series: z.array(z.string()).optional(),
   }).optional(),
   slides: z.array(slideSchema).default([]),
 });
