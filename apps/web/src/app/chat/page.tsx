@@ -1,5 +1,5 @@
 import { listSkills } from "@ai-hub/db";
-import { KNOWN_SERVERS } from "@/lib/runSession";
+import { knownServers } from "@/lib/runSession";
 import { Chat } from "./Chat";
 
 export const dynamic = "force-dynamic";
@@ -13,5 +13,5 @@ export default async function ChatPage() {
   } catch {
     /* DB down — chat still works without the Skill presets. */
   }
-  return <Chat skills={skills} servers={[...KNOWN_SERVERS]} />;
+  return <Chat skills={skills} servers={knownServers()} />;
 }

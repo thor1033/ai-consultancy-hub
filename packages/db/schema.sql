@@ -189,6 +189,48 @@ create table if not exists templates (
   updated_at timestamptz not null default now()
 );
 
+-- A standing Agent: a named worker with its own instructions, tool access and
+-- durable memory.
+--
+-- Deliberately not a Skill. A Skill is a captured one-shot workflow, versioned
+-- because it is the IP the consultancy sells; you run it and it ends. An Agent
+-- is the other half of the same idea — it persists between conversations,
+-- accumulates what it learns, and is the thing a client assigns work to. Making
+-- one a variant of the other would force versioning onto something whose whole
+-- point is that it changes as it goes.
+create table if not exists agents (
+  id           uuid primary key default gen_random_uuid(),
+  slug         text unique not null,
+  name         text not null,
+  description  text not null default '',
+  instructions text not null default '',      -- the agent's standing system prompt
+  model        text,
+  effort       text,
+  mcp_servers  jsonb not null default '[]'::jsonb,  -- [{"name":"pm-tool"}, …]
+  knowledge_collection text,                  -- curation: RAG scope for this agent
+  enabled      boolean not null default true,
+  created_at   timestamptz not null default now(),
+  updated_at   timestamptz not null default now()
+);
+
+-- What an agent remembers between conversations.
+--
+-- Keyed by (agent, key) rather than appended: an agent that learns a client
+-- prefers weekly summaries should overwrite that fact, not accumulate twelve
+-- copies of it that all surface at once. The `memory` MCP server is the only
+-- writer — see packages/mcp/servers/memory.
+create table if not exists agent_memories (
+  id         uuid primary key default gen_random_uuid(),
+  agent_id   uuid not null references agents(id) on delete cascade,
+  key        text not null,
+  content    text not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (agent_id, key)
+);
+create index if not exists agent_memories_agent_idx
+  on agent_memories (agent_id, updated_at desc);
+
 -- Investment-firm demo skill (see docs/use-cases/investment-firm.md) — wired to
 -- the customer-data, market-data, and pptx MCP servers. Baseline: ~120 min manual.
 insert into skills (slug, name, description)

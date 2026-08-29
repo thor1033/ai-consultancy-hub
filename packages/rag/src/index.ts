@@ -21,6 +21,7 @@ export {
   listSources,
   syncSource,
   confluenceSource,
+  pmToolSource,
 } from "./sources";
 export type {
   KnowledgeSource,

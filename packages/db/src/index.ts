@@ -25,6 +25,7 @@ export type {
 } from "./skills";
 export {
   listMcpServers,
+  upsertMcpServer,
   setMcpServerEnabled,
   disabledMcpServerNames,
 } from "./mcpServers";
@@ -77,3 +78,15 @@ export type {
   AssessmentSummary,
   AssessmentRecord,
 } from "./assessments";
+export {
+  listAgents,
+  getAgent,
+  createAgent,
+  updateAgent,
+  deleteAgent,
+  listMemories,
+  rememberMemory,
+  forgetMemory,
+  searchMemories,
+} from "./agents";
+export type { AgentSummary, Agent, AgentMemory, AgentInput } from "./agents";

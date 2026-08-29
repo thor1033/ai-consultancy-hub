@@ -42,6 +42,16 @@ export const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/agents",
+    label: "Agents",
+    icon: (
+      <svg {...s}>
+        <rect x="5" y="8" width="14" height="11" rx="2.5" />
+        <path d="M12 8V4.5M9.5 13h.01M14.5 13h.01M2.5 12v3M21.5 12v3" />
+      </svg>
+    ),
+  },
+  {
     href: "/mcp",
     label: "MCP servers",
     icon: (

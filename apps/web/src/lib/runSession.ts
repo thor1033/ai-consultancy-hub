@@ -3,27 +3,40 @@ import {
   connectMcpServers,
   sampleMcpConfig,
   builtinServerConfig,
+  memoryServerConfig,
+  remoteServerConfig,
+  remoteServerNames,
   BUILTIN_SERVER_NAMES,
   type ConnectedMcp,
-  type McpStdioConfig,
+  type McpServerConfig,
 } from "@ai-hub/mcp";
 import { recordSession, disabledMcpServerNames } from "@ai-hub/db";
 
-// The selectable MCP servers for a workbench session: the sample server plus the
-// investment-firm demo servers. A real deployment resolves these from a
-// per-client server registry (Phase 2).
-export const KNOWN_SERVERS = ["sample", ...BUILTIN_SERVER_NAMES] as const;
-export type KnownServer = (typeof KNOWN_SERVERS)[number];
+// The code-owned servers: the sample server plus the investment-firm demo servers.
+const LOCAL_SERVERS = ["sample", ...BUILTIN_SERVER_NAMES] as const;
 
-const KNOWN = new Set<string>(KNOWN_SERVERS);
-
-export function isKnownServer(name: string): boolean {
-  return KNOWN.has(name);
+/**
+ * The selectable MCP servers for a workbench session — the code-owned ones plus
+ * any remote servers this deployment declares (HUB_REMOTE_MCP_SERVERS). Remote
+ * servers are env-driven, so this is a function, not a constant.
+ */
+export function knownServers(): string[] {
+  return [...LOCAL_SERVERS, ...remoteServerNames()];
 }
 
-function resolveServer(name: string): McpStdioConfig | null {
+export function isKnownServer(name: string): boolean {
+  return knownServers().includes(name);
+}
+
+/**
+ * `agentId` opens the memory server for that agent. It is not resolvable by
+ * name alone — memory is scoped to one agent, and that scope must come from the
+ * caller, never from something the model can say.
+ */
+export function resolveServer(name: string, agentId?: string): McpServerConfig | null {
   if (name === "sample") return sampleMcpConfig();
-  return builtinServerConfig(name);
+  if (name === "memory") return agentId ? memoryServerConfig(agentId) : null;
+  return builtinServerConfig(name) ?? remoteServerConfig(name);
 }
 
 export interface RunSessionInput {
@@ -32,6 +45,11 @@ export interface RunSessionInput {
   history?: { role: "user" | "assistant"; content: string }[];
   /** Retrieved context (e.g. RAG) injected as a system block. */
   context?: string;
+  /**
+   * Run as this standing agent. Attaches its memory server, and is recorded on
+   * the session so a run can be traced back to the agent that made it.
+   */
+  agentId?: string;
   system?: string;
   model?: ModelId;
   effort?: "low" | "medium" | "high" | "max";
@@ -53,11 +71,15 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
     .filter(isKnownServer)
     .filter((name) => !disabled.has(name));
 
+  // An agent always gets its own memory, without having to select it: an agent
+  // that could be configured to forget everything is just a chat window.
+  if (input.agentId && !servers.includes("memory")) servers.push("memory");
+
   let mcp: ConnectedMcp | undefined;
   try {
     const configs = servers
-      .map(resolveServer)
-      .filter((c): c is McpStdioConfig => c !== null);
+      .map((name) => resolveServer(name, input.agentId))
+      .filter((c): c is McpServerConfig => c !== null);
     if (configs.length > 0) mcp = await connectMcpServers(configs);
 
     const result = await runAgent({
@@ -69,7 +91,9 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       effort: input.effort,
       tools: mcp?.tools,
       toolExecutor: mcp?.execute,
-      metadata: { source: "workbench", servers },
+      metadata: input.agentId
+        ? { source: "agent", agentId: input.agentId, servers }
+        : { source: "workbench", servers },
     });
 
     const sessionId = await recordSession({

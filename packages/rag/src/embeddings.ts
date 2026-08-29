@@ -10,29 +10,63 @@ export interface Embedder {
   embed(texts: string[]): Promise<number[][]>;
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+// Voyage rate-limits per minute, and hard: an unbilled account gets 3 requests
+// per minute. Ingesting a source is one request per document, so a sync of any
+// real corpus hits 429 partway and — without this — would abort with half the
+// documents stored and no record of which half. Retrying is not a nicety here.
+const MAX_ATTEMPTS = 5;
+const BASE_BACKOFF_MS = 5_000;
+
 class VoyageEmbedder implements Embedder {
   readonly dimensions = EMBEDDING_DIMENSIONS;
   readonly name = "voyage-3.5";
   constructor(private readonly apiKey: string) {}
 
   async embed(texts: string[]): Promise<number[][]> {
-    const res = await fetch("https://api.voyageai.com/v1/embeddings", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${this.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: "voyage-3.5",
-        input: texts,
-        output_dimension: EMBEDDING_DIMENSIONS,
-      }),
-    });
-    if (!res.ok) {
-      throw new Error(`Voyage embeddings failed: ${res.status} ${await res.text()}`);
+    let lastError = "";
+
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const res = await fetch("https://api.voyageai.com/v1/embeddings", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${this.apiKey}`,
+        },
+        body: JSON.stringify({
+          model: "voyage-3.5",
+          input: texts,
+          output_dimension: EMBEDDING_DIMENSIONS,
+        }),
+      });
+
+      if (res.ok) {
+        const json = (await res.json()) as { data: { embedding: number[] }[] };
+        return json.data.map((d) => d.embedding);
+      }
+
+      lastError = `${res.status} ${await res.text()}`;
+
+      // 4xx other than 429 is a bad key or a bad request — retrying changes
+      // nothing and only delays the error the caller needs to see.
+      const retryable = res.status === 429 || res.status >= 500;
+      if (!retryable || attempt === MAX_ATTEMPTS) break;
+
+      // Honour Retry-After when the server sends one; otherwise back off
+      // exponentially. The per-minute window means the first retry has to wait
+      // seconds, not milliseconds, to be worth making.
+      const retryAfter = Number(res.headers.get("retry-after"));
+      const waitMs = Number.isFinite(retryAfter) && retryAfter > 0
+        ? retryAfter * 1000
+        : Math.min(BASE_BACKOFF_MS * 2 ** (attempt - 1), 60_000);
+      console.warn(
+        `[rag] Voyage ${res.status} — retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt}/${MAX_ATTEMPTS})`,
+      );
+      await sleep(waitMs);
     }
-    const json = (await res.json()) as { data: { embedding: number[] }[] };
-    return json.data.map((d) => d.embedding);
+
+    throw new Error(`Voyage embeddings failed: ${lastError}`);
   }
 }
 

@@ -2,13 +2,13 @@
 
 import {
   listSkillsAdmin,
-  listMcpServers,
   setSkillEnabled,
   setMcpServerEnabled,
   type McpEntry,
 } from "@ai-hub/db";
 import { rolesForAction } from "@ai-hub/authz";
 import { authorizeToken } from "@/lib/authz";
+import { listRegisteredServers } from "@/lib/mcpCatalog";
 import type { AdminSkill, AdminMcp, Registry } from "./types";
 
 // Server actions for the MCP/Skill control plane. Every action re-verifies an
@@ -26,7 +26,7 @@ function serverNames(entries: McpEntry[]): string[] {
 }
 
 async function buildRegistry(): Promise<Registry> {
-  const [skills, servers] = await Promise.all([listSkillsAdmin(), listMcpServers()]);
+  const [skills, servers] = await Promise.all([listSkillsAdmin(), listRegisteredServers()]);
   const runnableRoles = rolesForAction("skill:run");
 
   const adminSkills: AdminSkill[] = skills.map((s) => ({

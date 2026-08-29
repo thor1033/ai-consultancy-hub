@@ -1,18 +1,31 @@
-import {
-  connectMcpServers,
-  sampleMcpConfig,
-  builtinServerConfig,
-  type McpStdioConfig,
-} from "@ai-hub/mcp";
-import { listSkillsAdmin } from "@ai-hub/db";
+import { connectMcpServers, remoteServerInfo, type McpServerConfig } from "@ai-hub/mcp";
+import { listSkillsAdmin, listMcpServers, upsertMcpServer } from "@ai-hub/db";
+import { resolveServer } from "@/lib/runSession";
 
-// Read-only introspection of the MCP servers for the explorer UI. The runnable
-// stdio config lives in code; here we connect to a server, list its tools, and
-// tear it down — so the UI shows real tool metadata, not a hand-maintained copy.
+// Read-only introspection of the MCP servers for the explorer UI. Connect to a
+// server, list its tools, tear it down — so the UI shows real tool metadata,
+// not a hand-maintained copy. Works for local (stdio) and remote (HTTP) alike.
 
-export function resolveServerConfig(name: string): McpStdioConfig | null {
-  if (name === "sample") return sampleMcpConfig();
-  return builtinServerConfig(name);
+export function resolveServerConfig(name: string): McpServerConfig | null {
+  return resolveServer(name);
+}
+
+/**
+ * The control-plane registry, with any declared remote servers registered first.
+ * Built-in servers are seeded by schema.sql; remote ones are deployment config
+ * (HUB_REMOTE_MCP_SERVERS), so they're upserted on read — otherwise a connected
+ * client system would be invisible in the hub until someone wrote SQL.
+ */
+export async function listRegisteredServers() {
+  const remotes = remoteServerInfo();
+  await Promise.all(
+    remotes.map((r) =>
+      upsertMcpServer(r.name, r.label, r.description).catch((e) => {
+        console.warn(`[mcp] could not register remote server "${r.name}":`, e);
+      }),
+    ),
+  );
+  return listMcpServers();
 }
 
 export interface McpToolParam {

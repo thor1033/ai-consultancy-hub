@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { listMcpServers, listSkillsAdmin } from "@ai-hub/db";
-import { countMcpTools } from "@/lib/mcpCatalog";
+import { listSkillsAdmin } from "@ai-hub/db";
+import { countMcpTools, listRegisteredServers } from "@/lib/mcpCatalog";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -8,12 +8,12 @@ export const dynamic = "force-dynamic";
 // MCP explorer overview: every registered tool server, its status, and which
 // Skills use it. Click through for the live tool list and details.
 export default async function McpOverviewPage() {
-  let servers: Awaited<ReturnType<typeof listMcpServers>> = [];
+  let servers: Awaited<ReturnType<typeof listRegisteredServers>> = [];
   const usedBy = new Map<string, string[]>();
   const toolCounts = new Map<string, number | null>();
   let error: string | null = null;
   try {
-    const [srv, skills] = await Promise.all([listMcpServers(), listSkillsAdmin()]);
+    const [srv, skills] = await Promise.all([listRegisteredServers(), listSkillsAdmin()]);
     servers = srv;
     for (const s of skills) {
       for (const e of s.mcpServers) {

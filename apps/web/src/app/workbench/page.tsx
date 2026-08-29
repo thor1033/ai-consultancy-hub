@@ -1,4 +1,4 @@
-import { KNOWN_SERVERS } from "@/lib/runSession";
+import { knownServers } from "@/lib/runSession";
 import { Workbench } from "./Workbench";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -15,7 +15,7 @@ export default function WorkbenchPage() {
         title="Skillification"
         subtitle="Do the work once, end-to-end, with the tools it needs. Then capture the session as a reusable Skill."
       />
-      <Workbench servers={[...KNOWN_SERVERS]} />
+      <Workbench servers={knownServers()} />
     </main>
   );
 }

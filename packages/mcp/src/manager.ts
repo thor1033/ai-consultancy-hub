@@ -1,14 +1,29 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 
 // A tailored MCP server the hub connects to over stdio (a child process).
-// Remote (Streamable HTTP) servers can be added later behind the same interface.
 export interface McpStdioConfig {
   name: string;
   command: string;
   args?: string[];
   env?: Record<string, string>;
+}
+
+// A remote MCP server the hub connects to over Streamable HTTP — a system the
+// client already runs (the PM-tool is the first), exposing its own capabilities.
+// `headers` carries the credential; see remote.ts for where it comes from.
+export interface McpHttpConfig {
+  name: string;
+  url: string;
+  headers?: Record<string, string>;
+}
+
+export type McpServerConfig = McpStdioConfig | McpHttpConfig;
+
+export function isHttpConfig(cfg: McpServerConfig): cfg is McpHttpConfig {
+  return typeof (cfg as McpHttpConfig).url === "string";
 }
 
 // The result of connecting: Anthropic-shaped tool defs + an executor that
@@ -34,20 +49,34 @@ function inheritedEnv(extra?: Record<string, string>): Record<string, string> {
  * servers for the MVP; duplicates keep the first and warn.
  */
 export async function connectMcpServers(
-  configs: McpStdioConfig[],
+  configs: McpServerConfig[],
 ): Promise<ConnectedMcp> {
   const clients: Client[] = [];
   const toolToClient = new Map<string, Client>();
   const tools: Anthropic.Tool[] = [];
 
   for (const cfg of configs) {
-    const transport = new StdioClientTransport({
-      command: cfg.command,
-      args: cfg.args ?? [],
-      env: inheritedEnv(cfg.env),
-    });
+    const transport = isHttpConfig(cfg)
+      ? new StreamableHTTPClientTransport(new URL(cfg.url), {
+          // The credential travels on every request — remote servers are called
+          // statelessly (no session resumption), so each call re-authenticates.
+          requestInit: { headers: cfg.headers },
+        })
+      : new StdioClientTransport({
+          command: cfg.command,
+          args: cfg.args ?? [],
+          env: inheritedEnv(cfg.env),
+        });
     const client = new Client({ name: `ai-hub-${cfg.name}`, version: "0.1.0" });
-    await client.connect(transport);
+    try {
+      await client.connect(transport);
+    } catch (err) {
+      // Name the server: a remote one fails for network/auth reasons that the
+      // bare transport error doesn't attribute to anything.
+      const message = err instanceof Error ? err.message : String(err);
+      await Promise.all(clients.map((c) => c.close().catch(() => {})));
+      throw new Error(`MCP server "${cfg.name}" failed to connect: ${message}`);
+    }
     clients.push(client);
 
     const listed = await client.listTools();

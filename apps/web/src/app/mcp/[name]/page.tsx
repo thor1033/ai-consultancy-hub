@@ -1,7 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { listMcpServers } from "@ai-hub/db";
-import { describeMcpServer, skillsUsingServer, type McpToolInfo } from "@/lib/mcpCatalog";
+import { describeMcpServer, skillsUsingServer, listRegisteredServers, type McpToolInfo } from "@/lib/mcpCatalog";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -14,7 +13,7 @@ export default async function McpDetailPage({
 }) {
   const { name } = await params;
 
-  const servers = await listMcpServers().catch(() => []);
+  const servers = await listRegisteredServers().catch(() => []);
   const server = servers.find((s) => s.name === name);
   if (!server) notFound();
 

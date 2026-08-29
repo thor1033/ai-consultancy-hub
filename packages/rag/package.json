@@ -9,13 +9,15 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:pm-tool": "node verify-pm-tool.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",
     "typescript": "^5"
   },
   "dependencies": {
-    "@ai-hub/db": "*"
+    "@ai-hub/db": "*",
+    "@ai-hub/mcp": "*"
   }
 }

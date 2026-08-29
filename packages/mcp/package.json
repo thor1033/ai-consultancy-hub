@@ -15,9 +15,12 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "mcp:sample": "node sample-server/server.mjs",
+    "mcp:remote-fixture": "node remote-fixture/server.mjs",
     "verify": "node verify.mjs",
     "verify:demo": "node verify-demo.mjs",
-    "verify:pptx-template": "node verify-pptx-template.mjs"
+    "verify:remote": "node verify-remote.mjs",
+    "verify:pptx-template": "node verify-pptx-template.mjs",
+    "verify:memory": "node verify-memory.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",
@@ -27,6 +30,7 @@
     "@anthropic-ai/sdk": "^0.112.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "pptxgenjs": "^4.0.1",
-    "zod": "^4.4.3"
+    "zod": "^4.4.3",
+    "postgres": "^3.4.9"
   }
 }

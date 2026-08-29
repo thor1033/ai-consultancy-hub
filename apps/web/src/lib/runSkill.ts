@@ -5,26 +5,20 @@ import {
   type McpEntry,
 } from "@ai-hub/db";
 import { runAgent, type ModelId } from "@ai-hub/agent";
-import {
-  connectMcpServers,
-  sampleMcpConfig,
-  builtinServerConfig,
-  type ConnectedMcp,
-  type McpStdioConfig,
-} from "@ai-hub/mcp";
+import { connectMcpServers, type ConnectedMcp, type McpServerConfig } from "@ai-hub/mcp";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
+import { resolveServer } from "@/lib/runSession";
 
-// Turn stored MCP entries into runnable stdio configs. A bare {name:"..."} marker
-// resolves to a built-in server (sample, or the investment-firm demo servers);
-// a full {name, command, args} entry is passed through unchanged.
-function resolveMcp(entries: McpEntry[]): McpStdioConfig[] {
+// Turn stored MCP entries into runnable configs. A bare {name:"..."} marker
+// resolves to a built-in (stdio) server or a declared remote (HTTP) one; a full
+// {name, command, args} or {name, url} entry is passed through unchanged.
+function resolveMcp(entries: McpEntry[]): McpServerConfig[] {
   return entries.map((e) => {
-    if (!e.command && typeof e.name === "string") {
-      if (e.name === "sample") return sampleMcpConfig();
-      const builtin = builtinServerConfig(e.name);
-      if (builtin) return builtin;
+    if (!e.command && !e.url && typeof e.name === "string") {
+      const resolved = resolveServer(e.name);
+      if (resolved) return resolved;
     }
-    return e as unknown as McpStdioConfig;
+    return e as unknown as McpServerConfig;
   });
 }
 

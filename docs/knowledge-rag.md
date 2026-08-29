@@ -76,3 +76,44 @@ A `/knowledge` page that answers "what does the RAG have, and when does it apply
 - `runSkill` retrieves when `retrieve: true` but only counts chunks — it does not yet
   persist or surface which ones (the Phase-1 provenance gap).
 - Ingest always inserts; there is no update/delete-by-source yet (the Phase-3 gap).
+
+### Phase 4 — The PM-tool connector  ✅ (the first real source)
+
+`pmToolSource()` in `packages/rag/src/sources.ts` indexes Atlas's project
+documents. It is the first connector against a live system rather than a stub,
+and it settles two questions the seam left open.
+
+**Where the credential comes from.** It does not have one. The PM-tool already
+exposes an authenticated MCP endpoint that the hub dials for live tool calls
+(`docs/pm-tool-integration.md`), so the connector reuses that connection —
+`remoteServerConfig("pm-tool") → connectMcpServers()` — and reads through
+`pm_list_projects` / `pm_get_project`. Declare the server once in
+`HUB_REMOTE_MCP_SERVERS` and both the agent's tool calls and this sync are
+configured. A second endpoint with a second token would have been two things to
+rotate and two things to get wrong.
+
+**What is a document and what is not.** Only the slow-moving prose: business
+case, scope, assessment, comms and change plans, glossary, KPIs, financials,
+startup — plus each project note as its own document. The board is deliberately
+excluded. Task status changes hourly, and an embedded copy answers confidently
+with yesterday's state; that is what the `pm_*` tools are for. `forecast` and
+`settings` are configuration and `orgChart` is a diagram blob, so none of the
+three is indexed either.
+
+Sections are rendered by a generic walk over the jsonb rather than a per-section
+formatter, so a field added in PM-tool starts being indexed the day it appears.
+Empty values are dropped, which means an untouched section produces no document
+at all instead of a page of blank labels that would embed as noise. External ids
+are `pm-tool:<projectId>:<section>` (and `…:note:<noteId>`), so a re-sync
+replaces through the Phase-3 upsert path instead of duplicating.
+
+Verify with `npm run verify:pm-tool -w @ai-hub/rag` — 15 shape checks against a
+live endpoint plus, with a database, a full sync, a re-sync that must not
+duplicate, and a retrieval round-trip.
+
+> **Voyage rate limits.** An unbilled Voyage account is capped at 3 requests per
+> minute, and ingest is one request per document, so a sync of any real corpus
+> hits 429 partway through. `VoyageEmbedder` now retries with backoff (honouring
+> `Retry-After`), which makes the sync correct but slow — a 7-document sync took
+> 16 retries. Adding a payment method removes the cap; the free token allowance
+> still applies.

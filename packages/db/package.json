@@ -10,7 +10,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "migrate": "node migrate.mjs"
+    "migrate": "node migrate.mjs",
+    "verify:agents": "node verify-agents.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

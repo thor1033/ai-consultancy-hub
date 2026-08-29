@@ -24,6 +24,28 @@ export async function listMcpServers(): Promise<McpServerRow[]> {
   `;
 }
 
+/**
+ * Register (or refresh the description of) a server in the control plane.
+ * Used for remote servers, which are declared by deployment config rather than
+ * seeded in schema.sql. `enabled` is deliberately NOT touched — an admin who
+ * switched a server off keeps it off across restarts.
+ */
+export async function upsertMcpServer(
+  name: string,
+  label: string,
+  description: string,
+): Promise<void> {
+  const sql = getSql();
+  await sql`
+    insert into mcp_servers (name, label, description)
+    values (${name}, ${label}, ${description})
+    on conflict (name) do update
+      set label = excluded.label,
+          description = excluded.description,
+          updated_at = now()
+  `;
+}
+
 export async function setMcpServerEnabled(
   name: string,
   enabled: boolean,
