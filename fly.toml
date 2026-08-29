@@ -1,0 +1,48 @@
+# Fly.io deployment for the AI Hub.
+#
+# The hub is a long-running process, not a request/response function: it spawns
+# the stdio MCP servers as child processes, holds a postgres.js TCP pool, and
+# runs the schedule ticker in-process. That is why it lives here rather than on
+# a serverless platform, and why the machine is never allowed to stop.
+
+app = "teqneo-ai-hub"
+primary_region = "ams"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  PORT = "3000"
+  HOSTNAME = "0.0.0.0"
+
+[http_service]
+  internal_port = 3000
+  force_https = true
+  # The scheduler runs inside this process on a 60s interval. A stopped machine
+  # is a scheduler that silently stops firing, so the hub stays up even when no
+  # one is browsing it — this is a correctness setting, not a latency one.
+  auto_stop_machines = false
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    # Agent turns are slow and each one may spawn MCP child processes, so a
+    # machine is saturated by far fewer concurrent requests than a static app.
+    soft_limit = 20
+    hard_limit = 40
+
+[[vm]]
+  size = "shared-cpu-1x"
+  # 512MB is not enough: a turn holds the Node server, one or more spawned MCP
+  # servers, and pptxgenjs buffering a deck in memory.
+  memory = "1gb"
+
+[checks.health]
+  type = "http"
+  port = 3000
+  path = "/api/health"
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "20s"
