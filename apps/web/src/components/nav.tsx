@@ -63,61 +63,12 @@ export const NAV: NavItem[] = [
     ),
   },
   {
-    href: "/roi",
-    label: "Return on AI",
-    icon: (
-      <svg {...s}>
-        <path d="M3 3v18h18" />
-        <path d="M7 15l4-5 3 3 4-6" />
-      </svg>
-    ),
-  },
-  {
     href: "/admin",
     label: "Control plane",
     icon: (
       <svg {...s}>
         <path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z" />
         <path d="M9.5 12l1.8 1.8 3.2-3.6" />
-      </svg>
-    ),
-  },
-  {
-    href: "/assessment",
-    label: "Assessment",
-    icon: (
-      <svg {...s}>
-        <path d="M9 3h6a1 1 0 0 1 1 1v1h1a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V7a2 2 0 0 1 2-2h1V4a1 1 0 0 1 1-1z" />
-        <path d="M9 12l2 2 4-4" />
-      </svg>
-    ),
-  },
-  {
-    href: "/chat",
-    label: "Chat",
-    icon: (
-      <svg {...s}>
-        <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h13A1.5 1.5 0 0 1 20 5.5v9a1.5 1.5 0 0 1-1.5 1.5H9l-4 3.5v-3.5H5.5A1.5 1.5 0 0 1 4 14.5z" />
-      </svg>
-    ),
-  },
-  {
-    href: "/workbench",
-    label: "Workbench",
-    icon: (
-      <svg {...s}>
-        <path d="M14.7 6.3a4 4 0 0 0-5.4 5.4l-6 6L5 19.7l6-6a4 4 0 0 0 5.4-5.4l-2.3 2.3-2-2z" />
-      </svg>
-    ),
-  },
-  {
-    href: "/pptx",
-    label: "PowerPoint",
-    icon: (
-      <svg {...s}>
-        <rect x="4" y="3" width="16" height="18" rx="1.5" />
-        <path d="M8 8h5a2.5 2.5 0 0 1 0 5H8z" />
-        <path d="M8 13v4" />
       </svg>
     ),
   },

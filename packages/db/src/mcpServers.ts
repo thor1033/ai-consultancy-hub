@@ -58,6 +58,23 @@ export async function setMcpServerEnabled(
   return rows.count > 0;
 }
 
+/**
+ * Remove a server from the registry entirely.
+ *
+ * Deleting is not the same as disabling, and only one of them is durable for
+ * every kind of server. A remote server declared in HUB_REMOTE_MCP_SERVERS is
+ * re-registered by `listRegisteredServers()` the next time anyone opens /mcp —
+ * the environment is the source of truth, not this table — so deleting one
+ * removes the row until the next read and no longer. Callers should say so
+ * rather than let the row quietly reappear. Disabling, which the reader honours,
+ * is what actually stops a declared server from being used.
+ */
+export async function deleteMcpServer(name: string): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`delete from mcp_servers where name = ${name}`;
+  return rows.count > 0;
+}
+
 // The set of server names that are currently switched off — the enforcement hook
 // callers use to drop disabled servers before connecting. Missing rows are
 // treated as enabled (a server present in code but not yet seeded still runs).

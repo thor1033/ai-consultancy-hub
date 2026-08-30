@@ -27,9 +27,9 @@ COPY packages/mcp/package.json ./packages/mcp/package.json
 COPY packages/db/package.json ./packages/db/package.json
 COPY packages/rag/package.json ./packages/rag/package.json
 COPY packages/authz/package.json ./packages/authz/package.json
-# Scoped to the mcp workspace: the servers need the MCP SDK, postgres, zod and
-# pptxgenjs, not next and react. Still resolved from the root lockfile, so the
-# versions match the ones the app was built against. ~47MB instead of ~530MB.
+# Scoped to the mcp workspace: the servers need the MCP SDK, postgres and zod,
+# not next and react. Still resolved from the root lockfile, so the versions
+# match the ones the app was built against. ~47MB instead of ~530MB.
 RUN npm ci --omit=dev --workspace=@ai-hub/mcp --include-workspace-root=false
 
 # --- builder: build the Next.js standalone output ---

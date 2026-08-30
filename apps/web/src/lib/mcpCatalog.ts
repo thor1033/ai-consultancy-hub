@@ -1,5 +1,5 @@
 import { connectMcpServers, remoteServerInfo, type McpServerConfig } from "@ai-hub/mcp";
-import { listSkillsAdmin, listMcpServers, upsertMcpServer } from "@ai-hub/db";
+import { listMcpServers, upsertMcpServer } from "@ai-hub/db";
 import { resolveServer } from "@/lib/runSession";
 
 // Read-only introspection of the MCP servers for the explorer UI. Connect to a
@@ -12,10 +12,16 @@ export function resolveServerConfig(name: string): McpServerConfig | null {
 
 /**
  * The control-plane registry, with any declared remote servers registered first.
- * Built-in servers are seeded by schema.sql; remote ones are deployment config
- * (HUB_REMOTE_MCP_SERVERS), so they're upserted on read — otherwise a connected
- * client system would be invisible in the hub until someone wrote SQL.
+ * schema.sql seeds nothing: every server here is either declared in
+ * HUB_REMOTE_MCP_SERVERS and upserted on read — otherwise a connected client
+ * system would be invisible in the hub until someone wrote SQL — or was added
+ * to the table by hand.
  */
+/** Names declared in HUB_REMOTE_MCP_SERVERS — the ones the registry re-creates on read. */
+export function declaredRemoteNames(): string[] {
+  return remoteServerInfo().map((r) => r.name);
+}
+
 export async function listRegisteredServers() {
   const remotes = remoteServerInfo();
   await Promise.all(
@@ -89,12 +95,4 @@ export async function countMcpTools(name: string): Promise<number | null> {
   } catch {
     return null;
   }
-}
-
-// Which skills reference a given server in their latest version (for "used by").
-export async function skillsUsingServer(name: string): Promise<string[]> {
-  const skills = await listSkillsAdmin();
-  return skills
-    .filter((s) => s.mcpServers.some((e) => e.name === name))
-    .map((s) => s.name);
 }

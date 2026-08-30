@@ -1,8 +1,8 @@
 import { getSql } from "./client";
 
-// Ad-hoc agent sessions (docs/04 Skillification): a practitioner runs their real
-// workflow once in the workbench; we persist the full transcript so it can be
-// distilled into a reusable Skill. See sessions -> skillify.
+// The record of one agent turn: prompt, model, connected MCP servers, tools
+// used, and the full transcript. Written by runSession on every /agents run, so
+// a run can be read back and traced to the agent that made it.
 
 export interface SessionSummary {
   id: string;
@@ -13,8 +13,6 @@ export interface SessionSummary {
   status: string;
   costUsd: number | null;
   latencyMs: number | null;
-  skillId: string | null;
-  skillSlug: string | null; // slug of the skill this session was distilled into
   createdAt: string;
 }
 
@@ -71,11 +69,8 @@ export async function listSessions(limit = 50): Promise<SessionSummary[]> {
            se.status,
            se.cost_usd    as "costUsd",
            se.latency_ms  as "latencyMs",
-           se.skill_id    as "skillId",
-           s.slug         as "skillSlug",
            se.created_at  as "createdAt"
     from agent_sessions se
-    left join skills s on s.id = se.skill_id
     order by se.created_at desc
     limit ${limit}
   `;
@@ -91,22 +86,11 @@ export async function getSession(id: string): Promise<SessionDetail | null> {
            se.cost_usd    as "costUsd",
            se.latency_ms  as "latencyMs",
            se.tokens, se.trace_id as "traceId",
-           se.skill_id    as "skillId",
-           s.slug         as "skillSlug",
            se.created_at  as "createdAt"
     from agent_sessions se
-    left join skills s on s.id = se.skill_id
     where se.id = ${id}
   `;
   return row ?? null;
 }
 
 // Links a session to the Skill it was distilled into (idempotent record-keeping,
-// so the workbench can show "already skillified → open skill").
-export async function markSessionSkillified(
-  sessionId: string,
-  skillId: string,
-): Promise<void> {
-  const sql = getSql();
-  await sql`update agent_sessions set skill_id = ${skillId} where id = ${sessionId}`;
-}

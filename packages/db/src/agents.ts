@@ -1,11 +1,15 @@
 import { getSql } from "./client";
-import type { McpEntry } from "./skills";
 
-// Standing agents and the memory they keep between conversations.
-//
-// An agent is not a skill (see schema.sql): a skill is versioned IP that runs
-// once and ends, an agent persists and accumulates. That difference is why
-// nothing here is versioned and why agent_memories exists at all.
+// Standing agents and the memory they keep between conversations. Agents are now
+// the hub's only unit of work; nothing here is versioned, because an agent is a
+// thing that changes as it goes rather than a release you pin.
+
+/**
+ * One entry in an agent's stored MCP server list. Deliberately open: a bare
+ * `{name}` marker for a server the hub resolves itself, and room for a connector
+ * to carry its own fields without a migration.
+ */
+export type McpEntry = Record<string, unknown>;
 
 export interface AgentSummary {
   id: string;

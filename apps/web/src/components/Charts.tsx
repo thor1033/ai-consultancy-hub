@@ -14,7 +14,6 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
-import { fmtUsd } from "@/lib/roi";
 
 // Recharts wrappers themed entirely through CSS variables, so charts re-theme
 // with light/dark automatically (SVG accepts var(--token) for fill/stroke).
@@ -26,7 +25,9 @@ const AXIS = "var(--muted)";
 export type ValueFormat = "usd" | "number";
 
 function formatValue(n: number, format?: ValueFormat): string {
-  return format === "usd" ? fmtUsd(n) : n.toLocaleString();
+  return format === "usd"
+    ? n.toLocaleString("en-US", { style: "currency", currency: "USD" })
+    : n.toLocaleString();
 }
 
 function GlassTooltip({

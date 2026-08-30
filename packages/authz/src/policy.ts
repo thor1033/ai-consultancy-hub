@@ -1,17 +1,10 @@
-import { listSkillGrantPrincipals } from "@ai-hub/db";
 import type { Principal } from "./principal";
 
 export type Action =
-  | "skill:read"
-  | "skill:create"
-  | "skill:write"
-  | "skill:run"
-  | "skill:grant"
   | "document:read"
   | "document:write"
   | "rag:search"
   | "agent:run"
-  | "roi:read"
   | "session:read"
   | "admin:manage";
 
@@ -19,19 +12,14 @@ export type Action =
 // allowed actions. `admin` is granted everything via a wildcard below.
 const ROLE_GRANTS: Record<string, Action[]> = {
   analyst: [
-    "skill:read",
-    "skill:create",
-    "skill:write",
-    "skill:run",
     "document:read",
     "document:write",
     "rag:search",
     "agent:run",
-    "roi:read",
     "session:read",
   ],
-  // Directors/viewers get the ROI readout — it's the number they came for.
-  viewer: ["skill:read", "document:read", "rag:search", "roi:read"],
+  // Read-only: can search the knowledge base and read what is in it, nothing more.
+  viewer: ["document:read", "rag:search"],
 };
 
 // The PolicyEngine seam: a Zanzibar-style engine (OpenFGA/Cerbos, Phase 2)
@@ -41,23 +29,15 @@ export interface PolicyEngine {
 }
 
 class OwnedPolicyEngine implements PolicyEngine {
-  async check(principal: Principal, action: Action, resource?: string): Promise<boolean> {
+  async check(principal: Principal, action: Action, _resource?: string): Promise<boolean> {
     if (principal.roles.includes("admin")) return true;
 
-    const allowedByRole = principal.roles.some((r) =>
-      (ROLE_GRANTS[r] ?? []).includes(action),
-    );
-    if (!allowedByRole) return false;
-
-    // Resource-level: who can run which skill. If a skill has explicit grants,
-    // the principal must be listed (admins already short-circuited above).
-    if (action === "skill:run" && resource?.startsWith("skill:")) {
-      const slug = resource.slice("skill:".length);
-      const granted = await listSkillGrantPrincipals(slug);
-      if (granted.length > 0 && !granted.includes(principal.id)) return false;
-    }
-
-    return true;
+    // Role-level only. The resource-level hook that used to live here checked
+    // per-skill grant lists; skills are gone, and inventing a resource rule for
+    // agents before anyone needs one would be guessing. `resource` stays in the
+    // signature because the PolicyEngine seam (OpenFGA/Cerbos, Phase 2) is
+    // resource-shaped and callers already pass it.
+    return principal.roles.some((r) => (ROLE_GRANTS[r] ?? []).includes(action));
   }
 }
 
@@ -71,9 +51,8 @@ export function authorize(
   return engine.check(principal, action, resource);
 }
 
-// Which roles may perform an action, ignoring resource-level grants. `admin` is
-// always included (it's granted everything). Used by the admin console to explain
-// "who can run this" independent of any per-skill grant list.
+// Which roles may perform an action. `admin` is always included — it is granted
+// everything.
 export function rolesForAction(action: Action): string[] {
   const roles = Object.entries(ROLE_GRANTS)
     .filter(([, actions]) => actions.includes(action))

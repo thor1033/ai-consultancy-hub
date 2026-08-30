@@ -81,7 +81,7 @@ flyctl deploy
 
 ```bash
 curl -s -o /dev/null -w '%{http_code}\n' https://teqneo-ai-hub.fly.dev/api/health     # 200
-curl -s -o /dev/null -w '%{http_code}\n' https://teqneo-ai-hub.fly.dev/api/skills     # 401 without a token
+curl -s -o /dev/null -w '%{http_code}\n' https://teqneo-ai-hub.fly.dev/api/documents  # 401 without a token
 ```
 
 Then, in a browser with a token: `/mcp` should show **pm-tool green with its 8

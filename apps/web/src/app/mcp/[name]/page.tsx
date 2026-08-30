@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { describeMcpServer, skillsUsingServer, listRegisteredServers, type McpToolInfo } from "@/lib/mcpCatalog";
+import { describeMcpServer, listRegisteredServers, type McpToolInfo } from "@/lib/mcpCatalog";
 import { PageHeader } from "@/components/PageHeader";
 
 export const dynamic = "force-dynamic";
@@ -20,12 +20,10 @@ export default async function McpDetailPage({
   // Introspecting connects to the child process — tolerate a server that won't start.
   let tools: McpToolInfo[] = [];
   let toolsError: string | null = null;
-  let usedBy: string[] = [];
   try {
-    [tools, usedBy] = await Promise.all([describeMcpServer(name), skillsUsingServer(name)]);
+    tools = await describeMcpServer(name);
   } catch (e) {
     toolsError = e instanceof Error ? e.message : "Could not connect to this server.";
-    usedBy = await skillsUsingServer(name).catch(() => []);
   }
 
   return (
@@ -56,8 +54,8 @@ export default async function McpDetailPage({
         <Fact label="Server id" value={server.name} mono />
         <Fact label="Tools" value={toolsError ? "—" : String(tools.length)} />
         <Fact
-          label="Used by"
-          value={usedBy.length > 0 ? usedBy.join(", ") : "No skills"}
+          label="Status"
+          value={server.enabled ? "Enabled" : "Disabled"}
         />
       </div>
 

@@ -3,10 +3,10 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   loadRegistryAction,
-  setSkillEnabledAction,
   setMcpEnabledAction,
+  deleteMcpServerAction,
 } from "./actions";
-import type { AdminSkill, AdminMcp, Registry } from "./types";
+import type { AdminMcp, Registry } from "./types";
 
 const TOKEN_KEY = "hub-admin-token";
 
@@ -42,17 +42,21 @@ export function AdminConsole() {
     }
   }, [load]);
 
-  async function toggleSkill(s: AdminSkill) {
-    setPending(`skill:${s.slug}`);
-    setError(null);
-    applyResult(await setSkillEnabledAction(token, s.slug, !s.enabled));
-    setPending(null);
-  }
-
   async function toggleMcp(m: AdminMcp) {
     setPending(`mcp:${m.name}`);
     setError(null);
     applyResult(await setMcpEnabledAction(token, m.name, !m.enabled));
+    setPending(null);
+  }
+
+  async function removeMcp(m: AdminMcp) {
+    const warning = m.declared
+      ? `"${m.name}" is declared in HUB_REMOTE_MCP_SERVERS, so it will be registered again on the next read. To stop using it, disable it or remove it from that variable.\n\nDelete the row anyway?`
+      : `Delete "${m.name}" from the registry? Agents will no longer be offered its tools.`;
+    if (!confirm(warning)) return;
+    setPending(`mcp:${m.name}`);
+    setError(null);
+    applyResult(await deleteMcpServerAction(token, m.name));
     setPending(null);
   }
 
@@ -122,7 +126,7 @@ export function AdminConsole() {
       <section>
         <SectionHeading
           title="MCP servers"
-          subtitle="Tool servers agents connect to. A disabled server is dropped from every run."
+          subtitle="Tool servers agents connect to. Disabling drops a server from every run; deleting removes it from the registry."
         />
         <div className="space-y-2">
           {registry.mcpServers.map((m) => (
@@ -132,66 +136,23 @@ export function AdminConsole() {
               enabled={m.enabled}
               busy={pending === `mcp:${m.name}`}
               onToggle={() => toggleMcp(m)}
+              onDelete={() => removeMcp(m)}
             >
               <p className="text-sm text-[var(--text-soft)]">{m.description}</p>
               <div className="mono mt-1 text-xs text-[var(--muted)]">
                 {m.name}
                 {" · "}
-                {m.usedBySkills.length > 0
-                  ? `used by ${m.usedBySkills.join(", ")}`
-                  : "not used by any skill"}
+                {m.declared ? "declared in env" : "registry only"}
               </div>
             </Row>
           ))}
         </div>
       </section>
 
-      <section>
-        <SectionHeading
-          title="Skills"
-          subtitle="Captured workflows. Disabling one blocks it from running and hides it from the catalog."
-        />
-        <div className="space-y-2">
-          {registry.skills.map((s) => (
-            <Row
-              key={s.slug}
-              title={s.name}
-              enabled={s.enabled}
-              busy={pending === `skill:${s.slug}`}
-              onToggle={() => toggleSkill(s)}
-            >
-              <div className="mono text-xs text-[var(--muted)]">
-                {s.slug} · v{s.latestVersion ?? "—"}
-                {s.mcpServers.length > 0 && ` · tools: ${s.mcpServers.join(", ")}`}
-              </div>
-              <AccessNote skill={s} />
-            </Row>
-          ))}
-        </div>
-      </section>
     </div>
   );
 }
 
-function AccessNote({ skill }: { skill: AdminSkill }) {
-  const roles = skill.runnableRoles.join(", ");
-  return (
-    <p className="mt-1 text-xs text-[var(--muted)]">
-      <span className="text-[var(--text-soft)]">Who can run: </span>
-      {skill.grantedPrincipals.length > 0 ? (
-        <>
-          only{" "}
-          <span className="text-[var(--text)]">{skill.grantedPrincipals.join(", ")}</span>{" "}
-          (plus admins) — this skill has explicit grants.
-        </>
-      ) : (
-        <>
-          any principal with the <span className="text-[var(--text)]">{roles}</span> role.
-        </>
-      )}
-    </p>
-  );
-}
 
 function SectionHeading({ title, subtitle }: { title: string; subtitle: string }) {
   return (
@@ -207,12 +168,14 @@ function Row({
   enabled,
   busy,
   onToggle,
+  onDelete,
   children,
 }: {
   title: string;
   enabled: boolean;
   busy: boolean;
   onToggle: () => void;
+  onDelete: () => void;
   children: React.ReactNode;
 }) {
   return (
@@ -232,7 +195,18 @@ function Row({
         </div>
         <div className="mt-1">{children}</div>
       </div>
-      <Toggle enabled={enabled} busy={busy} onToggle={onToggle} />
+      <div className="flex shrink-0 items-center gap-3">
+        <Toggle enabled={enabled} busy={busy} onToggle={onToggle} />
+        <button
+          onClick={onDelete}
+          disabled={busy}
+          aria-label={`Delete ${title}`}
+          title="Delete from the registry"
+          className="chip text-[var(--danger)] disabled:opacity-50"
+        >
+          Delete
+        </button>
+      </div>
     </div>
   );
 }

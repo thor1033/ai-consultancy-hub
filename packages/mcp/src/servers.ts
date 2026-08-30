@@ -2,15 +2,15 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { McpStdioConfig } from "./manager";
 
-// Built-in demo MCP servers for the investment-firm use case. Referenced from a
-// skill's stored config by bare name (e.g. {name:"market-data"}) and resolved to
-// a runnable stdio config here.
-export const BUILTIN_SERVER_NAMES = [
-  "market-data",
-  "customer-data",
-  "pptx",
-  "pptx-template",
-] as const;
+// Servers resolvable from a bare name, as a stdio child process.
+//
+// Empty, and that is the current shape of the hub rather than an oversight: the
+// four entries that used to live here were the investment-firm demo and the
+// PowerPoint studio, and they are gone. What remains is `memory` — which is
+// deliberately NOT resolvable by name (see below) — and whatever
+// HUB_REMOTE_MCP_SERVERS declares over HTTP. Adding a new bundled server means
+// dropping it in ../servers/<name>/server.mjs and naming it here.
+export const BUILTIN_SERVER_NAMES: readonly string[] = [];
 
 const BUILTIN = new Set<string>(BUILTIN_SERVER_NAMES);
 
@@ -30,8 +30,8 @@ export function builtinServerConfig(name: string): McpStdioConfig | null {
  * Kept out of BUILTIN_SERVER_NAMES because it cannot be resolved by name alone:
  * memory is scoped to an agent, and the scope travels in the environment rather
  * than as a tool argument so a model can never reach another agent's memory by
- * asking. A workbench session with no agent therefore has no memory server, and
- * that is the correct behaviour rather than a gap.
+ * asking. A session with no agent therefore has no memory server, and that is
+ * the correct behaviour rather than a gap.
  */
 export function memoryServerConfig(agentId: string): McpStdioConfig {
   return {

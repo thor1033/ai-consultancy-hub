@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { listSkillsAdmin } from "@ai-hub/db";
 import { countMcpTools, listRegisteredServers } from "@/lib/mcpCatalog";
 import { PageHeader } from "@/components/PageHeader";
 
@@ -9,19 +8,10 @@ export const dynamic = "force-dynamic";
 // Skills use it. Click through for the live tool list and details.
 export default async function McpOverviewPage() {
   let servers: Awaited<ReturnType<typeof listRegisteredServers>> = [];
-  const usedBy = new Map<string, string[]>();
   const toolCounts = new Map<string, number | null>();
   let error: string | null = null;
   try {
-    const [srv, skills] = await Promise.all([listRegisteredServers(), listSkillsAdmin()]);
-    servers = srv;
-    for (const s of skills) {
-      for (const e of s.mcpServers) {
-        if (typeof e.name === "string") {
-          usedBy.set(e.name, [...(usedBy.get(e.name) ?? []), s.name]);
-        }
-      }
-    }
+    servers = await listRegisteredServers();
     // Introspect every server's tool count in parallel; failures show "—".
     const counts = await Promise.all(servers.map((s) => countMcpTools(s.name)));
     servers.forEach((s, i) => toolCounts.set(s.name, counts[i]));
@@ -48,7 +38,6 @@ export default async function McpOverviewPage() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {servers.map((s) => {
-            const skills = usedBy.get(s.name) ?? [];
             const count = toolCounts.get(s.name);
             return (
               <Link key={s.name} href={`/mcp/${s.name}`} className="panel panel-hover group p-5">
@@ -72,7 +61,7 @@ export default async function McpOverviewPage() {
                       {count == null ? "—" : count} tool{count === 1 ? "" : "s"}
                     </span>
                     <span className="text-[var(--muted)]">
-                      {skills.length > 0 ? `${skills.length} skill${skills.length === 1 ? "" : "s"}` : "unused"}
+                      {s.enabled ? "enabled" : "disabled"}
                     </span>
                   </div>
                   <span className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-[var(--brand-ink)]">

@@ -7,18 +7,14 @@ import { NAV, isActive, Logo } from "./nav";
 import { ThemeToggle } from "./ThemeToggle";
 import { listMcpServersAction } from "@/app/mcp/actions";
 import type { McpNavItem } from "@/app/mcp/types";
-import { listSkillsNavAction } from "@/app/skills/actions";
-import type { SkillNavItem } from "@/app/skills/nav";
 
 // The persistent command rail (lg+). A slim MobileBar covers smaller screens.
 export function Sidebar() {
   const pathname = usePathname();
   const [servers, setServers] = useState<McpNavItem[]>([]);
-  const [skills, setSkills] = useState<SkillNavItem[]>([]);
 
   // Live registries, so the rail always mirrors what's actually available.
   useEffect(() => {
-    listSkillsNavAction().then(setSkills).catch(() => {});
     listMcpServersAction().then(setServers).catch(() => {});
   }, [pathname]);
 
@@ -44,32 +40,6 @@ export function Sidebar() {
         ))}
       </nav>
 
-      {skills.length > 0 && (
-        <div className="mt-4">
-          <div className="flex items-center justify-between px-1.5">
-            <Link
-              href="/"
-              className="text-[0.68rem] uppercase tracking-[0.14em] text-[var(--muted)] hover:text-[var(--text)]"
-            >
-              Skills
-            </Link>
-            <span className="mono text-[0.68rem] text-[var(--muted)]">{skills.length}</span>
-          </div>
-          <div className="mt-1.5 flex flex-col gap-0.5">
-            {skills.map((sk) => (
-              <Link
-                key={sk.slug}
-                href={`/skills/${sk.slug}`}
-                data-active={pathname === `/skills/${sk.slug}`}
-                className="nav-item !py-1.5 !text-[0.82rem]"
-              >
-                <span className="dot shrink-0 bg-[var(--brand)] text-[var(--brand)]" />
-                <span className="truncate">{sk.name}</span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      )}
 
       {servers.length > 0 && (
         <div className="mt-4">
@@ -107,8 +77,8 @@ export function Sidebar() {
       )}
 
       <div className="mt-auto flex flex-col gap-3 px-0.5 pt-4">
-        <Link href="/workbench" className="btn-brand w-full">
-          + Skillify a workflow
+        <Link href="/agents" className="btn-brand w-full">
+          + New agent
         </Link>
         <div className="flex items-center justify-between rounded-lg border border-[var(--border)] bg-[var(--panel)] px-3 py-2">
           <span className="flex items-center gap-2 text-xs text-[var(--muted)]">
