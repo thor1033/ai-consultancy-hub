@@ -1,20 +1,19 @@
 # Standing agents
 
-## What an agent is, and why it is not a Skill
+## What an agent is
 
-A **Skill** is a captured expert workflow. It is versioned, because it is the IP
-the consultancy sells: you pin the process, you run it, it ends, and the run is
-measured against a manual baseline for ROI.
+An **agent** is someone you keep: a named worker with standing instructions, a
+fixed set of tools, an optional knowledge scope, and a memory that survives
+between conversations. It is the thing you assign work to rather than a
+procedure you execute.
 
-An **agent** is the other half. It is someone you keep — a named worker with
-standing instructions, a fixed set of tools, an optional knowledge scope, and a
-memory that survives between conversations. It is the thing a client assigns
-work to rather than a procedure they execute.
-
-Making one a variant of the other was rejected: versioning is the point of a
-skill and the opposite of the point of an agent, whose whole value is that it
-changes as it learns. They share the run machinery (`runSession`) and nothing
-else.
+Agents are now the hub's only unit of work. They used to sit beside a versioned
+**Skill** — a captured expert workflow you pinned, ran once, and measured
+against a manual baseline. Skills were removed, along with the ROI dashboard
+that scored them and the workbench that captured them, because the thing that
+survived real use was the worker you come back to, not the procedure you freeze.
+Nothing here is versioned, and that is the point: an agent's value is that it
+changes as it learns.
 
 ```
 agents                    a name, instructions, model, tools, knowledge scope
@@ -34,8 +33,9 @@ spawned with `HUB_AGENT_ID` and refuses to start without it. A tool argument
 would mean a model that can name another agent's id can read that agent's
 memory — with clients on the same hub, that is a cross-client leak, not a bug in
 a demo. `memoryServerConfig(agentId)` is therefore deliberately kept out of
-`BUILTIN_SERVER_NAMES`: `memory` cannot be resolved by name alone, so a
-workbench session with no agent simply has no memory server.
+`BUILTIN_SERVER_NAMES` — which is otherwise empty — so `memory` cannot be
+resolved by name alone, and a session with no agent simply has no memory
+server.
 
 **Memories are keyed, not appended.** Writing an existing key replaces it. An
 agent told "actually, they moved the review to Wednesday" should correct itself,
@@ -54,10 +54,10 @@ uses extensionless imports only a bundler resolves. Its four statements mirror
 
 `runSession({ agentId, … })` attaches the agent's memory server automatically —
 an agent that could be configured to forget everything is just a chat window —
-and records the run with `source: "agent"` so it is traceable back to the agent
-that made it. If the agent has a `knowledge_collection`, retrieval is scoped to
-it, best-effort: a missing embedder or an empty index answers without context
-rather than failing the turn.
+and records the run in `agent_sessions` with `source: "agent"` so it is
+traceable back to the agent that made it. If the agent has a
+`knowledge_collection`, retrieval is scoped to it, best-effort: a missing
+embedder or an empty index answers without context rather than failing the turn.
 
 ## Verification
 
@@ -71,14 +71,20 @@ themselves.
 
 ## Not done yet
 
-- **No authorization.** The `/agents` actions run server-trusted like the rest
-  of the dashboard. Binding them to a principal so the `PolicyEngine` gates them
-  lands with WorkOS SSO in Phase 2 — until then anyone who can reach the hub can
-  edit any agent.
+- **No authorization on the UI.** WorkOS AuthKit now puts a door on the pages
+  and an allowlist decides who gets in, but the `/agents` server actions still
+  run server-trusted: they do not resolve the signed-in user to a `Principal`,
+  so the `PolicyEngine` never sees them. Anyone on the allowlist can edit any
+  agent. The bearer-token API and `/api/mcp` *are* gated.
 - **No tenancy.** The hub still has no `org_id` anywhere, so agents and their
   memories are per-deployment, not per-client.
 - **Conversations are not persisted.** Each turn sends the running transcript
-  from the client; only memory survives a reload. Sessions are recorded for ROI,
-  but there is no "resume this conversation" yet.
-- **No scheduling.** `skill_schedules` exists for skills; an agent cannot yet be
-  put on a cron.
+  from the client; only memory survives a reload. Every turn is recorded in
+  `agent_sessions`, but there is no "resume this conversation" yet.
+- **No scheduling.** The scheduler was removed with skills — it only ever fired
+  skill runs — so an agent cannot be put on a cron. Bringing it back means a
+  schedule kind that targets an agent, and a ticker to fire it.
+- **Not reachable from Claude Code.** `/api/mcp` exposes the knowledge base but
+  not agents or their memory. Memory over that endpoint has to bind the agent to
+  the *token*, for the same reason the stdio server binds it to the environment:
+  an agent id in a tool argument is a cross-agent read.

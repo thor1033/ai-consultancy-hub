@@ -2,30 +2,28 @@
 
 ## The decision
 
-The hub should give each capability (RAG/knowledge, memory, MCP, tools, agents,
-skills) a **management surface** — the same pattern as the `/admin` control plane.
-For knowledge specifically, we deliberately split the idea in two and only pursue
-one half aggressively:
+The hub should give each capability (RAG/knowledge, memory, MCP, agents) a
+**management surface** — the same pattern as the `/admin` control plane. For
+knowledge specifically, we deliberately split the idea in two and only pursue one
+half aggressively:
 
-- **Build: observability + curation.** Make it obvious *what* the RAG knows, *which
-  skills use what*, and *what context an agent actually retrieved on a run*. Let a
-  human curate and scope that knowledge. This is underinvested, cheap (the data
-  mostly already flows), and directly serves the trust + ROI story the consultancy
-  sells.
+- **Build: observability + curation.** Make it obvious *what* the RAG knows and
+  *what context an agent actually retrieved on a run*. Let a human curate and
+  scope that knowledge. This is underinvested, cheap (the data mostly already
+  flows), and it is what makes retrieval trustworthy enough to act on.
 - **Resist: becoming a data-integration platform.** "Connect Confluence + SharePoint,
   scrape every PowerPoint/Excel/Word, index it all into one big RAG" is a treadmill
   a boutique consultancy cannot win against Glean / Copilot / LlamaIndex. More data
   ≠ better retrieval — a giant undifferentiated index buries the relevant chunk and
-  creates a permissions/governance liability. Curated, *scoped* knowledge per skill
-  beats a mega-index.
+  creates a permissions/governance liability. Curated, *scoped* knowledge per
+  agent beats a mega-index.
 
-The hub's moat is **capturing expert workflows as Skills and proving ROI**, not
-connector breadth. So:
+Depth on the systems we actually work in beats connector breadth. So:
 
-- The management/observability UI is **product** — build once, every client benefits.
-- Connectors are mostly **billable engagement work** — build the one a paying client
-  actually asks for, behind a small pluggable "source" abstraction, and design that
-  source's permission model at that point. Do not ship connectors speculatively.
+- The management/observability UI is **product** — build once, benefits everything.
+- Connectors are **demand-driven** — build the one something actually needs,
+  behind a small pluggable "source" abstraction, and design that source's
+  permission model at that point. Do not ship connectors speculatively.
 
 ## Hard constraints to respect
 
@@ -34,10 +32,11 @@ connector breadth. So:
   later means re-ingesting everything. The management page must show which embedder
   is live so this is never a silent surprise.
 - **Permissions.** Any access-scoped source (Confluence/SharePoint) carries its own
-  ACLs. Retrieval today is global — any chunk can surface to anyone who runs a
-  RAG-enabled skill. Do not index confidential/scoped sources until retrieval can
-  filter by principal. This ties into the authz engine (Phase-2 OpenFGA) and is a
-  first-class design constraint, not a footnote.
+  ACLs. Retrieval today is global — any chunk can surface to any agent, and to
+  anyone holding a token with `rag:search` who calls `hub_search_knowledge`
+  through `/api/mcp`. Do not index confidential/scoped sources until retrieval
+  can filter by principal. This ties into the authz engine (Phase-2 OpenFGA) and
+  is a first-class design constraint, not a footnote.
 
 ## Phased plan
 
@@ -49,15 +48,17 @@ A `/knowledge` page that answers "what does the RAG have, and when does it apply
 - Add a document (paste text) and delete a document — no more black-box API-only ingest.
 - **Test retrieval**: type a query, see the top-k chunks with similarity scores — makes
   "what context would apply" concrete and inspectable.
-- **Run provenance**: persist which chunks a skill run retrieved and show them back
+- **Run provenance**: persist which chunks a run retrieved and show them back
   (title + score) in the run result — answers "what did the AI actually look at".
+  Shipped for skill runs and lost with them; see "Where the code stands".
 - **Embedder status**: surface whether Voyage or the hash-fallback is live.
 
-### Phase 2 — Curation (scope knowledge to skills)  ✅
+### Phase 2 — Curation (scope knowledge to a consumer)  ✅
 - Group documents into **collections** (an editable label), curated in the UI.
 - `retrieveChunks` can filter by collection.
-- A skill can be assigned a collection, so its runs retrieve from a curated set
+- An agent can be assigned a collection, so its runs retrieve from a curated set
   instead of the global soup. This is where retrieval *quality* improves.
+  (Collections were originally scoped to skills; the mechanism outlived them.)
 
 ### Phase 3 — Pluggable sources  ✅ (seam)
 - A `KnowledgeSource` interface + registry so connectors slot in behind a document's
@@ -67,15 +68,18 @@ A `/knowledge` page that answers "what does the RAG have, and when does it apply
   duplicating them (the one real gap in today's ingest path).
 - Each real connector is added demand-driven, with its permission model designed then.
 
-## Where the current code stands (starting point)
+## Where the code stands
 - `@ai-hub/rag`: `ingestDocument` (chunk → embed → store), `listDocuments`,
   `retrieveChunks` (pgvector cosine), `chunksToContext`. Embedder is Voyage or a
   deterministic hash fallback.
-- `documents` / `document_chunks` tables already carry `source` + `metadata`, so the
-  source/collection model layers on cleanly.
-- `runSkill` retrieves when `retrieve: true` but only counts chunks — it does not yet
-  persist or surface which ones (the Phase-1 provenance gap).
-- Ingest always inserts; there is no update/delete-by-source yet (the Phase-3 gap).
+- `documents` / `document_chunks` carry `source_type`, `source`, `collection` and
+  `metadata`.
+- Retrieval has three callers now: an agent run through `runSession`, the
+  `/knowledge` retrieval tester, and `hub_search_knowledge` over `/api/mcp` —
+  which is how Claude Code reads the knowledge base. Run provenance
+  (`skill_runs.retrieved`) went with the skills tables; the agent path does not
+  yet persist which chunks it used, so Phase 1's provenance promise is currently
+  only half kept.
 
 ### Phase 4 — The PM-tool connector  ✅ (the first real source)
 
@@ -88,8 +92,8 @@ exposes an authenticated MCP endpoint that the hub dials for live tool calls
 (`docs/pm-tool-integration.md`), so the connector reuses that connection —
 `remoteServerConfig("pm-tool") → connectMcpServers()` — and reads through
 `pm_list_projects` / `pm_get_project`. Declare the server once in
-`HUB_REMOTE_MCP_SERVERS` and both the agent's tool calls and this sync are
-configured. A second endpoint with a second token would have been two things to
+`HUB_REMOTE_MCP_SERVERS` — now the only way any remote server enters the
+registry — and both the agent's tool calls and this sync are configured. A second endpoint with a second token would have been two things to
 rotate and two things to get wrong.
 
 **What is a document and what is not.** Only the slow-moving prose: business

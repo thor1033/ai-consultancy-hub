@@ -4,7 +4,7 @@
 
 The PM-tool (Atlas) is the consultancy's own project delivery hub. It is also
 **client #1 of the AI hub**: it exposes its project data to the hub as an MCP
-server, so a Skill can read real delivery data and write back to it.
+server, so an agent can read real delivery data and write back to it.
 
 It is the first instance of the general pattern — *a client system exposes an
 MCP endpoint, the hub dials it* — and the ideal one to learn on, because we own
@@ -70,7 +70,9 @@ every request re-authenticates.
 
 A remote server appears in `/mcp` and `/admin` on first read, so it can be
 switched off from the console without a redeploy. A disabled server is dropped
-from every session and skill run.
+from every run. Deleting one from `/admin` does not stick — the same first-read
+upsert re-creates it — which is why the console labels declared servers and
+points at disable instead.
 
 ## Deploying it
 
@@ -105,8 +107,8 @@ from every session and skill run.
    or show in a config UI.
 
 4. **Check it** — open `/mcp` in the hub. `pm-tool` should be listed with a live
-   tool count. Then add `{"name": "pm-tool"}` to a skill's MCP servers, or pick
-   it in `/workbench`.
+   tool count. Then add `{"name": "pm-tool"}` to an agent's MCP servers on its
+   Settings tab.
 
 ### Locally
 
