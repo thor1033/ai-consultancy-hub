@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { ingestDocument, listDocuments } from "@ai-hub/rag";
+import { deleteDocumentsBySource, ingestDocument, listDocuments } from "@ai-hub/rag";
 import { errorResponse } from "@/lib/apiError";
 import { guard } from "@/lib/authz";
 
@@ -35,19 +35,36 @@ export async function POST(req: Request) {
     );
   }
 
+  const sourceType = typeof b.sourceType === "string" ? b.sourceType : undefined;
+  const source = typeof b.source === "string" ? b.source : undefined;
+
+  // `replace: true` makes a push-based ingest idempotent, the same way syncSource
+  // does for pull-based connectors: drop what this exact (sourceType, source) put
+  // here before, so re-running an ingest updates rather than duplicates.
+  if (b.replace === true && !(sourceType && source)) {
+    return NextResponse.json(
+      { error: "`replace` requires both `sourceType` and `source`." },
+      { status: 400 },
+    );
+  }
+
   try {
+    let replaced = 0;
+    if (b.replace === true && sourceType && source) {
+      replaced = await deleteDocumentsBySource(sourceType, source);
+    }
     const result = await ingestDocument({
       content: b.content,
       title: typeof b.title === "string" ? b.title : undefined,
-      source: typeof b.source === "string" ? b.source : undefined,
-      sourceType: typeof b.sourceType === "string" ? b.sourceType : undefined,
+      source,
+      sourceType,
       collection: typeof b.collection === "string" ? b.collection : undefined,
       metadata:
         typeof b.metadata === "object" && b.metadata !== null
           ? (b.metadata as Record<string, unknown>)
           : undefined,
     });
-    return NextResponse.json(result, { status: 201 });
+    return NextResponse.json({ ...result, replaced }, { status: 201 });
   } catch (err) {
     return errorResponse(err);
   }
