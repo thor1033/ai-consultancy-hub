@@ -1,6 +1,7 @@
 import { NextResponse, type NextRequest, type NextFetchEvent } from "next/server";
 import { authkitProxy, authkit } from "@workos-inc/authkit-nextjs";
 import { isAllowedEmail } from "@/lib/allowlist";
+import { appBaseUrl } from "@/lib/baseUrl";
 
 // The door on the browser UI: WorkOS AuthKit, against the same client as
 // PM-tool, so one sign-in identity covers both apps.
@@ -35,7 +36,9 @@ export default async function middleware(req: NextRequest, event: NextFetchEvent
   if (!isPublic(pathname) && !pathname.startsWith("/api/")) {
     const { session } = await authkit(req);
     if ("user" in session && session.user && !isAllowedEmail(session.user.email)) {
-      return NextResponse.redirect(new URL("/access-denied", req.url));
+      // Same proxy hazard as the callback route: req.url is the container's
+      // bind address behind Fly, so resolve against the public origin.
+      return NextResponse.redirect(new URL("/access-denied", appBaseUrl(req.headers) ?? req.url));
     }
   }
 

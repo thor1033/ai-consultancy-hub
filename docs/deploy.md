@@ -55,6 +55,7 @@ flyctl secrets set \
   ANTHROPIC_API_KEY='…' \
   VOYAGE_API_KEY='…' \
   HUB_API_TOKENS='{"…":{"id":"admin","roles":["admin"]}}' \
+  HUB_BASE_URL='https://hub.teqneo.co' \
   PM_TOOL_MCP_TOKEN='…' \
   HUB_REMOTE_MCP_SERVERS='{"pm-tool":{"url":"https://pm.teqneo.co/api/mcp","label":"PM-tool","description":"Live project delivery data: projects, tasks, risks, scope.","tokenEnv":"PM_TOOL_MCP_TOKEN"}}'
 ```
@@ -66,6 +67,15 @@ out rather than left to the reader:
   deployment that 401s everything is almost always this.
 - **`VOYAGE_API_KEY` unset ⇒ RAG drops to the hash-fallback embedder.** Ingest
   and retrieval both keep "working" and return nonsense. Nothing logs an error.
+
+`HUB_BASE_URL` is the app's public origin, used to build redirects. It is
+optional — `appBaseUrl()` falls back to the request's `x-forwarded-host` — but
+set it anyway: behind Fly's proxy the standalone server resolves a request URL
+to its own bind address (`HOSTNAME=0.0.0.0`, `PORT=3000`), and a redirect built
+from that sends the user to `https://0.0.0.0:3000/`, which resolves for nobody.
+Note it has no `NEXT_PUBLIC_` prefix on purpose: Next.js inlines those as
+literals at **build** time, server code included, so a `NEXT_PUBLIC_*` read in
+app code compiles to `undefined` in the Docker image and fails silently.
 
 `PM_TOOL_MCP_TOKEN` is the same secret held in the PM-tool's Vercel
 `PM_TOOL_MCP_TOKENS` map. Deploying the hub makes a third copy of it (the others
