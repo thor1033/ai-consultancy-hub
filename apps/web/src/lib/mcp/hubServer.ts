@@ -2,6 +2,13 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { authorize, type Principal } from "@ai-hub/authz";
 import {
+  getAgent,
+  listMemories,
+  rememberMemory,
+  forgetMemory,
+  searchMemories,
+} from "@ai-hub/db";
+import {
   retrieveChunks,
   listCollections,
   listDocuments,
@@ -21,6 +28,13 @@ import {
  * if the token's principal is allowed the action behind it. A read-only token
  * is never offered a tool it would be refused, which is a better answer than a
  * tool that exists and always errors — the model can see the difference.
+ *
+ * The memory tools extend that rule to *scope*. They appear only when the token
+ * itself names an agent, and they operate on that agent alone — no tool takes an
+ * agent id. This mirrors the stdio memory server, which reads HUB_AGENT_ID from
+ * its environment and refuses to start without it: an agent id passed as an
+ * argument is an agent id a model can change, and with several clients on one
+ * hub that is a cross-client read, not a demo bug.
  */
 
 const text = (value: unknown) => ({
@@ -33,6 +47,19 @@ const text = (value: unknown) => ({
 });
 
 export async function buildHubMcpServer(principal: Principal): Promise<McpServer> {
+  const may = async (action: Parameters<typeof authorize>[1]) =>
+    authorize(principal, action);
+
+  // Resolve the bound agent once, before the server is described, so the
+  // instructions can name it and a stale binding fails closed. The lookup only
+  // happens for a token that carries a binding, so a knowledge-only token pays
+  // nothing for it. `getAgent` takes an id or a slug, so a token may bind by
+  // either — the slug is the readable one to put in config.
+  const boundAgent =
+    principal.agentId && (await may("agent:run"))
+      ? await getAgent(principal.agentId)
+      : null;
+
   const server = new McpServer(
     { name: "ai-hub", version: "0.1.0" },
     {
@@ -42,12 +69,16 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         "internal projects, decisions, or business context — it retrieves from " +
         "indexed company documents that are not in your training data and not in " +
         "this repository. Prefer it over guessing, and cite the document titles " +
-        "it returns.",
+        "it returns." +
+        (boundAgent
+          ? ` This token also carries the memory of the agent "${boundAgent.name}". ` +
+            "Call hub_memory_list at the start of a conversation to recall what it " +
+            "already knows, and hub_memory_write to record a durable fact — a " +
+            "decision and its reason, a preference, a correction someone made. Do " +
+            "not store transient detail you can look up again with another tool."
+          : ""),
     },
   );
-
-  const may = async (action: Parameters<typeof authorize>[1]) =>
-    authorize(principal, action);
 
   if (await may("rag:search")) {
     server.registerTool(
@@ -178,6 +209,85 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
             .map((c) => c.content)
             .join("\n\n"),
         });
+      },
+    );
+  }
+
+  // Memory: gated on the token naming an agent that exists, not on a role alone.
+  // `boundAgent` is already null unless the principal may agent:run, so a viewer
+  // token with a binding gets nothing.
+  if (boundAgent) {
+    const agentId = boundAgent.id;
+
+    server.registerTool(
+      "hub_memory_list",
+      {
+        description:
+          "List everything you remember, most recently updated first. Call this " +
+          "at the start of a conversation.",
+        inputSchema: {},
+      },
+      async () => {
+        const rows = await listMemories(agentId);
+        if (!rows.length) return text("You have no memories yet.");
+        return text(rows.map((m) => ({ key: m.key, content: m.content, updatedAt: m.updatedAt })));
+      },
+    );
+
+    server.registerTool(
+      "hub_memory_search",
+      {
+        description: "Search your memories by keyword, matching the key or the content.",
+        inputSchema: {
+          query: z.string().min(1).describe("Keyword or phrase to look for."),
+          limit: z
+            .number()
+            .int()
+            .min(1)
+            .max(50)
+            .optional()
+            .describe("How many memories to return (default 20)."),
+        },
+      },
+      async ({ query, limit }) => {
+        const rows = await searchMemories(agentId, query, limit ?? 20);
+        if (!rows.length) return text(`No memories matched "${query}".`);
+        return text(rows.map((m) => ({ key: m.key, content: m.content, updatedAt: m.updatedAt })));
+      },
+    );
+
+    server.registerTool(
+      "hub_memory_write",
+      {
+        description:
+          "Record a durable fact under a short key. Writing an existing key " +
+          "replaces it, so correcting yourself does not leave two contradictory " +
+          "memories.",
+        inputSchema: {
+          key: z
+            .string()
+            .min(1)
+            .describe("A short stable name for this fact, e.g. \"weekly-review-day\"."),
+          content: z.string().min(1).describe("The fact, written so it reads on its own later."),
+        },
+      },
+      async ({ key, content }) => {
+        const saved = await rememberMemory(agentId, key, content);
+        return text({ saved: saved.key, content: saved.content, updatedAt: saved.updatedAt });
+      },
+    );
+
+    server.registerTool(
+      "hub_memory_forget",
+      {
+        description: "Forget the fact stored under a key, when it is wrong or no longer true.",
+        inputSchema: {
+          key: z.string().min(1).describe("The key to forget."),
+        },
+      },
+      async ({ key }) => {
+        const gone = await forgetMemory(agentId, key);
+        return text(gone ? `Forgot "${key}".` : `Nothing was stored under "${key}".`);
       },
     );
   }

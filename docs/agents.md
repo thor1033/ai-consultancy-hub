@@ -84,7 +84,41 @@ themselves.
 - **No scheduling.** The scheduler was removed with skills — it only ever fired
   skill runs — so an agent cannot be put on a cron. Bringing it back means a
   schedule kind that targets an agent, and a ticker to fire it.
-- **Not reachable from Claude Code.** `/api/mcp` exposes the knowledge base but
-  not agents or their memory. Memory over that endpoint has to bind the agent to
-  the *token*, for the same reason the stdio server binds it to the environment:
-  an agent id in a tool argument is a cross-agent read.
+- **Agent *runs* are not reachable from Claude Code.** Memory now is — see
+  below — but there is still no tool that runs an agent turn remotely, and
+  `POST /api/agent/run` ignores `agentId`, so a turn taken through it has no
+  memory and no knowledge scope. Only `/agents/[slug]` runs a real agent.
+
+## Memory from an outside client
+
+`/api/mcp` offers four memory tools — `hub_memory_list`, `hub_memory_search`,
+`hub_memory_write`, `hub_memory_forget` — so Claude Code can carry an agent's
+memory in the terminal.
+
+**The agent is bound to the token, never to a tool argument.** A `HUB_API_TOKENS`
+entry may carry an `agentId` (an id or a slug):
+
+```json
+{"tok-lead": {"id": "lead", "roles": ["analyst"], "agentId": "delivery-lead"}}
+```
+
+This is the same rule the stdio server enforces with `HUB_AGENT_ID`, for the same
+reason: an agent id a model can pass is an agent id a model can change, and with
+several clients on one hub that is a cross-client read. There is deliberately no
+tool that takes an agent id, so the question cannot even be asked.
+
+Registration is by construction, so the tools are simply absent unless the
+binding is real and permitted. All four of these yield a session with no memory
+tools at all, rather than tools that error:
+
+| Token | Result |
+| --- | --- |
+| no `agentId` | no memory tools |
+| `agentId` naming an agent that does not exist | no memory tools |
+| `viewer` role (lacks `agent:run`) | no memory tools |
+| `agentId` that is not a string | dropped at parse; no memory tools |
+
+`npm run verify:hub-memory -w web` covers all of it (19 checks, no API key —
+needs `DATABASE_URL`). It drives the real server through a real MCP client over
+an in-memory transport, so a pass means a Claude Code session sees the same
+thing.

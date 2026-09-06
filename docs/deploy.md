@@ -54,7 +54,7 @@ flyctl secrets set \
   DATABASE_URL='postgresql://…neon…/aihub?sslmode=require' \
   ANTHROPIC_API_KEY='…' \
   VOYAGE_API_KEY='…' \
-  HUB_API_TOKENS='{"…":{"id":"admin","roles":["admin"]}}' \
+  HUB_API_TOKENS='{"…":{"id":"admin","roles":["admin"]},"…":{"id":"lead","roles":["analyst"],"agentId":"delivery-lead"}}' \
   HUB_BASE_URL='https://hub.teqneo.co' \
   PM_TOOL_MCP_TOKEN='…' \
   HUB_REMOTE_MCP_SERVERS='{"pm-tool":{"url":"https://pm.teqneo.co/api/mcp","label":"PM-tool","description":"Live project delivery data: projects, tasks, risks, scope.","tokenEnv":"PM_TOOL_MCP_TOKEN"}}'
@@ -67,6 +67,10 @@ out rather than left to the reader:
   deployment that 401s everything is almost always this.
 - **`VOYAGE_API_KEY` unset ⇒ RAG drops to the hash-fallback embedder.** Ingest
   and retrieval both keep "working" and return nonsense. Nothing logs an error.
+
+An entry's optional `agentId` (an id or a slug) binds that token to one agent's
+memory over `/api/mcp` — see `docs/agents.md`. A token without it has no memory
+tools, which is why the binding lives here and not in a tool argument.
 
 `HUB_BASE_URL` is the app's public origin, used to build redirects. It is
 optional — `appBaseUrl()` falls back to the request's `x-forwarded-host` — but

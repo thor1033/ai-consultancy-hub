@@ -6,7 +6,8 @@
     "dev": "next dev -p 3000",
     "build": "next build",
     "start": "next start -p 3000",
-    "lint": "next lint"
+    "lint": "next lint",
+    "verify:hub-memory": "node --experimental-transform-types --env-file=.env.local verify-hub-memory.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",
