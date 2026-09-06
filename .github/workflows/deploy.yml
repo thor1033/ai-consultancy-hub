@@ -1,0 +1,52 @@
+# Deploy the hub to Fly.io.
+#
+# Until this existed, `flyctl deploy` shipped whatever was in a local working
+# tree, which made one laptop the only machine that could release — and meant a
+# deploy did not correspond to any commit. Here the deployed image is always a
+# pushed commit on master.
+#
+# Secrets: only FLY_API_TOKEN. The app's own secrets (DATABASE_URL, the WorkOS
+# set, HUB_API_TOKENS, …) live in Fly and are not needed to build.
+# Create the token with:  flyctl tokens create deploy -a teqneo-ai-hub
+name: Deploy
+
+on:
+  push:
+    branches: [master]
+  # Deploy the current master on demand — for re-running a failed release, or
+  # shipping after a secret change, without an empty commit.
+  workflow_dispatch:
+
+# A newer push supersedes an in-flight deploy rather than racing it onto the
+# same machine.
+concurrency:
+  group: deploy-fly
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: flyctl deploy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      # --remote-only builds on Fly's builders rather than in the runner: the
+      # Dockerfile is multi-stage and the layer cache lives there, so this is
+      # both faster and closer to what a local `flyctl deploy` does.
+      - name: Deploy
+        run: flyctl deploy --remote-only --app teqneo-ai-hub
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+
+      # A green deploy that serves 500s is not a release. /api/health is the
+      # same endpoint Fly's own check uses.
+      - name: Verify health
+        run: |
+          for i in $(seq 1 10); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' https://hub.teqneo.co/api/health || true)
+            if [ "$code" = "200" ]; then echo "healthy"; exit 0; fi
+            echo "attempt $i: HTTP $code"; sleep 6
+          done
+          echo "health check never returned 200"; exit 1
