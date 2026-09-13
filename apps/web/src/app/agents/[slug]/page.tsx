@@ -1,10 +1,11 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getAgent, listMemories } from "@ai-hub/db";
+import { getAgent, listMemories, listSkills } from "@ai-hub/db";
 import { listCollections } from "@ai-hub/rag";
 import { PageHeader } from "@/components/PageHeader";
 import { knownServers } from "@/lib/runSession";
 import { AgentConsole } from "./AgentConsole";
+import { SkillsPanel } from "./SkillsPanel";
 import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 
 export const dynamic = "force-dynamic";
@@ -25,9 +26,10 @@ export default async function AgentPage({
 
   // An empty knowledge list is not an error here — it just means nothing has
   // been ingested yet, and the agent still runs fine without RAG.
-  const [memories, collections] = await Promise.all([
+  const [memories, collections, skills] = await Promise.all([
     listMemories(agent.id),
     listCollections(await sessionKnowledgeAccess()).catch(() => [] as string[]),
+    listSkills(agent.id).catch(() => []),
   ]);
 
   return (
@@ -48,6 +50,7 @@ export default async function AgentPage({
         servers={knownServers()}
         collections={collections}
       />
+      <SkillsPanel agentId={agent.id} initial={skills} />
     </main>
   );
 }

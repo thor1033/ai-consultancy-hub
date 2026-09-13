@@ -15,6 +15,10 @@ import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
 import type { ModelId } from "@ai-hub/agent";
 import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
+import { listSkills, createSkill, updateSkill, deleteSkill, type SkillParameter } from "@ai-hub/db";
+import { sessionPrincipal } from "@/lib/sessionPrincipal";
+import { undeclaredPlaceholders } from "@/lib/skillPrompt";
+import { isUniqueViolation } from "@/lib/apiError";
 
 // Server actions for the agents console. Like the rest of the dashboard these
 // run server-trusted; binding them to a logged-in principal (so the PolicyEngine
@@ -197,5 +201,107 @@ export async function sendAgentMessageAction(
     };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "The agent turn failed." };
+  }
+}
+
+// --- Skills: an agent's expertise -------------------------------------------
+//
+// A skill is a named, parameterised task this agent can carry out, and it
+// becomes a tool in every connected client's list. Guarded on the signed-in
+// user, because defining one changes what everybody's editor can invoke.
+
+export async function listSkillsAction(agentId: string) {
+  if (!(await sessionPrincipal())) return { error: "Sign in to manage skills." };
+  try {
+    return { skills: await listSkills(agentId) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not load skills." };
+  }
+}
+
+export async function saveSkillAction(input: {
+  id?: string;
+  agentId: string;
+  slug: string;
+  name: string;
+  description: string;
+  promptTemplate: string;
+  parameters: SkillParameter[];
+}) {
+  if (!(await sessionPrincipal())) return { error: "Sign in to manage skills." };
+
+  const slug = input.slug.trim().toLowerCase();
+  // The slug becomes an MCP tool name, so it has to survive that translation
+  // legibly rather than being mangled into something nobody recognises.
+  if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) {
+    return { error: "Slug must be 2–63 characters: lowercase letters, digits and hyphens." };
+  }
+  if (!input.name.trim()) return { error: "Give the skill a name." };
+  if (!input.promptTemplate.trim()) {
+    return { error: "Write the prompt this skill runs." };
+  }
+
+  const parameters = input.parameters
+    .map((p) => ({ ...p, name: p.name.trim() }))
+    .filter((p) => p.name);
+  const bad = parameters.find((p) => !/^[a-zA-Z0-9_]+$/.test(p.name));
+  if (bad) {
+    return { error: `Parameter "${bad.name}" must use letters, digits and underscores only.` };
+  }
+
+  // Caught here rather than at call time: a placeholder with no parameter can
+  // never be filled, so the skill would ship a prompt with a literal
+  // "{{client}}" in it and nobody would find out until a client read the output.
+  const undeclared = undeclaredPlaceholders(input.promptTemplate, parameters);
+  if (undeclared.length) {
+    return {
+      error: `The prompt uses {{${undeclared[0]}}}, but no parameter is called "${undeclared[0]}".`,
+    };
+  }
+
+  try {
+    const saved = input.id
+      ? await updateSkill(input.id, {
+          slug,
+          name: input.name.trim(),
+          description: input.description.trim(),
+          promptTemplate: input.promptTemplate,
+          parameters,
+        })
+      : await createSkill({
+          agentId: input.agentId,
+          slug,
+          name: input.name.trim(),
+          description: input.description.trim(),
+          promptTemplate: input.promptTemplate,
+          parameters,
+        });
+    if (!saved) return { error: "That skill no longer exists." };
+    return { skills: await listSkills(input.agentId) };
+  } catch (e) {
+    if (isUniqueViolation(e)) {
+      return { error: `Another skill already uses the slug "${slug}".` };
+    }
+    return { error: e instanceof Error ? e.message : "Could not save that skill." };
+  }
+}
+
+export async function setSkillEnabledAction(id: string, agentId: string, enabled: boolean) {
+  if (!(await sessionPrincipal())) return { error: "Sign in to manage skills." };
+  try {
+    await updateSkill(id, { enabled });
+    return { skills: await listSkills(agentId) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Update failed." };
+  }
+}
+
+export async function deleteSkillAction(id: string, agentId: string) {
+  if (!(await sessionPrincipal())) return { error: "Sign in to manage skills." };
+  try {
+    await deleteSkill(id);
+    return { skills: await listSkills(agentId) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Delete failed." };
   }
 }

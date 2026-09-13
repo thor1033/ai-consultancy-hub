@@ -7,11 +7,14 @@ export {
   disabledMcpServerNames,
 } from "./mcpServers";
 export type { McpServerRow } from "./mcpServers";
-export { recordSession, listSessions, getSession } from "./sessions";
+export { recordSession, listSessions, getSession, startRun, finishRun, failRun, getRunStatus } from "./sessions";
 export type {
   SessionSummary,
   SessionDetail,
   RecordSessionInput,
+  StartRunInput,
+  FinishRunInput,
+  RunStatus,
 } from "./sessions";
 export {
   listAgents,
@@ -59,3 +62,12 @@ export {
   listGrants,
 } from "./collections";
 export type { CollectionRow, CollectionInput, GrantRow, Visibility } from "./collections";
+export {
+  listSkills,
+  listRunnableSkills,
+  getSkill,
+  createSkill,
+  updateSkill,
+  deleteSkill,
+} from "./skills";
+export type { Skill, SkillWithAgent, SkillInput, SkillParameter, ParameterType } from "./skills";

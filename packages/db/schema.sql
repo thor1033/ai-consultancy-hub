@@ -244,3 +244,75 @@ create table if not exists collection_grants (
 );
 create index if not exists collection_grants_principal_idx
   on collection_grants (principal_id);
+
+-- ---------------------------------------------------------------------------
+-- Agent runs (increment 03: an agent you build in the hub, runnable from any
+-- client). In org-chart terms: an Agent is an employee, and this is the record
+-- of a piece of work you asked them to do.
+-- ---------------------------------------------------------------------------
+
+-- Which agent ran, and who asked. Neither was recorded before: agentId went
+-- into the Langfuse metadata and nowhere else, so the table that "traces a run
+-- back to the agent that made it" could not actually do so — and the ROI report
+-- in increment 04 has nothing to count without it.
+alter table agent_sessions add column if not exists agent_id uuid
+  references agents(id) on delete set null;
+alter table agent_sessions add column if not exists principal_id text;
+
+-- A run reached over MCP cannot always finish inside one tool call: an agent
+-- doing real multi-turn work takes minutes, and every MCP client has a timeout
+-- far shorter than that. So a run is a row with a lifecycle — 'running' until
+-- it is 'succeeded' or 'failed' — and a caller that hits the deadline is handed
+-- the id to poll instead of an error. `status` already existed and defaulted to
+-- 'succeeded', which stays true for the synchronous path.
+alter table agent_sessions add column if not exists started_at timestamptz;
+alter table agent_sessions add column if not exists finished_at timestamptz;
+alter table agent_sessions add column if not exists error text;
+
+create index if not exists agent_sessions_agent_idx
+  on agent_sessions (agent_id, created_at desc);
+-- Finding the runs still in flight, for polling and for spotting the stuck ones.
+create index if not exists agent_sessions_running_idx
+  on agent_sessions (status, started_at) where status = 'running';
+
+-- A named, parameterised thing one agent knows how to do.
+--
+-- In the org chart we explain the hub with, an Agent is an employee and this is
+-- their Expertise: "write the weekly client deck" rather than "here is a chat
+-- box". An employee has several, which is why this is a table and not columns
+-- on `agents`.
+--
+-- NOT the `skills` table deleted on 2026-08-30, and not an attempt to bring it
+-- back. That was a standalone versioned artifact with its own runs, grants and
+-- schedules, and it did not survive real use. This is a much smaller thing: a
+-- prompt template plus the parameters that fill it, belonging to exactly one
+-- agent, existing so the work shows up in a client's tool list with a real
+-- input schema instead of a free-text box. A saved transcript is a transcript;
+-- a named parameterised run is something a colleague can invoke.
+create table if not exists agent_skills (
+  id              uuid primary key default gen_random_uuid(),
+  agent_id        uuid not null references agents(id) on delete cascade,
+  -- Globally unique, not per-agent: the slug becomes an MCP tool name, and two
+  -- agents owning `weekly-deck` would mean two tools a client cannot tell apart.
+  slug            text unique not null,
+  name            text not null,
+  description     text not null default '',
+  -- The prompt, with {{parameter}} placeholders filled at call time.
+  prompt_template text not null default '',
+  -- [{ "name": "client", "description": "...", "required": true,
+  --    "type": "string" | "number" | "boolean", "options": ["a","b"] }]
+  parameters      jsonb not null default '[]'::jsonb,
+  enabled         boolean not null default true,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+create index if not exists agent_skills_agent_idx on agent_skills (agent_id, name);
+
+-- Which skill produced a run, when one did. Null for a free-form agent call.
+--
+-- Deliberately NOT called `skill_id`: line 28 of this file drops a column by
+-- that name (the FK into the deleted `skills` table), and this file is applied
+-- top to bottom on every deploy. Reusing the name would mean dropping and
+-- recreating this column on every migrate, silently emptying it each time.
+alter table agent_sessions add column if not exists agent_skill_id uuid
+  references agent_skills(id) on delete set null;

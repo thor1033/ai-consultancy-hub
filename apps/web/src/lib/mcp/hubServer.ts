@@ -1,8 +1,13 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { authorize, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
+import { runAgentForPrincipal, runSkillForPrincipal, runnableAgent } from "@/lib/agentRuns";
+import type { SkillParameter } from "@ai-hub/db";
 import {
   getAgent,
+  listAgents,
+  listRunnableSkills,
+  getRunStatus,
   listMemories,
   rememberMemory,
   forgetMemory,
@@ -305,5 +310,260 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
     );
   }
 
+  // --- Agents as tools ------------------------------------------------------
+  //
+  // The point of the whole exercise: an agent you build in the hub shows up in
+  // the client's OWN tool list, under its own name, with its own description.
+  // Nobody has to learn a slug or read our docs — Claude Code, VS Code, Cursor
+  // and ChatGPT all just see `hub_agent_delivery_lead` next to their other
+  // tools. In org-chart terms, the employees you hired are reachable from the
+  // desk you already sit at.
+  //
+  // Generated per request from the database, which is what makes "build it in
+  // the hub, use it anywhere" true rather than aspirational: creating an agent
+  // is all it takes. Clients cache tool lists, so a new agent appears on the
+  // next reconnect rather than instantly.
+  if (await may("agent:run")) {
+    const agents = (await listAgents().catch(() => [])).filter((a) => a.enabled);
+
+    for (const summary of agents) {
+      server.registerTool(
+        toolNameForAgent(summary.slug),
+        {
+          description:
+            (summary.description || `Ask the "${summary.name}" agent to do something.`) +
+            ` Runs the hub's standing "${summary.name}" agent, which has its own ` +
+            "instructions, durable memory and curated knowledge. Give it a task in " +
+            "plain language, as you would brief a colleague. Long runs return a run " +
+            "id to poll with hub_run_status rather than timing out.",
+          inputSchema: {
+            task: z
+              .string()
+              .min(1)
+              .describe("What you want the agent to do, in plain language."),
+          },
+        },
+        async ({ task }) => text(await describeOutcome(summary.slug, task)),
+      );
+    }
+
+    // The generic form, for scripting and for an agent created since the client
+    // last connected — the per-agent tools above are the discoverable surface,
+    // this is the one that never goes stale.
+    server.registerTool(
+      "hub_run_agent",
+      {
+        description:
+          "Run any of the hub's standing agents by slug. Prefer the named " +
+          "hub_agent_* tool when there is one; use this for an agent added since " +
+          "this session connected. Call hub_list_agents to see what exists.",
+        inputSchema: {
+          agent: z.string().min(1).describe("The agent's slug, e.g. \"delivery-lead\"."),
+          task: z.string().min(1).describe("What you want the agent to do."),
+        },
+      },
+      async ({ agent, task }) => text(await describeOutcome(agent, task)),
+    );
+
+    server.registerTool(
+      "hub_list_agents",
+      {
+        description:
+          "List the hub's standing agents — the ones you can ask to do work, with " +
+          "what each is for.",
+        inputSchema: {},
+      },
+      async () => {
+        if (!agents.length) return text("No agents are defined in the hub yet.");
+        return text(
+          agents.map((a) => ({
+            slug: a.slug,
+            name: a.name,
+            description: a.description,
+            tool: toolNameForAgent(a.slug),
+            remembers: a.memoryCount,
+          })),
+        );
+      },
+    );
+
+    // --- Skills: an agent's expertise, as tools with real arguments ---------
+    //
+    // The step up from hub_agent_*. That tool is "ask the delivery lead
+    // something", which still needs the caller to know what to ask for. A skill
+    // is the task itself — `hub_skill_weekly_client_deck({ client, week })` —
+    // so the work an expert did once becomes something anyone can invoke from
+    // their own editor without being told how. That is skillification in the
+    // shape that fits a tool list, rather than a saved transcript nobody reruns.
+    const skills = await listRunnableSkills().catch(() => []);
+    for (const skill of skills) {
+      server.registerTool(
+        toolNameForSkill(skill.slug),
+        {
+          description:
+            (skill.description || `Run the "${skill.name}" workflow.`) +
+            ` Carried out by the hub's "${skill.agentName}" agent, using its ` +
+            "instructions, memory and curated knowledge. Long runs return a run id " +
+            "to poll with hub_run_status.",
+          inputSchema: schemaForParameters(skill.parameters ?? []),
+        },
+        async (args) => {
+          const outcome = await runSkillForPrincipal({
+            skillRef: skill.slug,
+            args: (args ?? {}) as Record<string, unknown>,
+            principal,
+          });
+          return text(renderOutcome(outcome, skill.name));
+        },
+      );
+    }
+
+    server.registerTool(
+      "hub_list_skills",
+      {
+        description:
+          "List the hub's packaged workflows — named tasks its agents can carry " +
+          "out, with the arguments each one takes.",
+        inputSchema: {},
+      },
+      async () => {
+        if (!skills.length) {
+          return text(
+            "No skills are defined yet. Use hub_list_agents to see which agents you can ask directly.",
+          );
+        }
+        return text(
+          skills.map((sk) => ({
+            slug: sk.slug,
+            name: sk.name,
+            description: sk.description,
+            tool: toolNameForSkill(sk.slug),
+            performedBy: sk.agentName,
+            parameters: (sk.parameters ?? []).map((p) => ({
+              name: p.name,
+              description: p.description,
+              required: Boolean(p.required),
+              ...(p.options?.length ? { options: p.options } : {}),
+            })),
+          })),
+        );
+      },
+    );
+
+    server.registerTool(
+      "hub_run_status",
+      {
+        description:
+          "Check a run that did not finish inside its tool call. Returns the " +
+          "agent's output once it is done. Poll every few seconds rather than in " +
+          "a tight loop — a real run takes minutes.",
+        inputSchema: {
+          runId: z.string().min(1).describe("The run id returned when the run was started."),
+        },
+      },
+      async ({ runId }) => {
+        // Scoped to the principal that started it: a run id is a bearer of its
+        // own output, so someone else's id must not resolve here.
+        const run = await getRunStatus(runId, principal.id);
+        if (!run) return text(`No run ${runId} belongs to you.`);
+        if (run.status === "running") {
+          return text({
+            status: "running",
+            startedAt: run.startedAt,
+            hint: "Still working. Check again in a few seconds.",
+          });
+        }
+        if (run.status === "failed") {
+          return text({ status: "failed", error: run.error ?? "The run failed." });
+        }
+        return text({
+          status: run.status,
+          output: run.output,
+          toolsUsed: run.toolsUsed,
+          finishedAt: run.finishedAt,
+        });
+      },
+    );
+  }
+
   return server;
+
+  async function describeOutcome(agentRef: string, task: string) {
+    const outcome = await runAgentForPrincipal({ agentRef, prompt: task, principal });
+    return renderOutcome(outcome, agentRef);
+  }
+}
+
+function renderOutcome(
+  outcome: Awaited<ReturnType<typeof runAgentForPrincipal>>,
+  label: string,
+) {
+  if (outcome.kind === "error") return `Could not run it: ${outcome.message}`;
+  if (outcome.kind === "running") {
+    return {
+      status: "running",
+      runId: outcome.runId,
+      running: label,
+      // Said explicitly because the model has to be told what to do next —
+      // otherwise it reports a timeout to the user and stops.
+      next: `This is taking more than a moment. Call hub_run_status with runId "${outcome.runId}" in a few seconds to collect the result. The run is still going.`,
+    };
+  }
+  return {
+    status: "done",
+    runId: outcome.runId,
+    output: outcome.output,
+    ...(outcome.toolsUsed.length ? { toolsUsed: outcome.toolsUsed } : {}),
+    ...(outcome.sources ? { knowledgeSources: outcome.sources } : {}),
+  };
+}
+
+/**
+ * A skill's declared parameters, as the tool schema a client sees.
+ *
+ * This is the whole point of skills over a free-text task: the calling model is
+ * told what the workflow needs — names, descriptions, which are required, which
+ * are a fixed set of options — so it can gather them from the user or fill them
+ * from context, instead of guessing at a sentence. An enum becomes a real enum,
+ * so an invalid value is refused by the client before it costs a run.
+ */
+function schemaForParameters(parameters: SkillParameter[]): Record<string, z.ZodTypeAny> {
+  const shape: Record<string, z.ZodTypeAny> = {};
+  for (const p of parameters) {
+    // A name that is not a legal identifier could not be a placeholder either,
+    // so it is skipped rather than allowed to produce an unusable tool.
+    if (!/^[a-zA-Z0-9_]+$/.test(p.name)) continue;
+
+    let field: z.ZodTypeAny;
+    if (p.options?.length) {
+      field = z.enum(p.options as [string, ...string[]]);
+    } else if (p.type === "number") {
+      field = z.number();
+    } else if (p.type === "boolean") {
+      field = z.boolean();
+    } else {
+      field = z.string().min(1);
+    }
+
+    field = field.describe(p.description || p.name);
+    shape[p.name] = p.required ? field : field.optional();
+  }
+  return shape;
+}
+
+/**
+ * `delivery-lead` becomes `hub_agent_delivery_lead`.
+ *
+ * Hyphens are legal in a slug and awkward in a tool name, and the prefix keeps
+ * the hub's tools grouped in a client's list next to somebody else's. Anything
+ * a slug can hold that a tool name cannot is folded to an underscore, so a slug
+ * is never rejected for being unrepresentable.
+ */
+export function toolNameForAgent(slug: string): string {
+  return `hub_agent_${slug.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}`;
+}
+
+/** `weekly-client-deck` becomes `hub_skill_weekly_client_deck`. */
+export function toolNameForSkill(slug: string): string {
+  return `hub_skill_${slug.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}`;
 }

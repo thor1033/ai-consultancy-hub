@@ -27,6 +27,8 @@ export interface SessionDetail extends SessionSummary {
 
 export interface RecordSessionInput {
   prompt: string;
+  agentId?: string | null;
+  principalId?: string | null;
   system?: string;
   model?: string;
   effort?: string;
@@ -46,7 +48,8 @@ export async function recordSession(input: RecordSessionInput): Promise<string> 
   const [row] = await sql<{ id: string }[]>`
     insert into agent_sessions
       (prompt, system, model, effort, mcp_servers, transcript, tools_used,
-       output, status, cost_usd, latency_ms, tokens, trace_id)
+       output, status, cost_usd, latency_ms, tokens, trace_id,
+       agent_id, principal_id, started_at, finished_at)
     values
       (${input.prompt}, ${input.system ?? null}, ${input.model ?? null},
        ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
@@ -54,10 +57,131 @@ export async function recordSession(input: RecordSessionInput): Promise<string> 
        ${sql.json((input.toolsUsed ?? []) as never)},
        ${input.output ?? null}, ${input.status ?? "succeeded"},
        ${input.costUsd ?? null}, ${input.latencyMs ?? null},
-       ${sql.json((input.tokens ?? null) as never)}, ${input.traceId ?? null})
+       ${sql.json((input.tokens ?? null) as never)}, ${input.traceId ?? null},
+       ${input.agentId ?? null}, ${input.principalId ?? null}, now(), now())
     returning id
   `;
   return row.id;
+}
+
+// --- the run lifecycle ------------------------------------------------------
+//
+// recordSession above writes a finished run in one statement — the synchronous
+// path, unchanged. These three are for a run that outlives the request that
+// started it: a client whose tool call would time out is handed the id instead,
+// and polls. The row is the handoff.
+
+export interface StartRunInput {
+  prompt: string;
+  agentId?: string | null;
+  skillId?: string | null;
+  principalId?: string | null;
+  system?: string;
+  model?: string;
+  effort?: string;
+  mcpServers?: string[];
+}
+
+export async function startRun(input: StartRunInput): Promise<string> {
+  const sql = getSql();
+  const [row] = await sql<{ id: string }[]>`
+    insert into agent_sessions
+      (prompt, system, model, effort, mcp_servers, transcript,
+       status, agent_id, agent_skill_id, principal_id, started_at)
+    values
+      (${input.prompt}, ${input.system ?? null}, ${input.model ?? null},
+       ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
+       ${sql.json([] as never)},
+       'running', ${input.agentId ?? null}, ${input.skillId ?? null},
+       ${input.principalId ?? null}, now())
+    returning id
+  `;
+  return row.id;
+}
+
+export interface FinishRunInput {
+  transcript?: unknown[];
+  toolsUsed?: string[];
+  output?: string;
+  model?: string;
+  costUsd?: number;
+  latencyMs?: number;
+  tokens?: unknown;
+  traceId?: string;
+}
+
+export async function finishRun(id: string, result: FinishRunInput): Promise<void> {
+  const sql = getSql();
+  await sql`
+    update agent_sessions set
+      status      = 'succeeded',
+      transcript  = ${sql.json((result.transcript ?? []) as never)},
+      tools_used  = ${sql.json((result.toolsUsed ?? []) as never)},
+      output      = ${result.output ?? null},
+      model       = coalesce(${result.model ?? null}, model),
+      cost_usd    = ${result.costUsd ?? null},
+      latency_ms  = ${result.latencyMs ?? null},
+      tokens      = ${sql.json((result.tokens ?? null) as never)},
+      trace_id    = ${result.traceId ?? null},
+      finished_at = now()
+    where id = ${id}
+  `;
+}
+
+/**
+ * Mark a run failed.
+ *
+ * The message is stored rather than only logged: whoever asked for this run is
+ * holding a run id and polling, and "failed" with no reason sends them to a
+ * container log they cannot read from their editor.
+ */
+export async function failRun(id: string, error: string): Promise<void> {
+  const sql = getSql();
+  await sql`
+    update agent_sessions
+       set status = 'failed', error = ${error.slice(0, 2000)}, finished_at = now()
+     where id = ${id}
+  `;
+}
+
+export interface RunStatus {
+  id: string;
+  status: string;
+  agentId: string | null;
+  principalId: string | null;
+  prompt: string;
+  output: string | null;
+  error: string | null;
+  toolsUsed: string[];
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+/**
+ * Read a run back, for polling.
+ *
+ * Scoped to the principal that started it. A run id is a bearer of its own
+ * output — the whole transcript of an agent working over the company's
+ * knowledge — so handing one to whoever guesses a uuid would undo increment 02
+ * one run at a time.
+ */
+export async function getRunStatus(
+  id: string,
+  principalId: string,
+): Promise<RunStatus | null> {
+  const sql = getSql();
+  const [row] = await sql<RunStatus[]>`
+    select id, status,
+           agent_id     as "agentId",
+           principal_id as "principalId",
+           prompt, output, error,
+           tools_used   as "toolsUsed",
+           started_at   as "startedAt",
+           finished_at  as "finishedAt"
+      from agent_sessions
+     where id = ${id} and principal_id = ${principalId}
+  `;
+  return row ?? null;
 }
 
 export async function listSessions(limit = 50): Promise<SessionSummary[]> {

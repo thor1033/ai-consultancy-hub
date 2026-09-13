@@ -10,7 +10,7 @@ import {
   type ConnectedMcp,
   type McpServerConfig,
 } from "@ai-hub/mcp";
-import { recordSession, disabledMcpServerNames } from "@ai-hub/db";
+import { recordSession, finishRun, disabledMcpServerNames } from "@ai-hub/db";
 
 // The code-owned servers: the sample server plus the investment-firm demo servers.
 const LOCAL_SERVERS = ["sample", ...BUILTIN_SERVER_NAMES] as const;
@@ -54,6 +54,14 @@ export interface RunSessionInput {
   model?: ModelId;
   effort?: "low" | "medium" | "high" | "max";
   servers?: string[];
+  /** Who asked, recorded on the session so a run has an owner. */
+  principalId?: string;
+  /**
+   * An already-started run row to complete, instead of inserting a finished
+   * one. The asynchronous path creates the row first so the caller has an id to
+   * poll while the work is still going.
+   */
+  runId?: string;
 }
 
 export interface RunSessionOutput {
@@ -96,21 +104,38 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         : { source: "workbench", servers },
     });
 
-    const sessionId = await recordSession({
-      prompt: input.prompt,
-      system: input.system,
-      model: result.model,
-      effort: input.effort,
-      mcpServers: servers,
-      transcript: result.transcript,
-      toolsUsed: result.toolsUsed,
-      output: result.text,
-      status: "succeeded",
-      costUsd: result.costUsd,
-      latencyMs: result.latencyMs,
-      tokens: result.usage,
-      traceId: result.traceId,
-    });
+    let sessionId: string;
+    if (input.runId) {
+      await finishRun(input.runId, {
+        transcript: result.transcript,
+        toolsUsed: result.toolsUsed,
+        output: result.text,
+        model: result.model,
+        costUsd: result.costUsd,
+        latencyMs: result.latencyMs,
+        tokens: result.usage,
+        traceId: result.traceId,
+      });
+      sessionId = input.runId;
+    } else {
+      sessionId = await recordSession({
+        prompt: input.prompt,
+        system: input.system,
+        model: result.model,
+        effort: input.effort,
+        mcpServers: servers,
+        transcript: result.transcript,
+        toolsUsed: result.toolsUsed,
+        output: result.text,
+        status: "succeeded",
+        costUsd: result.costUsd,
+        latencyMs: result.latencyMs,
+        tokens: result.usage,
+        traceId: result.traceId,
+        agentId: input.agentId ?? null,
+        principalId: input.principalId ?? null,
+      });
+    }
 
     return { sessionId, servers, result };
   } finally {

@@ -25,6 +25,15 @@ import postgres from "postgres";
 // and Node does not. Harness-only; nothing in the packages changes for a test.
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    // Next resolves the `@/` alias to apps/web/src; raw Node does not, and
+    // hubServer reaches its siblings that way. Harness-only.
+    if (specifier.startsWith("@/")) {
+      const base = new URL("./src/", import.meta.url);
+      for (const ext of ["", ".ts", ".tsx", ".mjs", ".js", "/index.ts"]) {
+        const url = new URL(specifier.slice(2) + ext, base);
+        if (existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true };
+      }
+    }
     try {
       return nextResolve(specifier, context);
     } catch (err) {

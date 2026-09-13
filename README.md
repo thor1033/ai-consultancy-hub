@@ -38,6 +38,9 @@ hub/
   and syncable from a source connector (PM-tool ships as one).
 - **MCP servers** (`/mcp`) — what agents can reach. Remote servers are declared in
   `HUB_REMOTE_MCP_SERVERS`; the agent-scoped `memory` server is resolved in code.
+- **Agents anywhere** — every agent registers as `hub_agent_<slug>` in any MCP client,
+  and its Skills as `hub_skill_<slug>` with real arguments, so work built in the hub runs
+  from Claude Code, VS Code or Cursor ([docs/agents-anywhere.md](docs/agents-anywhere.md)).
 - **Control plane** (`/admin`) — people, credentials and the audit trail; which shared
   drives each person may open ([docs/knowledge-access.md](docs/knowledge-access.md));
   and enabling or disabling registered servers.
