@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { retrieveChunks } from "@ai-hub/rag";
+import { knowledgeAccessFor } from "@ai-hub/authz";
 import { errorResponse } from "@/lib/apiError";
 import { guard } from "@/lib/authz";
 
@@ -26,7 +27,7 @@ export async function POST(req: Request) {
 
   try {
     const k = typeof b.k === "number" ? b.k : 5;
-    const chunks = await retrieveChunks(b.query, k);
+    const chunks = await retrieveChunks(b.query, await knowledgeAccessFor(gate.principal), k);
     return NextResponse.json({ query: b.query, chunks });
   } catch (err) {
     return errorResponse(err);

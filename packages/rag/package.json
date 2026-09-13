@@ -10,7 +10,8 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "verify:pm-tool": "node verify-pm-tool.mjs"
+    "verify:pm-tool": "node verify-pm-tool.mjs",
+    "verify:access": "node --experimental-transform-types --env-file=../../apps/web/.env.local verify-access.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",
@@ -18,6 +19,7 @@
   },
   "dependencies": {
     "@ai-hub/db": "*",
-    "@ai-hub/mcp": "*"
+    "@ai-hub/mcp": "*",
+    "@ai-hub/authz": "*"
   }
 }

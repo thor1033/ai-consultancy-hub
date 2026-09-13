@@ -30,4 +30,5 @@ export type {
   SyncResult,
 } from "./sources";
 export { retrieveChunks, chunksToContext } from "./retrieve";
+export { accessPredicate, collectionReadable } from "./access";
 export type { RetrievedChunk, RetrieveOptions } from "./retrieve";

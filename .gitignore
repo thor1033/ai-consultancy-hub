@@ -13,6 +13,9 @@ build/
 # env
 .env
 .env*.local
+# Hand-made backups of the above. `.env*.local` does not match `.env.local.bak`,
+# so without this a stray `git add -A` commits a file full of live secrets.
+*.bak
 
 # logs / os
 *.log

@@ -14,6 +14,7 @@ import {
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
 import type { ModelId } from "@ai-hub/agent";
+import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 
 // Server actions for the agents console. Like the rest of the dashboard these
 // run server-trusted; binding them to a logged-in principal (so the PolicyEngine
@@ -146,11 +147,19 @@ export async function sendAgentMessageAction(
 
   // Best-effort retrieval: an agent scoped to a collection answers from it, but
   // a missing embedder or empty index must not take the conversation down.
+  //
+  // Retrieved as the PERSON ASKING, not as the agent. An agent's
+  // knowledgeCollection is curation — which drawer it works out of — and never a
+  // permission of its own. If it were, asking an agent scoped to a restricted
+  // collection would be the way for anyone to read that collection, with the
+  // agent as the deputy. The two are ANDed in retrieveChunks: a collection the
+  // asker may not read yields nothing, rather than an agent that quietly
+  // answers from material its operator cannot open.
   let context: string | undefined;
   let sources = 0;
   if (agent.knowledgeCollection) {
     try {
-      const chunks = await retrieveChunks(last.content, 5, {
+      const chunks = await retrieveChunks(last.content, await sessionKnowledgeAccess(), 5, {
         collection: agent.knowledgeCollection,
       });
       if (chunks.length) {

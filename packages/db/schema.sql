@@ -115,3 +115,132 @@ create table if not exists agent_memories (
 );
 create index if not exists agent_memories_agent_idx
   on agent_memories (agent_id, updated_at desc);
+
+-- ---------------------------------------------------------------------------
+-- Identity and credentials (increment 01: OAuth 2.1 with WorkOS as the
+-- authorization server). Replaces HUB_API_TOKENS — a JSON map in an environment
+-- variable, hand-minted, unreadable once deployed, and replaced wholesale on
+-- every deploy. See docs/auth.md for why that model had to go.
+-- ---------------------------------------------------------------------------
+
+-- Who a human is to the hub, independent of how they arrived.
+--
+-- An access token from AuthKit proves *identity* (a WorkOS user id and an
+-- email); it says nothing about what that person may do here. This table is the
+-- mapping, so roles are granted once per person rather than baked into whatever
+-- credential they happen to be holding. Matched on workos_user_id when we have
+-- seen the person before, otherwise on email — the first OAuth sign-in of an
+-- allowlisted email binds the two together.
+create table if not exists principals (
+  id              text primary key,               -- the Principal.id callers see
+  email           text unique,                    -- lowercased; the allowlist key
+  workos_user_id  text unique,                    -- bound on first OAuth token seen
+  display_name    text not null default '',
+  roles           jsonb not null default '[]'::jsonb,
+  agent_id        text,                           -- optional standing-agent binding
+  enabled         boolean not null default true,
+  created_at      timestamptz not null default now(),
+  updated_at      timestamptz not null default now()
+);
+create index if not exists principals_email_idx on principals (email);
+
+-- A long-lived bearer credential, for the clients that cannot do OAuth.
+--
+-- OAuth is the front door and every human surface should use it. This table is
+-- the service door: CI, a cron job, the hub reaching another hub. Issued and
+-- revoked from /admin, which is the whole point — the env-var map could do
+-- neither without a deploy.
+--
+-- The secret is NOT stored. `token_hash` is a SHA-256 of the full token and
+-- `token_prefix` is the leading, non-secret slice used to find the row before
+-- comparing hashes, so a database dump yields no usable credential and the
+-- console can still show an operator which token is which.
+create table if not exists api_credentials (
+  id            uuid primary key default gen_random_uuid(),
+  name          text not null,                    -- "Ditlev — laptop", "CI deploy"
+  principal_id  text not null references principals(id) on delete cascade,
+  token_prefix  text not null unique,             -- displayable, non-secret
+  token_hash    text not null,                    -- sha256 hex of the full token
+  roles         jsonb not null default '[]'::jsonb,  -- may narrow the principal's
+  agent_id      text,
+  created_by    text not null default '',
+  created_at    timestamptz not null default now(),
+  expires_at    timestamptz,
+  last_used_at  timestamptz,
+  revoked_at    timestamptz,
+  revoked_by    text
+);
+create index if not exists api_credentials_principal_idx
+  on api_credentials (principal_id, created_at desc);
+-- Live credentials only: what /admin lists and what authentication scans.
+create index if not exists api_credentials_active_idx
+  on api_credentials (token_prefix) where revoked_at is null;
+
+-- The audit trail.
+--
+-- Deliberately NOT one row per authenticated request: /api/mcp authenticates on
+-- every JSON-RPC call, and an insert per call would make the audit log the
+-- hottest table in the database while burying the events anyone actually reads.
+-- Successful authentication updates api_credentials.last_used_at instead. What
+-- lands here is what an operator would want to reconstruct later: credentials
+-- issued and revoked, principals changed, and every authentication that FAILED.
+create table if not exists auth_events (
+  id            uuid primary key default gen_random_uuid(),
+  at            timestamptz not null default now(),
+  event         text not null,                    -- credential.issued | auth.denied | …
+  source        text,                             -- oauth | credential | env
+  principal_id  text,
+  credential_id uuid,                             -- no FK: survives the credential
+  actor         text,                             -- who performed it, for lifecycle events
+  detail        jsonb not null default '{}'::jsonb
+);
+create index if not exists auth_events_at_idx on auth_events (at desc);
+create index if not exists auth_events_principal_idx on auth_events (principal_id, at desc);
+
+-- ---------------------------------------------------------------------------
+-- Knowledge access (increment 02: retrieval that respects the principal).
+--
+-- The client-facing model is an org chart: an Agent is an employee, a Tool is
+-- what they operate, and Knowledge is the company's files. This is the part
+-- that answers "which shared drives may this employee open" — and it exists
+-- because once people arrive as themselves (increment 01), retrieval that
+-- ignores who is asking is how an analyst's Copilot answer quotes the HR file.
+-- ---------------------------------------------------------------------------
+
+-- A collection, promoted from a bare text label on `documents` to a real row.
+--
+-- It had to become first-class to carry a visibility: you cannot grant access
+-- to something that exists only as a distinct value in someone else's column.
+-- Documents still reference it by name, so nothing about ingest changes.
+--
+--   open        any authenticated principal may read it
+--   restricted  only principals with a row in collection_grants
+--
+-- A collection with NO row here is treated as open, which is what keeps the
+-- existing corpus readable the moment this deploys. That default is a migration
+-- affordance, not a policy: HUB_DEFAULT_COLLECTION_VISIBILITY=restricted flips
+-- it once everything has been classified. See docs/knowledge-access.md.
+create table if not exists collections (
+  name        text primary key,
+  label       text not null default '',
+  description text not null default '',
+  visibility  text not null default 'open' check (visibility in ('open', 'restricted')),
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+
+-- Who may open a restricted collection.
+--
+-- Grants are per principal rather than per role on purpose. Roles say what kind
+-- of work someone does; this says which of the company's drawers they may open,
+-- and the two are not the same question — two analysts on different client
+-- engagements should not see each other's material.
+create table if not exists collection_grants (
+  collection   text not null references collections(name) on delete cascade,
+  principal_id text not null references principals(id) on delete cascade,
+  granted_by   text not null default '',
+  granted_at   timestamptz not null default now(),
+  primary key (collection, principal_id)
+);
+create index if not exists collection_grants_principal_idx
+  on collection_grants (principal_id);

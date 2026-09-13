@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { deleteDocumentsBySource, ingestDocument, listDocuments } from "@ai-hub/rag";
+import { knowledgeAccessFor } from "@ai-hub/authz";
 import { errorResponse } from "@/lib/apiError";
 import { guard } from "@/lib/authz";
 
@@ -10,7 +11,9 @@ export async function GET(req: Request) {
   const gate = await guard(req, "document:read");
   if (!gate.ok) return gate.response;
   try {
-    return NextResponse.json({ documents: await listDocuments() });
+    return NextResponse.json({
+      documents: await listDocuments(await knowledgeAccessFor(gate.principal)),
+    });
   } catch (err) {
     return errorResponse(err);
   }

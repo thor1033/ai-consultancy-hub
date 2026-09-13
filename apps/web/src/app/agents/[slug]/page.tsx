@@ -5,6 +5,7 @@ import { listCollections } from "@ai-hub/rag";
 import { PageHeader } from "@/components/PageHeader";
 import { knownServers } from "@/lib/runSession";
 import { AgentConsole } from "./AgentConsole";
+import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 
 export const dynamic = "force-dynamic";
 
@@ -26,7 +27,7 @@ export default async function AgentPage({
   // been ingested yet, and the agent still runs fine without RAG.
   const [memories, collections] = await Promise.all([
     listMemories(agent.id),
-    listCollections().catch(() => [] as string[]),
+    listCollections(await sessionKnowledgeAccess()).catch(() => [] as string[]),
   ]);
 
   return (

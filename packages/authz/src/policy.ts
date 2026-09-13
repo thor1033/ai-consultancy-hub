@@ -51,6 +51,52 @@ export function authorize(
   return engine.check(principal, action, resource);
 }
 
+export const ALL_ACTIONS: Action[] = [
+  "document:read",
+  "document:write",
+  "rag:search",
+  "agent:run",
+  "session:read",
+  "admin:manage",
+];
+
+/** Every action a set of roles permits. `admin` is the wildcard it is in check(). */
+export function actionsForRoles(roles: string[]): Set<Action> {
+  if (roles.includes("admin")) return new Set(ALL_ACTIONS);
+  const actions = new Set<Action>();
+  for (const role of roles) {
+    for (const action of ROLE_GRANTS[role] ?? []) actions.add(action);
+  }
+  return actions;
+}
+
+/**
+ * Narrow a principal's roles to what a credential asks for, never widening.
+ *
+ * Compared by *permitted actions*, not by string equality, because roles are a
+ * lattice and not a flat set. `viewer` is a strict subset of `analyst` — both
+ * read documents and search, the analyst can also write and run — so an analyst
+ * scoping a credential down to viewer is exactly the narrowing they intended.
+ * A plain string intersection would call that empty and hand back a credential
+ * that can do nothing, which is how "issue CI a read-only token" quietly
+ * produces a dead token.
+ *
+ * A role the principal could not fully exercise is dropped rather than clamped:
+ * a viewer asking for `analyst` gets nothing from it, because granting the
+ * overlap would let the credential's role list decide policy.
+ */
+export function narrowRoles(principalRoles: string[], credentialRoles: string[]): string[] {
+  if (!credentialRoles.length) return principalRoles;
+  const permitted = actionsForRoles(principalRoles);
+  return credentialRoles.filter((role) => {
+    const wanted = actionsForRoles([role]);
+    for (const action of wanted) {
+      if (!permitted.has(action)) return false;
+    }
+    return true;
+  });
+}
+
 // Which roles may perform an action. `admin` is always included — it is granted
 // everything.
 export function rolesForAction(action: Action): string[] {

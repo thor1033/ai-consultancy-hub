@@ -38,9 +38,13 @@ hub/
   and syncable from a source connector (PM-tool ships as one).
 - **MCP servers** (`/mcp`) — what agents can reach. Remote servers are declared in
   `HUB_REMOTE_MCP_SERVERS`; the agent-scoped `memory` server is resolved in code.
-- **Control plane** (`/admin`) — enable, disable or delete registered servers.
+- **Control plane** (`/admin`) — people, credentials and the audit trail; which shared
+  drives each person may open ([docs/knowledge-access.md](docs/knowledge-access.md));
+  and enabling or disabling registered servers.
 - **`/api/mcp`** — the hub exposed *as* an MCP server, so Claude Code can search the
-  knowledge base from anywhere. Bearer auth via `HUB_API_TOKENS`.
+  knowledge base from anywhere. An OAuth 2.1 protected resource with WorkOS AuthKit
+  as the authorization server, so any MCP client can enrol it; credentials issued
+  from `/admin` cover clients that cannot do OAuth. See [docs/auth.md](docs/auth.md).
 
 ## Develop
 
@@ -52,9 +56,10 @@ npm run dev                                  # http://localhost:3000
 curl localhost:3000/api/health
 ```
 
-`apps/web/.env.local` needs `DATABASE_URL`, `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`,
-`HUB_API_TOKENS`, and the `WORKOS_*` set — AuthKit throws on every request, `/api/*`
-included, when those are missing.
+`apps/web/.env.local` needs `DATABASE_URL`, `ANTHROPIC_API_KEY`, `VOYAGE_API_KEY`
+and the `WORKOS_*` set — AuthKit throws on every request, `/api/*` included, when
+those are missing. Add `WORKOS_AUTHKIT_DOMAIN` and `HUB_MCP_RESOURCE` to turn on
+OAuth; `HUB_API_TOKENS` still resolves but is deprecated ([docs/auth.md](docs/auth.md)).
 
 ## Deploy
 

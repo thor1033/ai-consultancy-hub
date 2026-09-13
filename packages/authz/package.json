@@ -9,13 +9,15 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:credentials": "node --experimental-transform-types --env-file=../../apps/web/.env.local verify-credentials.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",
     "typescript": "^5"
   },
   "dependencies": {
-    "@ai-hub/db": "*"
+    "@ai-hub/db": "*",
+    "jose": "^6.2.3"
   }
 }

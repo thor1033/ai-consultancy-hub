@@ -3,6 +3,7 @@ import { listAgents, listSessions, type SessionSummary } from "@ai-hub/db";
 import { listDocuments, embedderStatus } from "@ai-hub/rag";
 import { listRegisteredServers } from "@/lib/mcpCatalog";
 import { PageHeader } from "@/components/PageHeader";
+import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 
 export const dynamic = "force-dynamic";
 
@@ -24,7 +25,7 @@ export default async function OverviewPage() {
   // that will not start should cost you that panel, not the whole page.
   const [agents, docs, servers, sessions] = await Promise.all([
     listAgents().catch(() => []),
-    listDocuments().catch(() => []),
+    listDocuments(await sessionKnowledgeAccess()).catch(() => []),
     listRegisteredServers().catch(() => []),
     listSessions(5).catch(() => [] as SessionSummary[]),
   ]);

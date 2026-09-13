@@ -1,5 +1,7 @@
 import { getSql } from "@ai-hub/db";
+import type { KnowledgeAccess } from "@ai-hub/authz";
 import { getEmbedder } from "./embeddings";
+import { accessPredicate } from "./access";
 
 function toVector(arr: number[]): string {
   return `[${arr.join(",")}]`;
@@ -14,15 +16,31 @@ export interface RetrievedChunk {
 }
 
 export interface RetrieveOptions {
-  // Curation (docs/knowledge-rag.md, Phase 2): scope retrieval to one collection,
-  // so a skill draws from its curated set instead of the whole index. Omit for global.
+  // Curation (docs/knowledge-rag.md): scope retrieval to one collection, so an
+  // agent draws from its curated set instead of the whole index. Omit for global.
+  //
+  // This is *curation*, not permission, and the two are enforced separately: a
+  // caller naming a collection they may not read gets nothing, because `access`
+  // is ANDed with it rather than overridden by it.
   collection?: string;
 }
 
-// Embeds the query and returns the top-k most similar chunks (pgvector cosine),
-// optionally scoped to a single collection.
+/**
+ * Embeds the query and returns the top-k most similar chunks (pgvector cosine),
+ * narrowed to what `access` permits.
+ *
+ * `access` is a required argument. It could have defaulted to "everything" and
+ * saved a few call sites some typing, and then the one read path that forgot to
+ * pass it would be the leak — silently, at runtime, in production. Required
+ * means a forgotten filter does not compile.
+ *
+ * The filter is applied in SQL, before the limit, so a restricted document
+ * cannot consume one of the k slots and leave the caller with fewer results
+ * than they may actually see.
+ */
 export async function retrieveChunks(
   query: string,
+  access: KnowledgeAccess,
   k = 5,
   opts: RetrieveOptions = {},
 ): Promise<RetrievedChunk[]> {
@@ -30,8 +48,9 @@ export async function retrieveChunks(
   const [vec] = await getEmbedder().embed([query]);
   const qv = toVector(vec);
 
-  const scope = opts.collection
-    ? sql`where d.collection = ${opts.collection}`
+  const permitted = accessPredicate(access);
+  const curated = opts.collection
+    ? sql`and d.collection = ${opts.collection}`
     : sql``;
 
   return sql<RetrievedChunk[]>`
@@ -42,7 +61,8 @@ export async function retrieveChunks(
            1 - (dc.embedding <=> ${qv}::vector) as score
     from document_chunks dc
     join documents d on d.id = dc.document_id
-    ${scope}
+    where ${permitted}
+    ${curated}
     order by dc.embedding <=> ${qv}::vector
     limit ${k}
   `;

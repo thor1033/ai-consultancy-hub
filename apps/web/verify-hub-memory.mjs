@@ -89,14 +89,17 @@ try {
     "t-stale": { id: "stale", roles: ["analyst"], agentId: "11111111-1111-1111-1111-111111111111" },
     "t-bad": { id: "bad", roles: ["analyst"], agentId: 42 },
   });
+  // authenticate() is async now: it may reach the database for an OAuth
+  // identity or a credential. These legacy-map tokens resolve in process, but
+  // the seam is the same one for all three sources.
   const auth = (tok) => authenticate(new Headers({ authorization: `Bearer ${tok}` }));
 
-  check("token without agentId parses with none", auth("t-none").agentId === undefined);
-  check("token with agentId parses it", auth("t-bound").agentId === agentA.id);
-  check("non-string agentId is dropped, not coerced", auth("t-bad").agentId === undefined);
+  check("token without agentId parses with none", (await auth("t-none")).agentId === undefined);
+  check("token with agentId parses it", (await auth("t-bound")).agentId === agentA.id);
+  check("non-string agentId is dropped, not coerced", (await auth("t-bad")).agentId === undefined);
 
   // --- registration is by construction -------------------------------------
-  const unbound = await connect(auth("t-none"));
+  const unbound = await connect(await auth("t-none"));
   const unboundTools = await toolNames(unbound.client);
   check(
     "unbound token is offered NO memory tools",
@@ -106,7 +109,7 @@ try {
   check("unbound token still gets the knowledge tools", unboundTools.includes("hub_search_knowledge"));
   await unbound.close();
 
-  const viewer = await connect(auth("t-viewer"));
+  const viewer = await connect(await auth("t-viewer"));
   const viewerTools = await toolNames(viewer.client);
   check(
     "viewer with a binding is offered NO memory tools (lacks agent:run)",
@@ -115,7 +118,7 @@ try {
   );
   await viewer.close();
 
-  const stale = await connect(auth("t-stale"));
+  const stale = await connect(await auth("t-stale"));
   const staleTools = await toolNames(stale.client);
   check(
     "binding to a non-existent agent fails closed",
@@ -124,12 +127,12 @@ try {
   );
   await stale.close();
 
-  const bySlug = await connect(auth("t-slug"));
+  const bySlug = await connect(await auth("t-slug"));
   check("a token may bind by slug", (await toolNames(bySlug.client)).includes("hub_memory_list"));
   await bySlug.close();
 
   // --- the bound session ---------------------------------------------------
-  const bound = await connect(auth("t-bound"));
+  const bound = await connect(await auth("t-bound"));
   const boundTools = await toolNames(bound.client);
   check(
     "bound token gets all four memory tools",

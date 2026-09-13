@@ -1,6 +1,6 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { authorize, type Principal } from "@ai-hub/authz";
+import { authorize, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 import {
   getAgent,
   listMemories,
@@ -49,6 +49,14 @@ const text = (value: unknown) => ({
 export async function buildHubMcpServer(principal: Principal): Promise<McpServer> {
   const may = async (action: Parameters<typeof authorize>[1]) =>
     authorize(principal, action);
+
+  // What this principal may read, resolved once per connection rather than per
+  // tool call: the server is rebuilt for every request (the endpoint is
+  // stateless), so "once per connection" is already as fresh as a per-call
+  // lookup would be, at a quarter of the queries. Every knowledge tool below
+  // narrows through it — including hub_get_document, which would otherwise be
+  // the way around the filter on search.
+  const access = await knowledgeAccessFor(principal);
 
   // Resolve the bound agent once, before the server is described, so the
   // instructions can name it and a stale binding fails closed. The lookup only
@@ -110,7 +118,12 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         },
       },
       async ({ query, collection, limit }) => {
-        const chunks = await retrieveChunks(query, limit ?? 5, collection ? { collection } : {});
+        const chunks = await retrieveChunks(
+          query,
+          access,
+          limit ?? 5,
+          collection ? { collection } : {},
+        );
         const status = embedderStatus();
         if (!chunks.length) {
           return text(
@@ -142,7 +155,7 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         inputSchema: {},
       },
       async () => {
-        const collections = await listCollections();
+        const collections = await listCollections(access);
         return collections.length
           ? text(collections)
           : text("No collections defined — everything sits in the default set.");
@@ -163,7 +176,7 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         },
       },
       async ({ collection }) => {
-        const docs = await listDocuments();
+        const docs = await listDocuments(access);
         const scoped = collection ? docs.filter((d) => d.collection === collection) : docs;
         if (!scoped.length) {
           return text(
@@ -196,7 +209,7 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         },
       },
       async ({ id }) => {
-        const doc = await getDocument(id);
+        const doc = await getDocument(id, access);
         if (!doc) return text(`No document with id ${id}.`);
         return text({
           id: doc.id,

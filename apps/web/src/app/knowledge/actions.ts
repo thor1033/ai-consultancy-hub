@@ -9,16 +9,21 @@ import {
   retrieveChunks,
   syncSource,
 } from "@ai-hub/rag";
+import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 import type { KnowledgeSnapshot, RetrievedRow, DocDetail } from "./types";
 
-// Server actions for the knowledge management page. Like the workbench, these run
-// server-trusted; binding them to a logged-in principal (so the PolicyEngine gates
-// UI writes too) lands with WorkOS SSO in Phase 2.
+// Server actions for the knowledge management page.
+//
+// Every read narrows by the signed-in user's knowledge access, the same rule
+// /api/mcp applies. Before increment 02 this console was server-trusted and
+// unfiltered, which would have made it the way around the filter the moment
+// retrieval started respecting the asker.
 
 async function snapshot(): Promise<KnowledgeSnapshot> {
+  const access = await sessionKnowledgeAccess();
   const [documents, collections] = await Promise.all([
-    listDocuments(),
-    listCollections(),
+    listDocuments(access),
+    listCollections(access),
   ]);
   return { documents, collections };
 }
@@ -50,7 +55,7 @@ export async function getDocumentAction(
   id: string,
 ): Promise<DocDetail | { error: string }> {
   try {
-    const doc = await getDocument(id);
+    const doc = await getDocument(id, await sessionKnowledgeAccess());
     if (!doc) return { error: "Document not found." };
     return {
       id: doc.id,
@@ -93,7 +98,7 @@ export async function testRetrievalAction(
 ): Promise<{ chunks: RetrievedRow[] } | { error: string }> {
   if (!query.trim()) return { error: "Enter a query to test retrieval." };
   try {
-    const chunks = await retrieveChunks(query, k);
+    const chunks = await retrieveChunks(query, await sessionKnowledgeAccess(), k);
     return {
       chunks: chunks.map((c) => ({
         title: c.title,

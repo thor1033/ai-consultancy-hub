@@ -130,6 +130,10 @@ if (!process.env.DATABASE_URL) {
   const { syncSource } = await import("./src/sources.ts");
   const { listDocuments } = await import("./src/ingest.ts");
   const { retrieveChunks } = await import("./src/retrieve.ts");
+  // This harness is a sync/ingest test, not an access test — it runs as the hub
+  // itself, so it says so explicitly rather than inventing a principal.
+  // Knowledge access has its own harness: verify-access.mjs.
+  const { ALL_KNOWLEDGE } = await import("../authz/src/knowledge.ts");
   const { embedderStatus } = await import("./src/embeddings.ts");
 
   const embedder = embedderStatus();
@@ -142,12 +146,12 @@ if (!process.env.DATABASE_URL) {
     `${first.documents} docs / ${first.chunks} chunks`,
   );
 
-  const afterFirst = (await listDocuments()).filter((d) => d.sourceType === "pm-tool");
+  const afterFirst = (await listDocuments(ALL_KNOWLEDGE)).filter((d) => d.sourceType === "pm-tool");
   check("the documents land in the store", afterFirst.length === docs.length, `${afterFirst.length} stored`);
 
   // The real risk with a re-syncable connector: running it twice doubles the corpus.
   const second = await syncSource("pm-tool", { collection: "pm-tool-verify" });
-  const afterSecond = (await listDocuments()).filter((d) => d.sourceType === "pm-tool");
+  const afterSecond = (await listDocuments(ALL_KNOWLEDGE)).filter((d) => d.sourceType === "pm-tool");
   check(
     "re-syncing replaces rather than duplicating",
     afterSecond.length === afterFirst.length,
@@ -155,7 +159,7 @@ if (!process.env.DATABASE_URL) {
   );
 
   if (glossary && embedder.production) {
-    const hits = await retrieveChunks("What does this project mean by an agent?", 3, {
+    const hits = await retrieveChunks("What does this project mean by an agent?", ALL_KNOWLEDGE, 3, {
       collection: "pm-tool-verify",
     });
     check(
@@ -169,7 +173,7 @@ if (!process.env.DATABASE_URL) {
 
   // Leave the store as found: this is someone's hub, not a fixture.
   const { deleteDocument } = await import("./src/ingest.ts");
-  for (const d of (await listDocuments()).filter((d) => d.collection === "pm-tool-verify")) {
+  for (const d of (await listDocuments(ALL_KNOWLEDGE)).filter((d) => d.collection === "pm-tool-verify")) {
     await deleteDocument(d.id);
   }
   console.log("\n  … verification documents removed\n");

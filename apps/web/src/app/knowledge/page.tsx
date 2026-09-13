@@ -1,6 +1,7 @@
 import { listDocuments, listCollections, embedderStatus, listSources } from "@ai-hub/rag";
 import { KnowledgeConsole } from "./KnowledgeConsole";
 import { PageHeader } from "@/components/PageHeader";
+import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 import type { KnowledgeSnapshot, SourceRow } from "./types";
 
 export const dynamic = "force-dynamic";
@@ -14,9 +15,10 @@ export default async function KnowledgePage() {
   let embedder: { name: string; production: boolean } | null = null;
   let error: string | null = null;
   try {
+    const access = await sessionKnowledgeAccess();
     const [documents, collections] = await Promise.all([
-      listDocuments(),
-      listCollections(),
+      listDocuments(access),
+      listCollections(access),
     ]);
     snapshot = { documents, collections };
     sources = listSources();

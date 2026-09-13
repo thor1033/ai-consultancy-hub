@@ -1,4 +1,6 @@
 import { getSql } from "@ai-hub/db";
+import type { KnowledgeAccess } from "@ai-hub/authz";
+import { accessPredicate } from "./access";
 import { getEmbedder } from "./embeddings";
 import { chunkText } from "./chunk";
 
@@ -63,8 +65,10 @@ export interface DocumentSummary {
   createdAt: string;
 }
 
-export async function listDocuments(): Promise<DocumentSummary[]> {
+/** Every document the asker may read. `access` is required — see retrieveChunks. */
+export async function listDocuments(access: KnowledgeAccess): Promise<DocumentSummary[]> {
   const sql = getSql();
+  const permitted = accessPredicate(access);
   return sql<DocumentSummary[]>`
     select d.id, d.source_type as "sourceType", d.source, d.collection, d.title,
            count(c.id)::int as "chunkCount",
@@ -76,6 +80,7 @@ export async function listDocuments(): Promise<DocumentSummary[]> {
       select content from document_chunks
       where document_id = d.id order by chunk_index limit 1
     ) first_chunk on true
+    where ${permitted}
     group by d.id, first_chunk.content
     order by d.created_at desc
   `;
@@ -86,12 +91,27 @@ export interface DocumentDetail extends DocumentSummary {
   chunks: { chunkIndex: number; content: string }[];
 }
 
-export async function getDocument(id: string): Promise<DocumentDetail | null> {
+/**
+ * Read one document in full, if the asker may.
+ *
+ * Narrowed by the same predicate as search, and that matters more here than
+ * anywhere else: filtering retrieval while leaving this open would be a fake
+ * fix, since search returns document ids and this turns an id into the whole
+ * document. A document the asker may not read is reported as missing rather
+ * than forbidden — "no document with that id" tells them nothing about what
+ * exists, which is the honest answer to a question they may not ask.
+ */
+export async function getDocument(
+  id: string,
+  access: KnowledgeAccess,
+): Promise<DocumentDetail | null> {
   const sql = getSql();
+  const permitted = accessPredicate(access);
   const [doc] = await sql<Omit<DocumentDetail, "chunks" | "chunkCount">[]>`
-    select id, source_type as "sourceType", source, collection, title, metadata,
-           created_at as "createdAt"
-    from documents where id = ${id}
+    select d.id, d.source_type as "sourceType", d.source, d.collection, d.title,
+           d.metadata, d.created_at as "createdAt"
+    from documents d
+    where d.id = ${id} and ${permitted}
   `;
   if (!doc) return null;
 
@@ -125,12 +145,14 @@ export async function deleteDocumentsBySource(
 }
 
 // The distinct curation labels in use, for the management UI's collection picker.
-export async function listCollections(): Promise<string[]> {
+/** The collections the asker may scope a search to. */
+export async function listCollections(access: KnowledgeAccess): Promise<string[]> {
   const sql = getSql();
+  const permitted = accessPredicate(access);
   const rows = await sql<{ collection: string }[]>`
-    select distinct collection from documents
-    where collection is not null and collection <> ''
-    order by collection
+    select distinct d.collection from documents d
+    where d.collection is not null and d.collection <> '' and ${permitted}
+    order by d.collection
   `;
   return rows.map((r) => r.collection);
 }

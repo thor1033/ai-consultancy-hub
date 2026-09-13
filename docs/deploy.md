@@ -109,7 +109,14 @@ live agent turn against `{"servers":["pm-tool"]}` and a two-turn memory check.
 - **No tenancy.** There is no `org_id` anywhere in `schema.sql`, so one hub
   deployment maps to exactly one PM-tool org. Client #2 needs a second
   deployment or a schema change.
-- **RAG retrieval has no principal filter.** Anyone who can authenticate can
-  retrieve any indexed chunk. This is why the deployment is private to us.
-- **`HUB_API_TOKENS` is a static-token MVP store**, not a secrets manager, and
-  rotation means editing a JSON blob and redeploying.
+- **RAG retrieval is filtered by principal** as of increment 02 — a collection
+  marked restricted is readable only by the principals granted it, across search,
+  document reads and the collection list ([knowledge-access.md](knowledge-access.md)).
+  ⚠️ Unclassified collections still default to open: the migration is not done
+  until `HUB_DEFAULT_COLLECTION_VISIBILITY=restricted` is set.
+  ⚠️ Other MCP servers an agent reaches (PM-tool) still use the hub's own
+  credentials, so the caller inherits the hub's reach there, not their own.
+- **`HUB_API_TOKENS` is deprecated** and replaced by OAuth 2.1 plus per-principal
+  credentials issued from `/admin` — revocable without a deploy and audited. It
+  still resolves during the migration; see [auth.md](auth.md) for the cutover.
+  Until `HUB_DISABLE_LEGACY_TOKENS=1` is set, the hazard below still applies.

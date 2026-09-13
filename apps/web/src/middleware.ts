@@ -13,12 +13,22 @@ import { appBaseUrl } from "@/lib/baseUrl";
 // to a sign-in page it cannot follow. Fly's health check on /api/health depends
 // on the same thing.
 
-const PUBLIC_PATHS = ["/callback", "/sign-in", "/sign-out", "/access-denied"];
+// `/.well-known` is public by definition: OAuth discovery is what an MCP client
+// reads *before* it has a token, and putting a sign-in redirect in front of it
+// would make the hub undiscoverable by every surface in the table — the client
+// would follow the 307 and parse an HTML login page as metadata.
+const PUBLIC_PATHS = [
+  "/callback",
+  "/sign-in",
+  "/sign-out",
+  "/access-denied",
+  "/.well-known",
+];
 
 const authProxy = authkitProxy({
   middlewareAuth: {
     enabled: true,
-    unauthenticatedPaths: [...PUBLIC_PATHS, "/api/:path*"],
+    unauthenticatedPaths: [...PUBLIC_PATHS, "/.well-known/:path*", "/api/:path*"],
   },
 });
 
@@ -33,7 +43,7 @@ export default async function middleware(req: NextRequest, event: NextFetchEvent
   // handing off, and send a signed-in stranger to /access-denied rather than to
   // /sign-in — their identity provider would re-authenticate them immediately
   // and bounce them back here in a loop that never terminates.
-  if (!isPublic(pathname) && !pathname.startsWith("/api/")) {
+  if (!isPublic(pathname) && !pathname.startsWith("/api/") && !pathname.startsWith("/.well-known/")) {
     const { session } = await authkit(req);
     if ("user" in session && session.user && !isAllowedEmail(session.user.email)) {
       // Same proxy hazard as the callback route: req.url is the container's
