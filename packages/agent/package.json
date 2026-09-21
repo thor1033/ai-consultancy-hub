@@ -9,7 +9,8 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify:loop": "node verify-loop.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

@@ -316,3 +316,39 @@ create index if not exists agent_skills_agent_idx on agent_skills (agent_id, nam
 -- recreating this column on every migrate, silently emptying it each time.
 alter table agent_sessions add column if not exists agent_skill_id uuid
   references agent_skills(id) on delete set null;
+
+-- How many rounds of tool use one agent may take before a run is cut off. Null
+-- means the runtime default (DEFAULT_MAX_ITERATIONS). A secretary working
+-- through an inbox needs more rounds than an agent that looks one thing up, and
+-- the ceiling is enforced in code so a bad row cannot cost unbounded money.
+alter table agents add column if not exists max_iterations int;
+
+-- The clock. Until this table existed every agent run began with a person, so
+-- an agent could not act on its own — see docs/schedules.md.
+--
+-- A schedule belongs to a principal and runs AS that principal: retrieval is
+-- scoped to the caller's grants, and an unattended run has no caller. The
+-- cascade on that FK is deliberate — deleting a person takes their unattended
+-- runs with them rather than leaving an ownerless job reading a mailbox.
+create table if not exists agent_schedules (
+  id                 uuid primary key default gen_random_uuid(),
+  agent_id           uuid not null references agents(id) on delete cascade,
+  name               text not null,
+  prompt             text not null,              -- what the agent is asked, every time
+  kind               text not null check (kind in ('every', 'daily')),
+  interval_minutes   int,                        -- kind 'every'
+  at_minute          int,                        -- kind 'daily': minutes past local midnight
+  weekdays           jsonb not null default '[]'::jsonb,  -- [1,2,3,4,5]; empty = every day
+  timezone           text not null default 'UTC',         -- IANA; the daily time is local to it
+  owner_principal_id text not null references principals(id) on delete cascade,
+  enabled            boolean not null default true,
+  -- Stamped when a tick CLAIMS the schedule, not when the run finishes: a run
+  -- takes minutes, and a stale timestamp would look due to every tick between.
+  last_run_at        timestamptz,
+  last_run_id        uuid references agent_sessions(id) on delete set null,
+  last_error         text,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+create index if not exists agent_schedules_due_idx on agent_schedules (enabled, last_run_at);
+create index if not exists agent_schedules_agent_idx on agent_schedules (agent_id);

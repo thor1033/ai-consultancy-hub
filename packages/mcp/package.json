@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "mcp:remote-fixture": "node remote-fixture/server.mjs",
     "verify:remote": "node verify-remote.mjs",
-    "verify:memory": "node verify-memory.mjs"
+    "verify:memory": "node verify-memory.mjs",
+    "verify:m365": "node verify-m365.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

@@ -1,6 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 import { getAgent, listMemories, listSkills } from "@ai-hub/db";
+import { DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
 import { listCollections } from "@ai-hub/rag";
 import { PageHeader } from "@/components/PageHeader";
 import { knownServers } from "@/lib/runSession";
@@ -49,6 +50,8 @@ export default async function AgentPage({
         memories={memories}
         servers={knownServers()}
         collections={collections}
+        defaultMaxIterations={DEFAULT_MAX_ITERATIONS}
+        maxIterationsCeiling={MAX_ITERATIONS_CEILING}
       />
       <SkillsPanel agentId={agent.id} initial={skills} />
     </main>

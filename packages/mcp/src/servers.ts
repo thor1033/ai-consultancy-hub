@@ -4,13 +4,19 @@ import type { McpStdioConfig } from "./manager";
 
 // Servers resolvable from a bare name, as a stdio child process.
 //
-// Empty, and that is the current shape of the hub rather than an oversight: the
-// four entries that used to live here were the investment-firm demo and the
-// PowerPoint studio, and they are gone. What remains is `memory` — which is
-// deliberately NOT resolvable by name (see below) — and whatever
-// HUB_REMOTE_MCP_SERVERS declares over HTTP. Adding a new bundled server means
-// dropping it in ../servers/<name>/server.mjs and naming it here.
-export const BUILTIN_SERVER_NAMES: readonly string[] = [];
+// `microsoft365` is the secretary agent's read-only mailbox and calendar. It is
+// listed here rather than in HUB_REMOTE_MCP_SERVERS because it is ours: the code
+// lives in ../servers/microsoft365, and what it may do is a property of that file
+// rather than of a URL someone configured. Its credentials still come from the
+// environment (M365_*), and it exits 1 when they are missing, so an unconfigured
+// deployment gets a connection error naming the missing variable instead of a
+// server that silently answers nothing.
+//
+// What is NOT here: `memory`, which is deliberately not resolvable by name (see
+// below), and whatever HUB_REMOTE_MCP_SERVERS declares over HTTP. Adding a new
+// bundled server means dropping it in ../servers/<name>/server.mjs and naming it
+// here.
+export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365"];
 
 const BUILTIN = new Set<string>(BUILTIN_SERVER_NAMES);
 

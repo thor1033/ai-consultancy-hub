@@ -23,8 +23,12 @@ import { verifyAccessToken, describeTokenFailure, looksLikeJwt } from "./oauth";
  *   credential  A `hub_sk_…` token issued from /admin. The service door, for
  *               clients that cannot do OAuth. Revocable without a deploy.
  *   env         The legacy HUB_API_TOKENS map. Deprecated — see below.
+ *   schedule    Nobody asked. A schedule fired, and the run executes as the
+ *               principal who owns it (see agent_schedules). There is no token
+ *               and no request behind this one, which is exactly why it is a
+ *               distinct source in the audit trail rather than borrowed.
  */
-export type PrincipalSource = "oauth" | "credential" | "env";
+export type PrincipalSource = "oauth" | "credential" | "env" | "schedule";
 
 export interface Principal {
   id: string;

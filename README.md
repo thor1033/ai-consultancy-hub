@@ -38,9 +38,15 @@ hub/
   and syncable from a source connector (PM-tool ships as one).
 - **MCP servers** (`/mcp`) — what agents can reach. Remote servers are declared in
   `HUB_REMOTE_MCP_SERVERS`; the agent-scoped `memory` server is resolved in code.
+  `microsoft365` gives the secretary agent read-only mail and calendar — it cannot
+  send or change anything ([docs/secretary-agent.md](docs/secretary-agent.md)).
 - **Agents anywhere** — every agent registers as `hub_agent_<slug>` in any MCP client,
   and its Skills as `hub_skill_<slug>` with real arguments, so work built in the hub runs
   from Claude Code, VS Code or Cursor ([docs/agents-anywhere.md](docs/agents-anywhere.md)).
+- **Schedules** — an agent on a clock: `every N minutes`, or daily at a local
+  time on chosen weekdays. Runs execute as the principal who owns the schedule,
+  so an unattended run has exactly the reach of the person who asked for it.
+  Off unless `HUB_SCHEDULER=1` ([docs/schedules.md](docs/schedules.md)).
 - **Control plane** (`/admin`) — people, credentials and the audit trail; which shared
   drives each person may open ([docs/knowledge-access.md](docs/knowledge-access.md));
   and enabling or disabling registered servers.

@@ -37,11 +37,17 @@ export function AgentConsole({
   memories,
   servers,
   collections,
+  // Handed down rather than imported: @ai-hub/agent pulls in the Anthropic SDK
+  // and langfuse, and this is a client component.
+  defaultMaxIterations,
+  maxIterationsCeiling,
 }: {
   agent: Agent;
   memories: AgentMemory[];
   servers: string[];
   collections: string[];
+  defaultMaxIterations: number;
+  maxIterationsCeiling: number;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<"chat" | "memory" | "settings">("chat");
@@ -79,6 +85,11 @@ export function AgentConsole({
   const [instructions, setInstructions] = useState(agent.instructions);
   const [model, setModel] = useState(agent.model ?? "");
   const [collection, setCollection] = useState(agent.knowledgeCollection ?? "");
+  // Kept as a string so the box can be emptied back to "use the default"
+  // rather than forcing a number the moment it is touched.
+  const [maxIterations, setMaxIterations] = useState(
+    agent.maxIterations === null ? "" : String(agent.maxIterations),
+  );
   const [picked, setPicked] = useState<string[]>(serverNames(agent));
   const [enabled, setEnabled] = useState(agent.enabled);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
@@ -94,6 +105,7 @@ export function AgentConsole({
         instructions,
         model: model || null,
         knowledgeCollection: collection || null,
+        maxIterations: maxIterations.trim() === "" ? null : Number(maxIterations),
         mcpServers: picked.map((n) => ({ name: n })),
         enabled,
       });
@@ -275,6 +287,24 @@ export function AgentConsole({
               </select>
             </label>
           </div>
+
+          <label className="block text-sm">
+            <span className="text-[var(--muted)]">Tool-use rounds per run</span>
+            <input
+              className="field mono mt-1 w-full sm:w-40"
+              type="number"
+              min={1}
+              max={maxIterationsCeiling}
+              value={maxIterations}
+              placeholder={String(defaultMaxIterations)}
+              onChange={(e) => setMaxIterations(e.target.value)}
+            />
+            <p className="mono mt-2 text-xs text-[var(--muted)]">
+              Blank uses the default ({defaultMaxIterations}); the ceiling is{" "}
+              {maxIterationsCeiling}. Raise it for an agent that works through a
+              queue — a run that hits the limit stops mid-task and says so.
+            </p>
+          </label>
 
           <div className="text-sm">
             <span className="text-[var(--muted)]">Tool servers</span>

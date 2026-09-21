@@ -59,15 +59,40 @@ traceable back to the agent that made it. If the agent has a
 `knowledge_collection`, retrieval is scoped to it, best-effort: a missing
 embedder or an empty index answers without context rather than failing the turn.
 
+### Tool-use rounds
+
+A run is a loop: the model asks for tools, the hub runs them, the model asks
+again. `agents.max_iterations` caps how many times round — null means the
+runtime default of 10, and the ceiling is 100 whatever the row says, so a
+misconfigured agent costs a bounded amount of money.
+
+Ten rounds suits an agent that looks one thing up and answers. It is not enough
+for one working a queue: a secretary listing an inbox and opening five messages
+fits, triaging forty does not. Raise it per agent under **Settings → Tool-use
+rounds per run**; leave it blank for the default.
+
+Running out is not a quiet event. A run that hits the cap has *not* answered —
+the model was still asking for tools when the hub stopped replying — so the
+result comes back with `exhausted: true` and a note appended to the output text
+saying it stopped early and the work is incomplete. Without that, the caller
+gets the model's last half-formed sentence as though it were the answer.
+
 ## Verification
 
 | Command | Covers |
 | --- | --- |
 | `npm run verify:agents -w @ai-hub/db` | the store: CRUD, that an omitted field is left alone while an explicit null clears one, memory upsert/search/forget, and that deleting an agent takes its memories with it |
 | `npm run verify:memory -w @ai-hub/mcp` | the server through the hub's own client path: the four tools, upsert-not-append, that one agent cannot read another's memories, and that it refuses to start unscoped |
+| `npm run verify:loop -w @ai-hub/agent` | the tool-use loop: that the cap binds at the default and at a per-agent value, that it is clamped at both ends, and that a cut-off run reports itself instead of returning a partial as an answer |
+| `npm run verify:m365 -w @ai-hub/mcp` | the secretary's mailbox and calendar ([secretary-agent.md](secretary-agent.md)) |
+| `npm run verify:schedules -w @ai-hub/db` | the clock: when a schedule is due, and that two simultaneous claims produce one run ([schedules.md](schedules.md)) |
+| `npm run verify:scheduler -w web` | the real tick: a scheduled run lands in `agent_sessions` as its owner, and a refused one is recorded |
 
-Neither needs an API key; both need `DATABASE_URL` and clean up after
-themselves.
+None of them needs an API key. `verify:agents` and `verify:memory` need
+`DATABASE_URL` and clean up after themselves; `verify:loop` and `verify:m365`
+need nothing at all — each stands up a throwaway server in place of the real
+API (the Messages API and Microsoft Graph respectively) and points the shipping
+code at it.
 
 ## Not done yet
 
@@ -81,9 +106,9 @@ themselves.
 - **Conversations are not persisted.** Each turn sends the running transcript
   from the client; only memory survives a reload. Every turn is recorded in
   `agent_sessions`, but there is no "resume this conversation" yet.
-- **No scheduling.** The scheduler was removed with skills — it only ever fired
-  skill runs — so an agent cannot be put on a cron. Bringing it back means a
-  schedule kind that targets an agent, and a ticker to fire it.
+- **Schedules have no UI.** An agent *can* now be put on a clock — see
+  [schedules.md](schedules.md) — but schedules are created through `@ai-hub/db`
+  or SQL; there is no panel on `/agents/[slug]` yet.
 - **Agent *runs* are not reachable from Claude Code.** Memory now is — see
   below — but there is still no tool that runs an agent turn remotely, and
   `POST /api/agent/run` ignores `agentId`, so a turn taken through it has no

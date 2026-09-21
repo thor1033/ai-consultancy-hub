@@ -28,6 +28,8 @@ export interface Agent extends AgentSummary {
   effort: string | null;
   mcpServers: McpEntry[];
   knowledgeCollection: string | null;
+  /** Rounds of tool use one run may take. Null ⇒ the runtime default. */
+  maxIterations: number | null;
 }
 
 export interface AgentMemory {
@@ -47,6 +49,7 @@ export interface AgentInput {
   effort?: string | null;
   mcpServers?: McpEntry[];
   knowledgeCollection?: string | null;
+  maxIterations?: number | null;
   enabled?: boolean;
 }
 
@@ -55,6 +58,7 @@ export interface AgentInput {
 const AGENT_COLUMNS = `
   id, slug, name, description, instructions, model, effort,
   mcp_servers as "mcpServers", knowledge_collection as "knowledgeCollection",
+  max_iterations as "maxIterations",
   enabled, created_at as "createdAt", updated_at as "updatedAt"
 `;
 
@@ -92,11 +96,12 @@ export async function createAgent(input: AgentInput): Promise<Agent> {
   const sql = getSql();
   const rows = await sql<Agent[]>`
     insert into agents (slug, name, description, instructions, model, effort,
-                        mcp_servers, knowledge_collection, enabled)
+                        mcp_servers, knowledge_collection, max_iterations, enabled)
     values (${input.slug}, ${input.name}, ${input.description ?? ""},
             ${input.instructions ?? ""}, ${input.model ?? null}, ${input.effort ?? null},
             ${sql.json((input.mcpServers ?? []) as Parameters<typeof sql.json>[0])},
-            ${input.knowledgeCollection ?? null}, ${input.enabled ?? true})
+            ${input.knowledgeCollection ?? null}, ${input.maxIterations ?? null},
+            ${input.enabled ?? true})
     returning ${sql.unsafe(AGENT_COLUMNS)}, 0 as "memoryCount"
   `;
   return rows[0];
@@ -125,6 +130,7 @@ export async function updateAgent(
       effort = ${next.effort ?? null},
       mcp_servers = ${sql.json((next.mcpServers ?? []) as Parameters<typeof sql.json>[0])},
       knowledge_collection = ${next.knowledgeCollection ?? null},
+      max_iterations = ${next.maxIterations ?? null},
       enabled = ${next.enabled ?? true},
       updated_at = now()
     where id = ${id}

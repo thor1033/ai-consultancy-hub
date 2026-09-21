@@ -13,6 +13,11 @@ export interface RunAgentInput {
   thinking?: boolean;
   effort?: "low" | "medium" | "high" | "max";
   maxTokens?: number;
+  /**
+   * Cap on rounds of tool use. Defaults to DEFAULT_MAX_ITERATIONS, clamped to
+   * MAX_ITERATIONS_CEILING. A run that hits it comes back `exhausted`.
+   */
+  maxIterations?: number;
   /** Retrieved context (e.g. from RAG) injected as an extra system block. */
   context?: string;
   /** Tools exposed to Claude this turn (e.g. from the MCP layer). */
@@ -28,6 +33,14 @@ export interface RunAgentResult {
   model: string;
   stopReason: string | null;
   iterations: number;
+  /** The cap this run actually ran under, after clamping. */
+  maxIterations: number;
+  /**
+   * True when the run stopped because it hit `maxIterations` with the model
+   * still asking for tools — i.e. the task was not finished. `text` carries a
+   * note saying so, because that is what a person sees.
+   */
+  exhausted: boolean;
   usage: {
     inputTokens: number;
     outputTokens: number;

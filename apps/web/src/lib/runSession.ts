@@ -53,6 +53,8 @@ export interface RunSessionInput {
   system?: string;
   model?: ModelId;
   effort?: "low" | "medium" | "high" | "max";
+  /** Rounds of tool use this run may take. Undefined ⇒ the runtime default. */
+  maxIterations?: number;
   servers?: string[];
   /** Who asked, recorded on the session so a run has an owner. */
   principalId?: string;
@@ -97,6 +99,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       system: input.system,
       model: input.model,
       effort: input.effort,
+      maxIterations: input.maxIterations,
       tools: mcp?.tools,
       toolExecutor: mcp?.execute,
       metadata: input.agentId

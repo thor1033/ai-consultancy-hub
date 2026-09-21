@@ -11,7 +11,8 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "migrate": "node migrate.mjs",
-    "verify:agents": "node verify-agents.mjs"
+    "verify:agents": "node verify-agents.mjs",
+    "verify:schedules": "node verify-schedules.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

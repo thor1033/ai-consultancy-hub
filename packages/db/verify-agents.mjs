@@ -60,6 +60,7 @@ try {
     model: "claude-opus-4-8",
     mcpServers: [{ name: "sample" }],
     knowledgeCollection: "verify-collection",
+    maxIterations: 25,
   });
   check("createAgent returns the stored row", Boolean(agent?.id), agent?.id?.slice(0, 8));
   check("it round-trips every field",
@@ -67,7 +68,8 @@ try {
     agent.instructions === "Be brief." &&
     agent.model === "claude-opus-4-8" &&
     agent.knowledgeCollection === "verify-collection" &&
-    Array.isArray(agent.mcpServers) && agent.mcpServers[0]?.name === "sample",
+    Array.isArray(agent.mcpServers) && agent.mcpServers[0]?.name === "sample" &&
+    agent.maxIterations === 25,
     JSON.stringify(agent.mcpServers),
   );
   check("a new agent has no memories", agent.memoryCount === 0);
@@ -88,16 +90,27 @@ try {
     renamed.name === "Renamed" &&
       renamed.instructions === "Be brief." &&
       renamed.model === "claude-opus-4-8" &&
-      renamed.knowledgeCollection === "verify-collection",
-    `model=${renamed.model} collection=${renamed.knowledgeCollection}`,
+      renamed.knowledgeCollection === "verify-collection" &&
+      renamed.maxIterations === 25,
+    `model=${renamed.model} collection=${renamed.knowledgeCollection} maxIterations=${renamed.maxIterations}`,
   );
 
   // The case a coalesce-based update gets wrong: null means clear it.
-  const cleared = await updateAgent(agent.id, { model: null, knowledgeCollection: null });
+  const cleared = await updateAgent(agent.id, {
+    model: null,
+    knowledgeCollection: null,
+    maxIterations: null,
+  });
   check(
     "an explicit null clears a nullable field",
-    cleared.model === null && cleared.knowledgeCollection === null,
-    `model=${cleared.model} collection=${cleared.knowledgeCollection}`,
+    cleared.model === null && cleared.knowledgeCollection === null && cleared.maxIterations === null,
+    `model=${cleared.model} collection=${cleared.knowledgeCollection} maxIterations=${cleared.maxIterations}`,
+  );
+  // Null is not a gap in the data: it is how an agent says "use the runtime
+  // default", which is what agentRuns passes through as undefined.
+  check(
+    "a cleared iteration cap reads back as null, not 0",
+    cleared.maxIterations === null && Object.is(cleared.maxIterations, null),
   );
   check("…without disturbing the fields around it", cleared.name === "Renamed" && cleared.instructions === "Be brief.");
 

@@ -17,9 +17,24 @@ const DEFAULT_SYSTEM =
   "accurately and concisely, using the tools available to you. Prefer verified " +
   "facts from tools and provided context over guessing.";
 
-// Safety cap on the tool-use loop. Only matters once tools exist (Thing 3);
-// with no tools registered, the loop runs exactly one turn.
-const MAX_ITERATIONS = 10;
+/**
+ * Default cap on the tool-use loop, when an agent does not set its own.
+ *
+ * Ten rounds is right for an agent that looks something up and answers. It is
+ * not enough for one working through a queue — a secretary listing an inbox and
+ * opening five messages fits, triaging forty does not — so an agent can raise
+ * its own ceiling (`agents.max_iterations`).
+ *
+ * The cap is a cost and runaway-loop guard, not a correctness one: hitting it
+ * means the run stopped mid-task, which `exhausted` reports rather than hides.
+ */
+export const DEFAULT_MAX_ITERATIONS = 10;
+
+/**
+ * The hard ceiling a per-agent value is clamped to. A misconfigured agent that
+ * loops should cost a bounded amount of money, whatever its row says.
+ */
+export const MAX_ITERATIONS_CEILING = 100;
 
 /**
  * Runs one agent turn (a full tool-use loop) against Claude and returns the
@@ -30,6 +45,10 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   const model: ModelId = input.model ?? DEFAULT_MODEL;
   const maxTokens = input.maxTokens ?? 16000;
   const useThinking = input.thinking ?? true;
+  const maxIterations = Math.min(
+    Math.max(Math.trunc(input.maxIterations ?? DEFAULT_MAX_ITERATIONS), 1),
+    MAX_ITERATIONS_CEILING,
+  );
 
   const client = getAnthropic();
   const langfuse = getLangfuse();
@@ -74,7 +93,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   let finalText = "";
   const toolsUsed: string[] = []; // distinct, in first-use order
 
-  while (iterations < MAX_ITERATIONS) {
+  while (iterations < maxIterations) {
     iterations++;
     const genStart = Date.now();
     const gen = trace?.generation({
@@ -167,12 +186,27 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     messages.push({ role: "user", content: toolResults });
   }
 
+  // The loop only leaves with stop_reason still `tool_use` one way: it ran out
+  // of iterations. The model had asked for another tool call and we stopped
+  // answering, so whatever is in finalText is a partial thought, or nothing at
+  // all — and without this the caller gets that partial as if it were the
+  // answer. Say so in the output itself, because the output is what a person
+  // reads; `exhausted` is the same fact for code.
+  const exhausted = stopReason === "tool_use";
+  if (exhausted) {
+    const note =
+      `[Stopped after ${maxIterations} rounds of tool use without reaching an answer. ` +
+      `The work is incomplete — ask for a narrower slice of it, or raise this agent's ` +
+      `iteration limit.]`;
+    finalText = finalText ? `${finalText}\n\n${note}` : note;
+  }
+
   const latencyMs = Date.now() - started;
   const cost = costUsd(model, usage);
 
   trace?.update({
     output: finalText,
-    metadata: { stopReason, iterations, costUsd: cost, latencyMs, ...usage },
+    metadata: { stopReason, iterations, maxIterations, exhausted, costUsd: cost, latencyMs, ...usage },
   });
   await langfuse?.flushAsync();
 
@@ -181,6 +215,8 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     model,
     stopReason,
     iterations,
+    maxIterations,
+    exhausted,
     usage: { ...usage, totalTokens: totalTokens(usage) },
     costUsd: cost,
     latencyMs,

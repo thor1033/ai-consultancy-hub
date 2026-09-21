@@ -71,3 +71,18 @@ export {
   deleteSkill,
 } from "./skills";
 export type { Skill, SkillWithAgent, SkillInput, SkillParameter, ParameterType } from "./skills";
+export {
+  isDue,
+  isValidTimezone,
+  createSchedule,
+  listSchedules,
+  getSchedule,
+  setScheduleEnabled,
+  deleteSchedule,
+  schedulesToConsider,
+  claimSchedule,
+  finishScheduleRun,
+  runDueSchedules,
+  DAILY_CATCH_UP_MINUTES,
+} from "./schedules";
+export type { Schedule, ScheduleInput, ScheduleKind, TickOutcome } from "./schedules";

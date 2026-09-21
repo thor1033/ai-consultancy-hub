@@ -8,7 +8,8 @@
     "start": "next start -p 3000",
     "lint": "next lint",
     "verify:hub-memory": "node --experimental-transform-types --env-file=.env.local verify-hub-memory.mjs",
-    "verify:agent-tools": "node --experimental-transform-types --env-file=.env.local verify-agent-tools.mjs"
+    "verify:agent-tools": "node --experimental-transform-types --env-file=.env.local verify-agent-tools.mjs",
+    "verify:scheduler": "node --experimental-transform-types --env-file=.env.local verify-scheduler.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",

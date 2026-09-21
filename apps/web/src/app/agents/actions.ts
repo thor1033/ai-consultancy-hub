@@ -13,7 +13,7 @@ import {
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
-import type { ModelId } from "@ai-hub/agent";
+import { MAX_ITERATIONS_CEILING, type ModelId } from "@ai-hub/agent";
 import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 import { listSkills, createSkill, updateSkill, deleteSkill, type SkillParameter } from "@ai-hub/db";
 import { sessionPrincipal } from "@/lib/sessionPrincipal";
@@ -54,15 +54,25 @@ export async function saveAgentAction(
     (e) => typeof (e as { name?: unknown }).name === "string" && isKnownServer(String((e as { name: string }).name)),
   );
 
+  // A server action is a public endpoint, so the number is validated here and
+  // not only by the <input type="number"> that usually produces it. Anything
+  // unusable becomes null — the runtime default — rather than an error the
+  // person cannot act on or a NaN that reaches Postgres.
+  const raw = input.maxIterations;
+  const maxIterations =
+    raw === null || raw === undefined || !Number.isFinite(Number(raw))
+      ? null
+      : Math.min(Math.max(Math.trunc(Number(raw)), 1), MAX_ITERATIONS_CEILING);
+
   try {
     if (id) {
-      const updated = await updateAgent(id, { ...input, name, mcpServers: servers });
+      const updated = await updateAgent(id, { ...input, name, mcpServers: servers, maxIterations });
       if (!updated) return { error: "That agent no longer exists." };
       revalidatePath("/agents");
       revalidatePath(`/agents/${updated.slug}`);
       return { ok: true, slug: updated.slug };
     }
-    const created = await createAgent({ ...input, name, slug, mcpServers: servers });
+    const created = await createAgent({ ...input, name, slug, mcpServers: servers, maxIterations });
     revalidatePath("/agents");
     return { ok: true, slug: created.slug };
   } catch (e) {
