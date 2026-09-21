@@ -178,7 +178,15 @@ Remember what accumulates, not what you can look up: corrections you were given,
 who owns what, what a past meeting already created. Never store a task list —
 fetch it.`,
   model: null,
-  effort: "high",
+  // Deliberately NOT "high". This agent reads a long transcript against a large
+  // project and then writes a long structured answer, and the run's token
+  // budget has to cover the thinking AND the answer. On `high` the first real
+  // meeting spent all 16000 output tokens inside one adaptive-thinking block
+  // over a 94KB pm_get_project result and was truncated before writing a single
+  // character — a four-minute run that cost real money and returned nothing.
+  // Careful work here comes from the evidence rules below, not from buying more
+  // reasoning the budget cannot pay for.
+  effort: "medium",
   mcpServers: [{ name: PM_TOOL_READ_SERVER }],
   knowledgeCollection: null,
   // Ten rounds suits an agent that looks one thing up. This one reads its

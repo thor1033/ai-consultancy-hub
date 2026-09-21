@@ -43,6 +43,18 @@ export const MAX_ITERATIONS_CEILING = 100;
  */
 export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   const model: ModelId = input.model ?? DEFAULT_MODEL;
+  // Do NOT raise this without switching to streaming. The budget has to cover
+  // the thinking AND the answer, so 16000 is genuinely tight for an agent on
+  // `effort: high` over a large tool result — it can spend the lot inside one
+  // adaptive-thinking block and be truncated before writing a character (the
+  // empty-output guard at the end of this function is what surfaces that).
+  //
+  // But the SDK refuses a NON-streaming request whose max_tokens implies more
+  // than ten minutes of generation: raising this to 32000 made every call throw
+  // `Streaming is required for operations that may take longer than 10 minutes`
+  // before it left the process. That is a worse failure than the one it fixes —
+  // total, and on every agent rather than the slow ones. Caught by
+  // `npm run verify:loop`. Fixing this properly means streaming the response.
   const maxTokens = input.maxTokens ?? 16000;
   const useThinking = input.thinking ?? true;
   const maxIterations = Math.min(
@@ -199,6 +211,27 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       `The work is incomplete — ask for a narrower slice of it, or raise this agent's ` +
       `iteration limit.]`;
     finalText = finalText ? `${finalText}\n\n${note}` : note;
+  }
+
+  // The other way to reach here having said nothing: the response was cut off
+  // at max_tokens. With adaptive thinking that is not a rare edge — a hard
+  // question over a large tool result can spend the WHOLE budget thinking and
+  // get truncated mid-thought, so the turn carries a thinking block and no text
+  // at all. Until this existed such a run was stored as `succeeded` with an
+  // empty output: the most expensive possible silence, indistinguishable from
+  // an agent that simply had nothing to say.
+  //
+  // Same principle as `exhausted` above — say it in the output, because the
+  // output is what a person reads.
+  if (!finalText.trim()) {
+    finalText =
+      stopReason === "max_tokens"
+        ? `[Produced no answer: the response hit the ${maxTokens}-token output limit ` +
+          `while still reasoning, so nothing was written. Nothing was lost except the ` +
+          `run — retry with a smaller input (a narrower tool result), a lower effort ` +
+          `setting, or a higher output limit.]`
+        : `[Produced no answer (stop reason: ${stopReason ?? "unknown"}). This is a ` +
+          `failed run, not an empty one.]`;
   }
 
   const latencyMs = Date.now() - started;
