@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "migrate": "node migrate.mjs",
     "verify:agents": "node verify-agents.mjs",
-    "verify:schedules": "node verify-schedules.mjs"
+    "verify:schedules": "node verify-schedules.mjs",
+    "seed:secretary": "node seed-secretary.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",
