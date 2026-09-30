@@ -66,16 +66,37 @@ export async function connectMcpServers(
           command: cfg.command,
           args: cfg.args ?? [],
           env: inheritedEnv(cfg.env),
+          // Piped, not inherited. A bundled server that refuses to start says
+          // why on stderr — "missing M365_TENANT_ID, M365_CLIENT_SECRET" — and
+          // with the default "inherit" that line goes to the container log
+          // while the caller is told only "Connection closed". Capturing it
+          // turns an unconfigured deployment from a mystery into a sentence.
+          stderr: "pipe",
         });
+
+    // Kept as a rolling tail rather than the whole stream: a chatty server must
+    // not accumulate its entire output in memory for the sake of one error.
+    let stderrTail = "";
+    if (!isHttpConfig(cfg)) {
+      (transport as StdioClientTransport).stderr?.on("data", (chunk: Buffer | string) => {
+        stderrTail = `${stderrTail}${String(chunk)}`.slice(-2000);
+      });
+    }
+
     const client = new Client({ name: `ai-hub-${cfg.name}`, version: "0.1.0" });
     try {
       await client.connect(transport);
     } catch (err) {
       // Name the server: a remote one fails for network/auth reasons that the
-      // bare transport error doesn't attribute to anything.
+      // bare transport error doesn't attribute to anything. For a stdio server
+      // the transport error is almost never the diagnosis — what the child
+      // printed before dying is.
       const message = err instanceof Error ? err.message : String(err);
+      const said = stderrTail.trim();
       await Promise.all(clients.map((c) => c.close().catch(() => {})));
-      throw new Error(`MCP server "${cfg.name}" failed to connect: ${message}`);
+      throw new Error(
+        `MCP server "${cfg.name}" failed to connect: ${message}${said ? ` — it said: ${said}` : ""}`,
+      );
     }
     clients.push(client);
 

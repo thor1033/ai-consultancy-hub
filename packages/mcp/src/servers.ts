@@ -20,6 +20,42 @@ export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365"];
 
 const BUILTIN = new Set<string>(BUILTIN_SERVER_NAMES);
 
+export interface BuiltinServerInfo {
+  name: string;
+  label: string;
+  description: string;
+}
+
+/**
+ * What the control plane needs to show a built-in server.
+ *
+ * `mcp_servers` is the admin-owned overlay — which servers exist and whether
+ * each is currently enabled — and `disabledMcpServerNames()` is applied to
+ * EVERY server a run resolves, built-in ones included. So a built-in with no row
+ * was subject to the kill switch while being invisible in the console that
+ * operates it: `/mcp` upserted the remote servers it found in the environment
+ * and nothing else, so `microsoft365` never appeared and could never be turned
+ * off from the UI.
+ *
+ * Kept next to BUILTIN_SERVER_NAMES rather than in the web app so that adding a
+ * bundled server is still one edit in one file. A name here with no entry is a
+ * bug the verifier catches.
+ *
+ * Not included: `sample`, which is a dev artifact resolved by a special case in
+ * runSession rather than a member of this list, and `memory`, which is scoped to
+ * one agent and deliberately not resolvable by name at all (see below).
+ */
+export function builtinServerInfo(): BuiltinServerInfo[] {
+  return [
+    {
+      name: "microsoft365",
+      label: "Microsoft 365",
+      description:
+        "One mailbox and its calendar. Reads what has arrived and what is coming up, and writes a reply into Drafts — it cannot send. Needs the M365_* credentials.",
+    },
+  ];
+}
+
 function serverEntry(name: string): string {
   const here = dirname(fileURLToPath(import.meta.url));
   return join(here, "..", "servers", name, "server.mjs");
