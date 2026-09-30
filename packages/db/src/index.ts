@@ -86,3 +86,14 @@ export {
   DAILY_CATCH_UP_MINUTES,
 } from "./schedules";
 export type { Schedule, ScheduleInput, ScheduleKind, TickOutcome } from "./schedules";
+export {
+  createApproval,
+  getApproval,
+  listApprovals,
+  decideApproval,
+  recordApprovalOutcome,
+  expireStaleApprovals,
+  attachApprovalOrigin,
+  DEFAULT_APPROVAL_TTL_MINUTES,
+} from "./approvals";
+export type { Approval, ApprovalInput, ApprovalState, DecisionOutcome, DecisionRefusal } from "./approvals";

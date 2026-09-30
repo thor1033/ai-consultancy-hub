@@ -1,19 +1,25 @@
 // Microsoft 365 MCP server — the secretary agent's mailbox and calendar.
 //
-// READ-ONLY, deliberately and completely. There is no tool here that sends,
-// replies, accepts, declines, creates or deletes anything. An agent that can
-// read your inbox on demand is useful the day it ships; an agent that can send
-// from your address is a mistake you cannot take back, and it should arrive
-// behind an approval gate rather than as a side effect of wiring up mail.
-// Keep that property when extending this file: drafting belongs in a later
-// increment, with a human confirming before anything leaves the tenant.
+// NOTHING HERE SENDS. That is the invariant, and it survives the arrival of
+// m365_mail_draft: a draft is written into the mailbox's own Drafts folder and
+// stays there. There is no tool that sends, replies, forwards, accepts,
+// declines or deletes, so the worst an unattended run can do is leave a badly
+// worded draft where a person will read it before anyone else does.
+//
+// Sending is a separate motion, performed by the hub after a named person
+// approves it (packages/db/src/approvals.ts) — never from inside the agent's
+// tool loop, which runs with nobody watching. Keep it that way when extending
+// this file: the moment a send tool appears here, the gate is gone, because an
+// agent calls the tools it holds.
 //
 // AUTH is app-only (OAuth 2.0 client credentials): a confidential app
-// registration with Application permissions Mail.Read + Calendars.Read and
-// admin consent granted. There is no browser dance and no refresh token to
-// rotate, which is what an unattended agent needs. The cost is that Application
-// permissions span EVERY mailbox in the tenant, so scope this registration to
-// the secretary's mailbox alone with an Application Access Policy:
+// registration with Application permissions Mail.ReadWrite + Calendars.Read and
+// admin consent granted. (Mail.Read alone still runs everything but the draft
+// tool, which then returns Graph's 403 naming the missing permission.) There is
+// no browser dance and no refresh token to rotate, which is what an unattended
+// agent needs. The cost is that Application permissions span EVERY mailbox in
+// the tenant, so scope this registration to the secretary's mailbox alone with
+// an Application Access Policy:
 //
 //   New-ApplicationAccessPolicy -AppId <client-id> -PolicyScopeGroupId \
 //     secretary@yourdomain -AccessRight RestrictAccess
@@ -111,6 +117,40 @@ async function graph(path, search = {}) {
   return body;
 }
 
+/**
+ * A Graph call that writes.
+ *
+ * Only ever used to create a draft. It is a separate function from `graph()`
+ * rather than a `method` parameter on it so that "what in this file can write"
+ * is one grep with one answer — the property the whole design rests on.
+ */
+async function graphWrite(path, body) {
+  const token = await accessToken();
+  const res = await fetch(new URL(`${GRAPH_BASE}/users/${encodeURIComponent(MAILBOX)}${path}`), {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+      prefer: `outlook.timezone="${TIMEZONE}"`,
+    },
+    body: JSON.stringify(body),
+  });
+
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = payload.error ?? {};
+    // A tenant that consented Mail.Read but not Mail.ReadWrite fails exactly
+    // here, and Graph's own message does not name the permission. Say it, or
+    // this reads as a mysterious 403 to whoever is looking at the agent output.
+    const hint =
+      res.status === 403
+        ? " — the app registration needs the Mail.ReadWrite application permission, with admin consent granted"
+        : "";
+    throw new Error(`Graph ${res.status} ${err.code ?? ""}: ${err.message ?? "request failed"}${hint}`.trim());
+  }
+  return payload;
+}
+
 const text = (value) => ({
   content: [{ type: "text", text: typeof value === "string" ? value : JSON.stringify(value, null, 2) }],
 });
@@ -171,12 +211,14 @@ const server = new McpServer(
   { name: "microsoft365", version: "0.1.0" },
   {
     instructions:
-      `Read-only access to the mailbox and calendar of ${MAILBOX}. Use ` +
-      "m365_calendar_list for what is coming up, m365_mail_list to see what has " +
-      "arrived, and the _get tools when a summary is not enough and you need the " +
-      "full body. You cannot send, reply, accept, decline or change anything from " +
-      "here — when someone asks for that, draft the text in your answer and say it " +
-      "still needs to be sent by hand.",
+      `The mailbox and calendar of ${MAILBOX}. Use m365_calendar_list for what ` +
+      "is coming up, m365_mail_list to see what has arrived, and the _get tools " +
+      "when a summary is not enough and you need the full body. " +
+      "m365_mail_draft writes a reply or a new message into the Drafts folder — " +
+      "it does NOT send it, and you have no tool that does. A draft leaves the " +
+      "tenant only after a person approves it, so write the draft in full, then " +
+      "say plainly that it is waiting on a human. You cannot accept, decline, " +
+      "forward or delete anything.",
   },
 );
 
@@ -197,7 +239,13 @@ server.registerTool(
         mailbox: me.mail ?? me.userPrincipalName ?? MAILBOX,
         displayName: me.displayName,
         timezone: TIMEZONE,
-        access: "read-only",
+        access: "read + draft — nothing here can send",
+        // Should always be false. The sending credential is a separate app
+        // registration held by the web app alone, and connectMcpServers strips
+        // it from every tool server's environment (WITHHELD_FROM_TOOL_SERVERS).
+        // If this ever reads true, that boundary has been broken — the process
+        // running the model's tools is holding a key that can send mail.
+        sendCredentialVisible: Boolean(process.env.M365_SEND_CLIENT_SECRET),
       });
     }),
 );
@@ -335,6 +383,109 @@ server.registerTool(
         conversationId: m.conversationId,
         attachments: (m.attachments ?? []).map((a) => a.name),
         body: bodyText(m),
+      });
+    }),
+);
+
+// An address good enough to be worth sending to Graph. Deliberately not RFC
+// 5322: the job is to catch "Anna" and "anna@ example.com" before they become a
+// 400 the agent has to interpret, not to adjudicate exotic legal addresses.
+const looksLikeAddress = (a) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(a.trim());
+
+const recipients = (list) => list.map((a) => ({ emailAddress: { address: a.trim() } }));
+
+server.registerTool(
+  "m365_mail_draft",
+  {
+    description:
+      "Write a message into the Drafts folder — a reply to something in the inbox, or a new message. " +
+      "It is NOT sent: it waits in Drafts for a person to approve or send it, and nothing here can send it for you. " +
+      "Prefer `replyTo` for anything answering an existing message: it keeps the conversation threaded and fills in the recipients and subject for you.",
+    inputSchema: {
+      body: z
+        .string()
+        .min(1)
+        .describe("The message text you are writing. Plain text — write it in full, as it should be read."),
+      replyTo: z
+        .string()
+        .optional()
+        .describe("The messageId being replied to, from m365_mail_list. Leave empty to start a new message."),
+      replyAll: z
+        .boolean()
+        .optional()
+        .describe("With replyTo: include everyone who was on the original, not just the sender. Default false."),
+      to: z
+        .array(z.string())
+        .optional()
+        .describe("Recipients of a NEW message, as email addresses. Ignored when replyTo is set — Graph fills them in."),
+      cc: z.array(z.string()).optional().describe("Copied recipients, as email addresses."),
+      subject: z
+        .string()
+        .optional()
+        .describe("Subject of a NEW message. Ignored when replyTo is set — the reply keeps the original subject."),
+    },
+  },
+  async ({ body, replyTo, replyAll, to, cc, subject }) =>
+    attempt(async () => {
+      if (!body.trim()) return failed("A draft with an empty body is not worth writing.");
+
+      const bad = [...(to ?? []), ...(cc ?? [])].filter((a) => !looksLikeAddress(a));
+      if (bad.length > 0) {
+        return failed(
+          `These do not look like email addresses: ${bad.join(", ")}. Use m365_mail_get on the message you are answering to find the real address.`,
+        );
+      }
+
+      let draft;
+      let ignored;
+
+      if (replyTo) {
+        // createReply, not a fresh message with "Re:" in the subject. Graph
+        // builds the draft with the right recipients, the original quoted
+        // underneath, and — the part that cannot be reproduced by hand — the
+        // In-Reply-To and References headers, so the answer threads in the
+        // recipient's client instead of starting a new conversation.
+        const path = `/messages/${encodeURIComponent(replyTo)}/${replyAll ? "createReplyAll" : "createReply"}`;
+        draft = await graphWrite(path, { comment: body });
+        // Say what was dropped rather than dropping it silently, the same way
+        // m365_mail_list reports an ignored unreadOnly.
+        const over = [to?.length ? "to" : null, subject ? "subject" : null].filter(Boolean);
+        if (over.length > 0) {
+          ignored = `${over.join(" and ")} ignored: a reply takes its recipients and subject from the original message.`;
+        }
+        if (cc?.length) {
+          // A reply draft already has its recipients; adding cc means patching
+          // the draft, which is a second write. Not worth it for a case nobody
+          // has asked for — name the gap instead of half-doing it.
+          ignored = `${ignored ? `${ignored} ` : ""}cc ignored on a reply: use replyAll, or add the copy by hand in Outlook.`;
+        }
+      } else {
+        if (!to || to.length === 0) return failed("A new message needs at least one recipient in `to`.");
+        if (!subject?.trim()) return failed("A new message needs a subject.");
+        draft = await graphWrite("/messages", {
+          subject: subject.trim(),
+          // Plain text, not HTML: what the agent wrote is what a person will
+          // read, with no markup to go wrong between here and Outlook.
+          body: { contentType: "Text", content: body },
+          toRecipients: recipients(to),
+          ...(cc?.length ? { ccRecipients: recipients(cc) } : {}),
+        });
+      }
+
+      return text({
+        draftId: draft.id,
+        status: "saved to Drafts — NOT sent",
+        // Read back from the created draft rather than echoed from the
+        // arguments: on a reply these are Graph's, not ours, and they are what
+        // a person will be approving.
+        subject: draft.subject,
+        to: (draft.toRecipients ?? []).map(person),
+        cc: (draft.ccRecipients ?? []).map(person),
+        conversationId: draft.conversationId,
+        openInOutlook: draft.webLink ?? null,
+        ...(ignored ? { note: ignored } : {}),
+        nextStep:
+          "Tell the person this is waiting in Drafts and summarise what it says. You cannot send it, and neither can any other tool you hold.",
       });
     }),
 );

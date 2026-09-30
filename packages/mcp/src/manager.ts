@@ -35,10 +35,34 @@ export interface ConnectedMcp {
   close(): Promise<void>;
 }
 
+/**
+ * Secrets that never reach a tool server's process.
+ *
+ * A stdio server is a child of this process and inherits its environment, so
+ * every secret the hub holds is readable by the code behind every tool the
+ * model can call. That is acceptable for credentials whose reach is already the
+ * agent's — and unacceptable for the one that sends mail.
+ *
+ * `M365_SEND_*` is a SEPARATE app registration, the only one granted
+ * `Mail.Send`, used solely by the web app when a person approves a send
+ * (apps/web/src/lib/mail/send.ts). Withholding it here makes "the model cannot
+ * send" a property of the process boundary rather than only of the tool list:
+ * servers/microsoft365 has no send tool, and even a future one could not
+ * authenticate.
+ *
+ * Add to this list, never remove from it, and keep the sending credential out
+ * of the read one — see docs/approvals.md.
+ */
+export const WITHHELD_FROM_TOOL_SERVERS: readonly string[] = [
+  "M365_SEND_TENANT_ID",
+  "M365_SEND_CLIENT_ID",
+  "M365_SEND_CLIENT_SECRET",
+];
+
 function inheritedEnv(extra?: Record<string, string>): Record<string, string> {
   const env: Record<string, string> = {};
   for (const [k, v] of Object.entries(process.env)) {
-    if (v !== undefined) env[k] = v;
+    if (v !== undefined && !WITHHELD_FROM_TOOL_SERVERS.includes(k)) env[k] = v;
   }
   return { ...env, ...(extra ?? {}) };
 }

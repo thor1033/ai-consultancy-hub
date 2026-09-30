@@ -352,3 +352,67 @@ create table if not exists agent_schedules (
 );
 create index if not exists agent_schedules_due_idx on agent_schedules (enabled, last_run_at);
 create index if not exists agent_schedules_agent_idx on agent_schedules (agent_id);
+
+-- Approvals — the gate the hub did not have.
+--
+-- An agent run is an autonomous tool loop: whatever tools it holds, it calls,
+-- unattended. That is fine while every tool only reads. It stops being fine the
+-- moment one of them can change something outside the hub — send mail, book a
+-- meeting, write to a client's system — because there is no point in that loop
+-- at which a person can say no.
+--
+-- The answer everywhere so far has been to withhold the capability: the
+-- secretary's PM-tool credential is read-scoped so the write tools are absent
+-- from its tool list, and servers/microsoft365 has no tool that sends. That
+-- works, and it is why nothing here can do damage today. It also means the
+-- agent cannot do the job. This table is the other half: a PROPOSED action,
+-- parked, until a named person decides on it.
+--
+-- Two facts are deliberately separate columns rather than one status:
+--
+--   state / decided_by / decided_at   what a PERSON decided
+--   carried_out_at / result / error   what then HAPPENED
+--
+-- An approved action whose send failed is not the same as a rejected one, and
+-- flattening both into "failed" loses the fact a human said yes. Read the
+-- decision from `state` and the delivery from `carried_out_at`.
+--
+-- `kind` is deliberately unconstrained text. Today the only one is 'mail.send';
+-- a second kind of gated action should not need a migration.
+create table if not exists approvals (
+  id             uuid primary key default gen_random_uuid(),
+  kind           text not null,                                  -- 'mail.send'
+  agent_id       uuid references agents(id) on delete cascade,    -- who proposed it
+  session_id     uuid references agent_sessions(id) on delete set null,
+  -- Whose reach the proposing run had. Same rule as agent_schedules: a run acts
+  -- as a principal, never as the hub itself.
+  requested_by   text not null references principals(id) on delete cascade,
+  summary        text not null,                                  -- the one line a human decides on
+  -- The literal action to carry out, resolved. Same discipline as `call.args` in
+  -- a change set: what the approver sees is what gets done, and nothing is
+  -- re-derived at execution time.
+  action         jsonb not null,
+  -- Where this came from and where the answer belongs — {"kind":"teams",
+  -- "conversationId":…,"activityId":…}. Null until something inbound exists.
+  origin         jsonb,
+  state          text not null default 'pending'
+                 check (state in ('pending', 'approved', 'rejected', 'expired')),
+  decided_by     text references principals(id) on delete set null,
+  decided_at     timestamptz,
+  decision_note  text,
+  -- A decision has a shelf life. A reply approved four days late is a wrong
+  -- reply, so an undecided row stops being decidable rather than waiting
+  -- forever. Enforced in the UPDATE, not by a sweeper, so correctness does not
+  -- depend on anything running.
+  expires_at     timestamptz not null,
+  carried_out_at timestamptz,
+  result         jsonb,
+  -- NOT named `error`: the creation API returns `{ error }` when it refuses an
+  -- input, and a row that also carries an `error` field makes `"error" in x` a
+  -- silently wrong check. `result`/`failure` is the delivery pair.
+  failure        text,
+  created_at     timestamptz not null default now(),
+  updated_at     timestamptz not null default now()
+);
+create index if not exists approvals_pending_idx on approvals (state, expires_at);
+create index if not exists approvals_agent_idx on approvals (agent_id, created_at desc);

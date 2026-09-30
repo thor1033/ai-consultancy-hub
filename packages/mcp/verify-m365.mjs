@@ -117,6 +117,17 @@ const HTML_MESSAGE = {
   },
 };
 
+// What Graph hands back when a draft is created: it lives in Drafts, it has a
+// webLink a person can open, and isDraft stays true because nothing sent it.
+const DRAFT_BASE = {
+  isDraft: true,
+  parentFolderId: "drafts",
+  webLink: "https://outlook.office365.com/mail/drafts/id/AAMk",
+  conversationId: "conv-new",
+  toRecipients: [],
+  ccRecipients: [],
+};
+
 // ── the throwaway tenant ─────────────────────────────────────────────────────
 const requests = [];
 let tokenRequests = 0;
@@ -141,7 +152,19 @@ const http = createServer(async (req, res) => {
   }
 
   // graph.microsoft.com — everything past here needs the bearer token.
-  requests.push({ path: url.pathname, query: url.searchParams, headers: req.headers });
+  // The body is captured too: for a draft, what was POSTed IS the behaviour
+  // under test, and it is invisible from the tool's own output.
+  let sent;
+  if (req.method !== "GET") {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    try {
+      sent = JSON.parse(raw);
+    } catch {
+      sent = raw;
+    }
+  }
+  requests.push({ method: req.method, path: url.pathname, query: url.searchParams, headers: req.headers, sent });
   if (req.headers.authorization !== `Bearer ${ACCESS_TOKEN}`) {
     return json(401, { error: { code: "InvalidAuthenticationToken", message: "Access token is empty." } });
   }
@@ -149,6 +172,43 @@ const http = createServer(async (req, res) => {
   const base = `/users/${encodeURIComponent(MAILBOX)}`;
   const rest = url.pathname.startsWith(base) ? url.pathname.slice(base.length) : null;
   if (rest === null) return json(404, { error: { code: "ResourceNotFound", message: "No such mailbox." } });
+
+  // ── writes: creating a draft, and nothing else ─────────────────────────────
+  if (req.method === "POST") {
+    // The tenant that consented Mail.Read but not Mail.ReadWrite.
+    if (rest === "/messages/msg-forbidden/createReply") {
+      return json(403, { error: { code: "ErrorAccessDenied", message: "Access is denied. Check credentials and try again." } });
+    }
+    if (rest === "/messages") {
+      return json(201, {
+        ...DRAFT_BASE,
+        id: "draft-new",
+        subject: sent.subject,
+        toRecipients: sent.toRecipients ?? [],
+        ccRecipients: sent.ccRecipients ?? [],
+        body: sent.body,
+      });
+    }
+    const reply = rest.match(/^\/messages\/([^/]+)\/(createReply|createReplyAll)$/);
+    if (reply) {
+      const original = MESSAGES.find((m) => m.id === reply[1]);
+      if (!original) {
+        return json(404, { error: { code: "ErrorItemNotFound", message: "The specified object was not found in the store." } });
+      }
+      // Graph fills the recipients and subject from the original; replyAll adds
+      // everyone who was copied. That is the whole reason to use it.
+      return json(201, {
+        ...DRAFT_BASE,
+        id: `draft-${reply[2] === "createReplyAll" ? "all" : "reply"}`,
+        subject: `RE: ${original.subject}`,
+        toRecipients: [original.from],
+        ccRecipients: reply[2] === "createReplyAll" ? [{ emailAddress: { name: "Thor Simonsen", address: "thor@example.com" } }] : [],
+        conversationId: "conv-1",
+        body: { contentType: "html", content: `<p>${sent.comment ?? ""}</p><hr>quoted original` },
+      });
+    }
+    return json(405, { error: { code: "MethodNotAllowed", message: `Nothing at ${rest} accepts a POST.` } });
+  }
 
   if (rest === "") {
     return json(200, { displayName: "Secretary", mail: MAILBOX, userPrincipalName: MAILBOX });
@@ -193,10 +253,13 @@ Object.assign(process.env, {
   M365_LOGIN_BASE_URL: origin,
   M365_GRAPH_BASE_URL: origin,
   M365_TIMEZONE: "Europe/Copenhagen",
+  // The sending credential, set on the PARENT on purpose: the child must not
+  // see it. This is the process-boundary half of "the model cannot send".
+  M365_SEND_CLIENT_SECRET: "a-secret-that-must-not-reach-a-tool-server",
 });
 
 const { connectMcpServers } = await import("./src/manager.ts");
-const { builtinServerConfig } = await import("./src/servers.ts");
+const { builtinServerConfig, builtinServerInfo, BUILTIN_SERVER_NAMES } = await import("./src/servers.ts");
 
 const parse = (text) => {
   try {
@@ -211,19 +274,50 @@ try {
   const cfg = builtinServerConfig("microsoft365");
   check("microsoft365 resolves as a built-in server", cfg !== null, cfg ? cfg.args[0].split("/").slice(-3).join("/") : "null");
 
+  // The control plane shows what it can upsert. A built-in with no entry here
+  // is invisible on /mcp and cannot be disabled from the UI, while still being
+  // filtered by the kill switch on every run — which is how microsoft365 was
+  // missing from the console for as long as it existed.
+  const described = new Set(builtinServerInfo().map((s) => s.name));
+  const undescribed = BUILTIN_SERVER_NAMES.filter((n) => !described.has(n));
+  check(
+    "every built-in server has the label and description the registry needs",
+    undescribed.length === 0,
+    undescribed.join(", ") || [...described].join(", "),
+  );
+  check(
+    "and nothing is described that is not a built-in",
+    builtinServerInfo().every((s) => BUILTIN_SERVER_NAMES.includes(s.name)),
+  );
+
   const mcp = await connectMcpServers([cfg]);
   try {
     const names = mcp.tools.map((t) => t.name).sort();
-    check("the server connects over stdio and lists its tools", names.length === 5, names.join(", "));
+    check("the server connects over stdio and lists its tools", names.length === 6, names.join(", "));
 
-    // ── read-only is the whole safety story, so assert it rather than trust it.
-    const writeish = names.filter((n) => /send|reply|forward|create|update|delete|accept|decline|move/i.test(n));
-    check("no tool can send, reply or change anything", writeish.length === 0, writeish.join(", ") || "read-only");
+    // "Nothing here sends" is the whole safety story now that one tool writes,
+    // so assert it rather than trust it. The name check is the cheap half; the
+    // real one runs at the end, over every request the fixture ever received.
+    const sendish = names.filter((n) => /send|forward|accept|decline|delete|move/i.test(n));
+    check("no tool is named for sending, forwarding, accepting or deleting", sendish.length === 0, sendish.join(", ") || "none");
 
     // ── connection ───────────────────────────────────────────────────────────
     const who = parse(await mcp.execute("m365_whoami", {}));
     check("m365_whoami reports the mailbox it is reading", who.mailbox === MAILBOX, who.mailbox ?? String(who).slice(0, 60));
-    check("and reports itself as read-only", who.access === "read-only", who.access);
+    check("and says what it may do — read and draft, never send", /draft/.test(who.access ?? "") && /never send|cannot send|nothing here can send/i.test(who.access ?? ""), who.access);
+    // The parent process holds M365_SEND_CLIENT_SECRET (set above). A stdio
+    // server is a child and inherits the environment, so without
+    // WITHHELD_FROM_TOOL_SERVERS the code behind every tool the model can call
+    // would be holding a key that sends mail.
+    check(
+      "the sending credential is stripped from the tool server's environment",
+      who.sendCredentialVisible === false,
+      `visible in child: ${who.sendCredentialVisible}`,
+    );
+    check(
+      "…and the parent really did have it, so that check means something",
+      process.env.M365_SEND_CLIENT_SECRET === "a-secret-that-must-not-reach-a-tool-server",
+    );
 
     const auth = lastRequest("/users/")?.headers.authorization;
     check("Graph is called with the token from the client-credentials grant", auth === `Bearer ${ACCESS_TOKEN}`);
@@ -324,6 +418,85 @@ try {
       html.body?.slice(0, 50),
     );
 
+    // ── drafting ─────────────────────────────────────────────────────────────
+    // The one tool here that writes. It writes into Drafts and stops; sending is
+    // the hub's motion, after a person approves it, and deliberately has no tool.
+    const fresh = parse(
+      await mcp.execute("m365_mail_draft", {
+        to: ["anna@example.com"],
+        cc: ["thor@example.com"],
+        subject: "Friday instead?",
+        body: "Thursday no longer works — would Friday 10:00 suit you?",
+      }),
+    );
+    check("m365_mail_draft returns a draft id", fresh.draftId === "draft-new", fresh.draftId ?? JSON.stringify(fresh).slice(0, 60));
+    check(
+      "and says in words that it is not sent",
+      /not sent/i.test(fresh.status ?? ""),
+      fresh.status,
+    );
+    check(
+      "it comes back with a link a person can open in Outlook",
+      String(fresh.openInOutlook ?? "").startsWith("https://"),
+      fresh.openInOutlook,
+    );
+    check(
+      "the recipients are read back from the created draft, not echoed from the arguments",
+      fresh.to?.[0]?.includes("anna@example.com") && fresh.cc?.[0]?.includes("thor@example.com"),
+      `${fresh.to?.join()} / cc ${fresh.cc?.join()}`,
+    );
+
+    const newReq = lastRequest("/messages");
+    check("a new message is POSTed to /messages", newReq?.method === "POST", `${newReq?.method} ${newReq?.path.split("/").pop()}`);
+    check(
+      "the body is sent as plain text, so what the agent wrote is what is read",
+      newReq?.sent?.body?.contentType === "Text",
+      newReq?.sent?.body?.contentType,
+    );
+
+    // A reply must go through createReply. A hand-built message with "Re:" in
+    // the subject loses In-Reply-To/References, so it starts a new conversation
+    // in the recipient's client instead of threading.
+    const reply = parse(
+      await mcp.execute("m365_mail_draft", { replyTo: "msg-reschedule", body: "Friday 10:00 works from my side." }),
+    );
+    check("a reply is built by Graph from the original", reply.draftId === "draft-reply", reply.draftId);
+    check("it keeps the original subject and sender", reply.subject === "RE: Can we move Thursday?" && reply.to?.[0]?.includes("anna@example.com"), reply.subject);
+    check("and stays in the same conversation", reply.conversationId === "conv-1", reply.conversationId);
+    const replyReq = lastRequest("/createReply");
+    check("the reply goes through createReply, which preserves the threading headers", replyReq?.method === "POST", replyReq?.path.split("/").slice(-1)[0]);
+    check("the agent's text travels as the comment Graph inserts above the quote", replyReq?.sent?.comment?.startsWith("Friday 10:00"), replyReq?.sent?.comment?.slice(0, 30));
+
+    const all = parse(await mcp.execute("m365_mail_draft", { replyTo: "msg-reschedule", replyAll: true, body: "Copying everyone." }));
+    check("replyAll includes the people who were copied", all.cc?.[0]?.includes("thor@example.com"), all.cc?.join());
+
+    const overridden = parse(
+      await mcp.execute("m365_mail_draft", { replyTo: "msg-reschedule", body: "Fine by me.", to: ["someone@else.example"], subject: "New subject" }),
+    );
+    check(
+      "recipients and subject given alongside replyTo are reported as ignored, not silently dropped",
+      /ignored/i.test(overridden.note ?? "") && !overridden.to?.[0]?.includes("someone@else.example"),
+      overridden.note,
+    );
+
+    // Refusals that must happen before Graph is touched at all.
+    const before = requests.length;
+    const badAddress = await mcp.execute("m365_mail_draft", { to: ["Anna"], subject: "Hi", body: "Hello" });
+    check("an address that is not an address is refused", /do not look like email addresses/i.test(badAddress), badAddress.slice(0, 60));
+    const noRecipient = await mcp.execute("m365_mail_draft", { subject: "Hi", body: "Hello" });
+    check("a new message with no recipient is refused", /at least one recipient/i.test(noRecipient), noRecipient.slice(0, 50));
+    const noSubject = await mcp.execute("m365_mail_draft", { to: ["anna@example.com"], body: "Hello" });
+    check("a new message with no subject is refused", /needs a subject/i.test(noSubject), noSubject.slice(0, 50));
+    check("none of those three reached Graph", requests.length === before, `${requests.length - before} extra request(s)`);
+
+    // The tenant that granted Mail.Read and stopped there.
+    const forbidden = await mcp.execute("m365_mail_draft", { replyTo: "msg-forbidden", body: "Hello" });
+    check(
+      "a 403 names the permission that is missing, rather than reading as a mystery",
+      /Mail\.ReadWrite/.test(forbidden) && /ErrorAccessDenied/.test(forbidden),
+      forbidden.slice(0, 90),
+    );
+
     // ── failure ──────────────────────────────────────────────────────────────
     const missingMsg = await mcp.execute("m365_mail_get", { messageId: "msg-nope" });
     check(
@@ -334,6 +507,25 @@ try {
 
     const missingEvent = await mcp.execute("m365_calendar_get", { eventId: "evt-nope" });
     check("the same for a missing event", /Tool error/.test(missingEvent) && /404/.test(missingEvent));
+
+    // ── the invariant ────────────────────────────────────────────────────────
+    // Every tool has now been exercised, including the one that writes. This is
+    // the check that has to survive every future change to this server: across
+    // the whole run, no request reached a Graph endpoint that sends, and the
+    // only writes were draft creations. A send tool added here would fail this
+    // long before it reached a real tenant.
+    const sendPaths = requests.filter((r) => /\/(sendMail|send|forward|reply|move|accept|decline)$/.test(r.path));
+    check(
+      "nothing in this server ever called a Graph endpoint that sends",
+      sendPaths.length === 0,
+      sendPaths.map((r) => r.path).join(", ") || "no send, no forward, no accept, no decline",
+    );
+    const writes = requests.filter((r) => r.method && r.method !== "GET");
+    check(
+      "and the only writes were draft creations",
+      writes.length > 0 && writes.every((r) => /\/messages$|\/createReply(All)?$/.test(r.path)),
+      `${writes.length} write(s): ${[...new Set(writes.map((r) => r.path.split("/").slice(-1)[0]))].join(", ")}`,
+    );
 
     // ── the token ────────────────────────────────────────────────────────────
     check(
@@ -364,6 +556,26 @@ try {
     "the server refuses to start when a credential is missing, naming it",
     unconfigured.code === 1 && /M365_CLIENT_SECRET/.test(unconfigured.stderr),
     unconfigured.stderr.trim().slice(0, 80),
+  );
+
+  // …and that refusal has to reach whoever is looking. With the transport's
+  // default "inherit" the child's line goes to the container log and the caller
+  // sees only "Connection closed", which is how an unconfigured deployment
+  // reads as a broken one on /mcp.
+  const secret = process.env.M365_CLIENT_SECRET;
+  delete process.env.M365_CLIENT_SECRET;
+  let connectError = "";
+  try {
+    const doomed = await connectMcpServers([builtinServerConfig("microsoft365")]);
+    await doomed.close();
+  } catch (err) {
+    connectError = err instanceof Error ? err.message : String(err);
+  }
+  process.env.M365_CLIENT_SECRET = secret;
+  check(
+    "and what it said reaches the caller, not just the container log",
+    /M365_CLIENT_SECRET/.test(connectError) && /microsoft365/.test(connectError),
+    connectError.slice(0, 110),
   );
 
   // A wrong secret must be diagnosable from the tool output alone.

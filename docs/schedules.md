@@ -96,12 +96,13 @@ reach the live PM-tool; both need `DATABASE_URL` and clean up after themselves.
 - **No UI.** Schedules are created through `@ai-hub/db` (or SQL); there is no
   panel on `/agents/[slug]` yet. Nothing about the shape below the UI changes
   when one arrives.
-- **Nothing to gate.** The natural next step for a secretary is *drafting* a
-  reply, and that is the point where an approval step has to exist. Right now
-  there is nothing to approve: the Microsoft 365 server has no tool that writes
-  ([secretary-agent.md](secretary-agent.md)), so a scheduled run can read and
-  report and nothing else. Keep that order — the gate must land with the first
-  write tool, not after it.
+- **Nothing to gate — done, 2026-09-28.** The natural next step for a secretary
+  was *drafting* a reply, and that was the point where an approval step had to
+  exist. It does now: `m365_mail_draft` writes into Drafts and an `approvals`
+  row parks the send for a person ([approvals.md](approvals.md)). The gate
+  landed with the first write tool rather than after it, which was the whole
+  point. What a scheduled run still cannot do is *send* — nothing carries an
+  approved action out yet.
 - **No webhook.** A schedule is a clock, not a subscription. Reacting to mail as
   it arrives means a Graph change notification endpoint, which is its own
   increment.

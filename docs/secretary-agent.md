@@ -31,7 +31,7 @@ The answer is not a stern instruction. It is that the secretary holds a
 against the same endpoint as the delivery lead's `pm-tool`. PM-tool filters its
 own tool list by scope (`lib/mcp/tools.ts`, `toolsFor`), so the write tools
 never reach the model. The same reasoning as the mailbox server below, where the
-read-only guarantee is "there is no tool that writes" rather than a setting.
+guarantee is "there is no tool that sends" rather than a setting.
 
 ```
 transcript ──▶ hub_skill_meeting_to_pm ──▶ changeset.json ──▶ .claude/skills/meeting-to-pm
@@ -100,9 +100,9 @@ appear as someone's.
 
 ## The mailbox and calendar — built, verified, not wired up
 
-The `microsoft365` MCP server gives one agent **read-only** access to one
-Microsoft 365 mailbox and its calendar: what is coming up and what has arrived,
-on demand, from the hub UI or from Claude Code.
+The `microsoft365` MCP server gives one agent access to one Microsoft 365
+mailbox and its calendar: what is coming up, what has arrived, and — since the
+approval gate landed — a reply **written into Drafts and left there**.
 
 It is built and verified but **not in the secretary's server list**. Wiring it
 in needs an Entra app registration, admin consent and an Exchange access policy
@@ -110,12 +110,19 @@ from whoever runs the tenant, and none of that is needed for the work the agent
 does today. Add `microsoft365` to `mcpServers` in the seed definition once the
 four `M365_*` variables are set, and re-run the seed.
 
-It cannot send, reply, accept, decline, create or delete anything. That is a
-property of `packages/mcp/servers/microsoft365/server.mjs` — there is no tool
-that writes — rather than a setting someone can flip. Keep it that way when
-extending: drafting belongs behind a human approval step, and the hub still has
-no such step of its own — the PM-tool half borrows Claude Code's, and a mailbox
-has no equivalent.
+**Nothing in it sends.** That is still a property of
+`packages/mcp/servers/microsoft365/server.mjs` rather than a setting someone can
+flip, and it survives the arrival of `m365_mail_draft`: a draft goes into the
+mailbox's own Drafts folder and stays there, so the worst an unattended run can
+do is leave a badly worded draft where a person reads it first. Sending is a
+separate motion the hub performs after a named person approves it — see
+[approvals.md](approvals.md) — and it deliberately has no tool, because an agent
+calls the tools it holds.
+
+The verifier asserts this across the whole run rather than by reading tool
+names: no request reached a Graph endpoint that sends, and every write was a
+draft creation. A send tool added to this file fails that check long before it
+reaches a tenant.
 
 ```
 agents.mcp_servers = ["microsoft365"]
@@ -155,9 +162,15 @@ mailbox that is not the secretary's. Until it does, the secret in
 2. **Certificates & secrets → New client secret.** Copy the *Value*. It is shown
    once.
 3. **API permissions → Microsoft Graph → Application permissions.** Add
-   `Mail.Read` and `Calendars.Read`. Nothing else: the server asks for no other
-   scope, and `m365_whoami` deliberately avoids `mailboxSettings` so it does not
-   need `MailboxSettings.Read`.
+   `Mail.ReadWrite` and `Calendars.Read`. Nothing else: the server asks for no
+   other scope, and `m365_whoami` deliberately avoids `mailboxSettings` so it
+   does not need `MailboxSettings.Read`. **Not `Mail.Send`** — the agent must
+   not hold it. Sending is the web app's, granted separately when the approval
+   route lands.
+
+   `Mail.Read` alone is a valid, more cautious grant: everything works except
+   `m365_mail_draft`, which then returns Graph's 403 with the missing permission
+   named in it.
 4. **Grant admin consent.** The grant is inert until this is clicked.
 5. **Apply the Application Access Policy** above.
 6. **Fill in `apps/web/.env.local`:**
@@ -176,10 +189,12 @@ mailbox that is not the secretary's. Until it does, the secret in
 7. **Create the agent** at `/agents` → New. Tick `microsoft365` under MCP
    servers; `memory` attaches itself. Suggested instructions:
 
-   > You are the secretary. You read one mailbox and one calendar, and you
-   > cannot send or change anything. Lead with what needs a decision today.
-   > When someone asks you to reply, accept or reschedule, write the draft in
-   > full and say plainly that it still has to be sent by hand.
+   > You are the secretary. You read one mailbox and one calendar, and you can
+   > write a reply into Drafts — you cannot send it, and nothing else you hold
+   > can either. Lead with what needs a decision today. When someone asks you to
+   > reply, write the draft in full with m365_mail_draft, then say plainly that
+   > it is sitting in Drafts waiting on a person. Accepting, declining and
+   > rescheduling you cannot do at all; say so and leave it to them.
 
 ## The tools
 
@@ -190,6 +205,7 @@ mailbox that is not the secretary's. Until it does, the secret in
 | `m365_calendar_get` | Who is attending this meeting, who accepted, what is the join link? |
 | `m365_mail_list` | What has arrived — newest first, unread only, or matching a search? |
 | `m365_mail_get` | The full body, recipients and attachment names of one message. |
+| `m365_mail_draft` | Write a reply or a new message into Drafts. **Does not send it.** |
 
 Two Graph details are load-bearing and easy to regress:
 
@@ -213,7 +229,8 @@ stands in for `login.microsoftonline.com` and `graph.microsoft.com`, and the rea
 server is pointed at it with `M365_LOGIN_BASE_URL` / `M365_GRAPH_BASE_URL`.
 Everything else is the shipping path — `builtinServerConfig` →
 `connectMcpServers` — so a pass means the tools work, not that a mock agrees
-with itself. 32 checks, including that no tool name can write, that the token is
+with itself. 52 checks, including that nothing ever called a Graph endpoint that
+sends, that a reply goes through `createReply` so it threads, that the token is
 fetched once and reused, and that a wrong secret surfaces its AADSTS code.
 
 Against the real tenant, the smoke test is `m365_whoami` — if it returns the
