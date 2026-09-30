@@ -38,8 +38,15 @@ hub/
   and syncable from a source connector (PM-tool ships as one).
 - **MCP servers** (`/mcp`) — what agents can reach. Remote servers are declared in
   `HUB_REMOTE_MCP_SERVERS`; the agent-scoped `memory` server is resolved in code.
-  `microsoft365` gives the secretary agent read-only mail and calendar — it cannot
-  send or change anything ([docs/secretary-agent.md](docs/secretary-agent.md)).
+  `microsoft365` gives the secretary agent mail and calendar, and a reply written
+  into Drafts — it cannot send ([docs/secretary-agent.md](docs/secretary-agent.md)).
+- **Approvals** — the gate between an agent proposing an action and that action
+  happening outside the hub. One decision wins, it expires, and a disabled
+  principal cannot make it ([docs/approvals.md](docs/approvals.md)).
+- **The Teams channel** — the secretary where the work is already being
+  discussed, and the surface a draft is approved on. The hub's only inbound
+  route; a run there executes as the person who asked, never as the hub
+  ([docs/teams.md](docs/teams.md)).
 - **Agents anywhere** — every agent registers as `hub_agent_<slug>` in any MCP client,
   and its Skills as `hub_skill_<slug>` with real arguments, so work built in the hub runs
   from Claude Code, VS Code or Cursor ([docs/agents-anywhere.md](docs/agents-anywhere.md)).

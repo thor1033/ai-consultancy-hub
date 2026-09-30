@@ -1,0 +1,30 @@
+{
+  "$schema": "https://developer.microsoft.com/en-us/json-schemas/teams/v1.17/MicrosoftTeams.schema.json",
+  "manifestVersion": "1.17",
+  "version": "1.0.0",
+  "id": "REPLACE_WITH_BOT_APP_ID",
+  "packageName": "co.teqneo.hub.secretary",
+  "developer": {
+    "name": "Teqneo",
+    "websiteUrl": "https://hub.teqneo.co",
+    "privacyUrl": "https://hub.teqneo.co/privacy",
+    "termsOfUseUrl": "https://hub.teqneo.co/terms"
+  },
+  "name": { "short": "Secretary", "full": "Teqneo Secretary" },
+  "description": {
+    "short": "Reads the mailbox and the board, and drafts replies for approval.",
+    "full": "Mention the secretary to ask about the mailbox, the calendar or the project board. It can write a reply into Drafts, which is then posted here as a card for someone to approve — it cannot send anything by itself."
+  },
+  "icons": { "color": "color.png", "outline": "outline.png" },
+  "accentColor": "#2F5D62",
+  "bots": [
+    {
+      "botId": "REPLACE_WITH_BOT_APP_ID",
+      "scopes": ["team", "groupChat", "personal"],
+      "isNotificationOnly": false,
+      "supportsFiles": false
+    }
+  ],
+  "permissions": ["identity", "messageTeamMembers"],
+  "validDomains": ["hub.teqneo.co"]
+}

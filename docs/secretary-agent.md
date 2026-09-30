@@ -238,9 +238,14 @@ mailbox, consent and the access policy are both right.
 
 ## What this increment deliberately does not do
 
-- **Nothing triggers it.** There is no cron and no webhook anywhere in the hub;
-  an agent runs when someone calls it. A secretary that acts on its own needs an
-  inbound route and a clock, and that is the next increment.
+- **Nothing reacts to the mailbox itself.** The clock exists
+  ([schedules.md](schedules.md)) and the channel exists ([teams.md](teams.md)),
+  so the secretary can act on a timetable and answer when spoken to. What it
+  still cannot do is notice a mail *arriving* — that needs a Graph change
+  notification endpoint, which is its own increment.
+- **It is not wired to a mailbox yet.** `microsoft365` is still absent from the
+  seed's `mcpServers`, pending the Entra app registration, admin consent and the
+  Exchange access policy. Everything downstream of it is built and verified.
 - **One mailbox per deployment.** `M365_MAILBOX` is environment, not an agent
   field, so two agents cannot watch two mailboxes. Per-agent credentials are the
   same build as per-user OAuth, and both should wait for a paying reason.

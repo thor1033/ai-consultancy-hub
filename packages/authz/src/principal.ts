@@ -27,8 +27,15 @@ import { verifyAccessToken, describeTokenFailure, looksLikeJwt } from "./oauth";
  *               principal who owns it (see agent_schedules). There is no token
  *               and no request behind this one, which is exactly why it is a
  *               distinct source in the audit trail rather than borrowed.
+ *   teams       Someone spoke to the bot in a Microsoft Teams channel. The
+ *               request is authenticated (a Bot Framework token), but not as
+ *               this person — it proves Microsoft sent it, not who typed. The
+ *               identity comes from the activity's sender, resolved to an
+ *               email and matched against `principals`, so a Teams user the hub
+ *               does not know gets no run at all. Distinct in the audit trail
+ *               because the trust chain is genuinely different from OAuth's.
  */
-export type PrincipalSource = "oauth" | "credential" | "env" | "schedule";
+export type PrincipalSource = "oauth" | "credential" | "env" | "schedule" | "teams";
 
 export interface Principal {
   id: string;
