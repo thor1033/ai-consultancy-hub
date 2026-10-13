@@ -41,6 +41,16 @@ server.
 agent told "actually, they moved the review to Wednesday" should correct itself,
 not end up holding two contradictory facts that both surface at once.
 
+**Active work context is separate from inactive context** *(required, not
+built yet)*. What an agent knows about work currently in flight — the open
+engagement, this week's deadlines, the decision still being made — must be kept
+apart from what it knows about work that is finished, paused, or background.
+Active context is what a conversation starts from; inactive context is kept,
+searchable, and brought back when the work resumes, but is not loaded by
+default. Today there is one undifferentiated pool: `memory_list` returns every
+memory, so a closed engagement's details compete with the live one's for the
+model's attention, and the pool gets noisier the longer an agent is used.
+
 **Every memory is visible and deletable** from the agent's Memory tab. An agent
 that silently accumulates beliefs about a client is a liability; being able to
 read and prune them is what makes it something to point at real work.
@@ -109,6 +119,8 @@ code at it.
 - **Schedules have no UI.** An agent *can* now be put on a clock — see
   [schedules.md](schedules.md) — but schedules are created through `@ai-hub/db`
   or SQL; there is no panel on `/agents/[slug]` yet.
+- **Memory has no active/inactive split.** See *Memory* above: every memory
+  is loaded on `memory_list`, whether the work it belongs to is live or done.
 - **Agent *runs* are not reachable from Claude Code.** Memory now is — see
   below — but there is still no tool that runs an agent turn remotely, and
   `POST /api/agent/run` ignores `agentId`, so a turn taken through it has no
