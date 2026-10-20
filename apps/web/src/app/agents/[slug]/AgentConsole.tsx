@@ -117,7 +117,11 @@ export function AgentConsole({
   function remove() {
     if (!confirm(`Delete ${agent.name}? Everything it remembers goes with it.`)) return;
     startSave(async () => {
-      await deleteAgentAction(agent.id);
+      const res = await deleteAgentAction(agent.id);
+      if (!res.ok) {
+        setSaveMsg(res.error ?? "Could not delete the agent.");
+        return;
+      }
       router.push("/agents");
     });
   }
@@ -216,7 +220,8 @@ export function AgentConsole({
                       className="btn shrink-0"
                       onClick={() =>
                         startSave(async () => {
-                          await forgetMemoryAction(agent.id, m.key);
+                          const res = await forgetMemoryAction(agent.id, m.key);
+                          if (res.error) alert(res.error);
                           router.refresh();
                         })
                       }

@@ -106,11 +106,11 @@ code at it.
 
 ## Not done yet
 
-- **No authorization on the UI.** WorkOS AuthKit now puts a door on the pages
-  and an allowlist decides who gets in, but the `/agents` server actions still
-  run server-trusted: they do not resolve the signed-in user to a `Principal`,
-  so the `PolicyEngine` never sees them. Anyone on the allowlist can edit any
-  agent. The bearer-token API and `/api/mcp` *are* gated.
+- **Agent management is admin-only.** The `/agents` server actions resolve the
+  signed-in user to a `Principal` and ask the `PolicyEngine`: talking to an
+  agent needs `agent:run`, changing one (settings, skills, deleting a memory)
+  needs `agent:manage`, which only `admin` holds. Give analysts
+  `agent:manage` in `packages/authz/src/policy.ts` if they should build agents.
 - **No tenancy.** The hub still has no `org_id` anywhere, so agents and their
   memories are per-deployment, not per-client.
 - **Conversations are not persisted.** Each turn sends the running transcript

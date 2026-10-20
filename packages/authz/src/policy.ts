@@ -5,6 +5,7 @@ export type Action =
   | "document:write"
   | "rag:search"
   | "agent:run"
+  | "agent:manage"
   | "session:read"
   | "admin:manage";
 
@@ -56,6 +57,7 @@ export const ALL_ACTIONS: Action[] = [
   "document:write",
   "rag:search",
   "agent:run",
+  "agent:manage",
   "session:read",
   "admin:manage",
 ];
