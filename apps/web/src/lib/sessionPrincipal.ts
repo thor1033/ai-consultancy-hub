@@ -1,6 +1,12 @@
 import { withAuth } from "@workos-inc/authkit-nextjs";
 import { findPrincipalByIdentity } from "@ai-hub/db";
-import { knowledgeAccessFor, type KnowledgeAccess, type Principal } from "@ai-hub/authz";
+import {
+  authorize,
+  knowledgeAccessFor,
+  type Action,
+  type KnowledgeAccess,
+  type Principal,
+} from "@ai-hub/authz";
 import { isAllowedEmail } from "@/lib/allowlist";
 
 /**
@@ -40,7 +46,10 @@ export async function sessionPrincipal(): Promise<Principal | null> {
 
   try {
     const row = await findPrincipalByIdentity({ workosUserId, email });
-    if (row?.enabled) {
+    // A disabled row must refuse, not fall through: the fallback below grants
+    // admin, so falling through would turn "disable this person" into a promotion.
+    if (row && !row.enabled) return null;
+    if (row) {
       return {
         id: row.id,
         roles: row.roles,
@@ -55,6 +64,18 @@ export async function sessionPrincipal(): Promise<Principal | null> {
   }
 
   return { id: email, roles: ["admin"], source: "oauth", email };
+}
+
+/**
+ * The signed-in user if their roles permit `action`, otherwise null.
+ *
+ * Server actions are public HTTP endpoints and middleware only checks the
+ * allowlist, so each one that changes or runs something checks the role here.
+ */
+export async function sessionCan(action: Action): Promise<Principal | null> {
+  const principal = await sessionPrincipal();
+  if (!principal) return null;
+  return (await authorize(principal, action)) ? principal : null;
 }
 
 /**

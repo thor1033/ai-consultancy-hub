@@ -60,10 +60,12 @@ try {
   const mcp = await connectMcpServers([memoryServerConfig(agentA)]);
   try {
     const names = mcp.tools.map((t) => t.name).sort();
-    check("the memory server connects over stdio and lists its tools", names.length === 4, names.join(", "));
+    check("the memory server connects over stdio and lists its tools", names.length === 5, names.join(", "));
     check(
-      "all four memory tools are present",
-      ["memory_forget", "memory_list", "memory_search", "memory_write"].every((n) => names.includes(n)),
+      "all five memory tools are present",
+      ["memory_forget", "memory_list", "memory_search", "memory_set_active", "memory_write"].every((n) =>
+        names.includes(n),
+      ),
     );
 
     const empty = await mcp.execute("memory_list", {});
@@ -77,9 +79,9 @@ try {
 
     const listed = parse(await mcp.execute("memory_list", {}));
     check(
-      "the fact reads back",
-      Array.isArray(listed) && listed.length === 1 && listed[0].key === "reporting-cadence",
-      Array.isArray(listed) ? `${listed.length} memory` : String(listed).slice(0, 60),
+      "the fact reads back as active",
+      listed.active?.length === 1 && listed.active[0].key === "reporting-cadence" && listed.inactiveCount === 0,
+      JSON.stringify(listed).slice(0, 80),
     );
 
     // The reason memory is keyed rather than appended: a correction must replace.
@@ -92,9 +94,57 @@ try {
     const afterUpdate = parse(await mcp.execute("memory_list", {}));
     check(
       "there is still exactly one memory, with the corrected content",
-      afterUpdate.length === 1 && /Tuesday/.test(afterUpdate[0].content),
-      afterUpdate[0]?.content?.slice(0, 50),
+      afterUpdate.active?.length === 1 && /Tuesday/.test(afterUpdate.active[0].content),
+      afterUpdate.active?.[0]?.content?.slice(0, 50),
     );
+
+    // ── active vs inactive work ──────────────────────────────────────────────
+    // Finished work must stop loading by default, stay findable, and come back.
+    await mcp.execute("memory_write", {
+      key: "old-engagement",
+      content: "Borealis audit closed in March; final report delivered.",
+      active: false,
+    });
+    const withInactive = parse(await mcp.execute("memory_list", {}));
+    check(
+      "an inactive memory is not loaded by default, only counted",
+      withInactive.active.length === 1 &&
+        withInactive.inactiveCount === 1 &&
+        !JSON.stringify(withInactive.active).includes("Borealis"),
+      JSON.stringify(withInactive).slice(0, 80),
+    );
+    const everything = parse(await mcp.execute("memory_list", { include_inactive: true }));
+    check(
+      "include_inactive returns both groups",
+      everything.active?.length === 1 && everything.inactive?.[0]?.key === "old-engagement",
+    );
+    const foundInactive = parse(await mcp.execute("memory_search", { query: "Borealis" }));
+    check(
+      "search finds an inactive memory and says it is inactive",
+      Array.isArray(foundInactive) && foundInactive.length === 1 && foundInactive[0].active === false,
+    );
+    const reactivated = await mcp.execute("memory_set_active", { key: "old-engagement", active: true });
+    const afterReactivate = parse(await mcp.execute("memory_list", {}));
+    check(
+      "memory_set_active brings work back into the active set",
+      /Marked "old-engagement" active/.test(reactivated) &&
+        afterReactivate.active.length === 2 &&
+        afterReactivate.inactiveCount === 0,
+      reactivated.trim(),
+    );
+    await mcp.execute("memory_set_active", { key: "old-engagement", active: false });
+    await mcp.execute("memory_write", {
+      key: "old-engagement",
+      content: "Borealis is back: a follow-up audit starts in November.",
+    });
+    const rewritten = parse(await mcp.execute("memory_list", {}));
+    check(
+      "rewriting an inactive memory makes it active again",
+      rewritten.active.some((m) => m.key === "old-engagement") && rewritten.inactiveCount === 0,
+    );
+    const missingMove = await mcp.execute("memory_set_active", { key: "never-existed", active: false });
+    check("moving a key that does not exist says so", /nothing was stored/i.test(missingMove));
+    await mcp.execute("memory_forget", { key: "old-engagement" });
 
     await mcp.execute("memory_write", {
       key: "deck-style",
@@ -114,7 +164,7 @@ try {
     const forgot = await mcp.execute("memory_forget", { key: "deck-style" });
     check("memory_forget removes a memory", /Forgot/i.test(forgot), forgot.trim());
     const afterForget = parse(await mcp.execute("memory_list", {}));
-    check("only the remaining memory is left", afterForget.length === 1);
+    check("only the remaining memory is left", afterForget.active?.length === 1);
 
     const forgotMissing = await mcp.execute("memory_forget", { key: "never-existed" });
     check(
