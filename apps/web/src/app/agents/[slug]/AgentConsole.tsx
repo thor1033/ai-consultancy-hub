@@ -8,6 +8,7 @@ import {
   saveAgentAction,
   deleteAgentAction,
   forgetMemoryAction,
+  setMemoryActiveAction,
   type AgentChatMessage,
 } from "../actions";
 
@@ -203,38 +204,75 @@ export function AgentConsole({
         <div className="panel p-5">
           <p className="mb-4 text-sm text-[var(--muted)]">
             What this agent has chosen to remember. It writes these itself through the{" "}
-            <span className="mono">memory</span> server; delete any that are wrong or stale.
+            <span className="mono">memory</span> server. Active memories are the work in flight
+            and are loaded at the start of every conversation; inactive ones are kept and
+            searchable but not loaded. Delete any that are wrong.
           </p>
           {memories.length === 0 ? (
             <p className="text-sm text-[var(--muted)]">Nothing remembered yet.</p>
           ) : (
-            <ul className="space-y-3">
-              {memories.map((m) => (
-                <li key={m.id} className="rounded-lg border border-[var(--border)] p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="mono text-xs text-[var(--brand-ink)]">{m.key}</div>
-                      <p className="mt-1 text-sm">{m.content}</p>
-                    </div>
-                    <button
-                      className="btn shrink-0"
-                      onClick={() =>
-                        startSave(async () => {
-                          const res = await forgetMemoryAction(agent.id, m.key);
-                          if (res.error) alert(res.error);
-                          router.refresh();
-                        })
-                      }
-                    >
-                      Forget
-                    </button>
-                  </div>
-                  <div className="mono mt-2 text-xs text-[var(--muted)]">
-                    updated {new Date(m.updatedAt).toLocaleString()}
-                  </div>
-                </li>
+            <div className="space-y-6">
+              {(
+                [
+                  ["Active work", memories.filter((m) => m.active)],
+                  ["Inactive", memories.filter((m) => !m.active)],
+                ] as const
+              ).map(([heading, group]) => (
+                <section key={heading}>
+                  <h3 className="mb-2 text-sm font-semibold">
+                    {heading} ({group.length})
+                  </h3>
+                  {group.length === 0 ? (
+                    <p className="text-sm text-[var(--muted)]">None.</p>
+                  ) : (
+                    <ul className="space-y-3">
+                      {group.map((m) => (
+                        <li
+                          key={m.id}
+                          className={`rounded-lg border border-[var(--border)] p-3 ${m.active ? "" : "opacity-75"}`}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="mono text-xs text-[var(--brand-ink)]">{m.key}</div>
+                              <p className="mt-1 text-sm">{m.content}</p>
+                            </div>
+                            <div className="flex shrink-0 gap-2">
+                              <button
+                                className="btn"
+                                onClick={() =>
+                                  startSave(async () => {
+                                    const res = await setMemoryActiveAction(agent.id, m.key, !m.active);
+                                    if (res.error) alert(res.error);
+                                    router.refresh();
+                                  })
+                                }
+                              >
+                                {m.active ? "Set inactive" : "Set active"}
+                              </button>
+                              <button
+                                className="btn"
+                                onClick={() =>
+                                  startSave(async () => {
+                                    const res = await forgetMemoryAction(agent.id, m.key);
+                                    if (res.error) alert(res.error);
+                                    router.refresh();
+                                  })
+                                }
+                              >
+                                Forget
+                              </button>
+                            </div>
+                          </div>
+                          <div className="mono mt-2 text-xs text-[var(--muted)]">
+                            updated {new Date(m.updatedAt).toLocaleString()}
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </section>
               ))}
-            </ul>
+            </div>
           )}
         </div>
       )}

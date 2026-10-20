@@ -144,10 +144,14 @@ try {
   const bound = await connect(await auth("t-bound"));
   const boundTools = await toolNames(bound.client);
   check(
-    "bound token gets all four memory tools",
-    ["hub_memory_forget", "hub_memory_list", "hub_memory_search", "hub_memory_write"].every((n) =>
-      boundTools.includes(n),
-    ),
+    "bound token gets all five memory tools",
+    [
+      "hub_memory_forget",
+      "hub_memory_list",
+      "hub_memory_search",
+      "hub_memory_set_active",
+      "hub_memory_write",
+    ].every((n) => boundTools.includes(n)),
     boundTools.filter((n) => n.startsWith("hub_memory")).join(", "),
   );
 
@@ -158,15 +162,47 @@ try {
 
   await callText("hub_memory_write", { key: "review-day", content: "Weekly review is Tuesday." });
   const listed = parse(await callText("hub_memory_list"));
-  check("a written memory reads back", listed.length === 1 && listed[0].key === "review-day");
+  check(
+    "a written memory reads back as active",
+    listed.active?.length === 1 && listed.active[0].key === "review-day" && listed.inactiveCount === 0,
+  );
 
   await callText("hub_memory_write", { key: "review-day", content: "Weekly review moved to Wednesday." });
   const after = parse(await callText("hub_memory_list"));
   check(
     "writing the same key REPLACES it (no contradictory pair)",
-    after.length === 1 && after[0].content.includes("Wednesday"),
-    `${after.length} memories`,
+    after.active?.length === 1 && after.active[0].content.includes("Wednesday"),
+    `${after.active?.length} memories`,
   );
+
+  // --- active vs inactive work --------------------------------------------
+  await callText("hub_memory_write", {
+    key: "closed-engagement",
+    content: "Borealis audit closed in March.",
+    active: false,
+  });
+  const split = parse(await callText("hub_memory_list"));
+  check(
+    "an inactive memory is counted but not loaded by default",
+    split.active.length === 1 && split.inactiveCount === 1 && !JSON.stringify(split.active).includes("Borealis"),
+  );
+  const both = parse(await callText("hub_memory_list", { include_inactive: true }));
+  check(
+    "include_inactive returns the inactive group",
+    both.inactive?.length === 1 && both.inactive[0].key === "closed-engagement",
+  );
+  const inactiveHit = parse(await callText("hub_memory_search", { query: "Borealis" }));
+  check(
+    "search reaches inactive memories and labels them",
+    Array.isArray(inactiveHit) && inactiveHit[0]?.active === false,
+  );
+  check(
+    "hub_memory_set_active moves a memory back to active",
+    (await callText("hub_memory_set_active", { key: "closed-engagement", active: true })).includes(
+      "Marked",
+    ) && parse(await callText("hub_memory_list")).active.length === 2,
+  );
+  await callText("hub_memory_forget", { key: "closed-engagement" });
 
   const found = parse(await callText("hub_memory_search", { query: "Wednesday" }));
   check("search finds it by content", Array.isArray(found) && found.length === 1);
@@ -176,12 +212,12 @@ try {
   );
 
   // --- the isolation property ---------------------------------------------
-  const writeSchema = (await bound.client.listTools()).tools.find(
-    (t) => t.name === "hub_memory_write",
-  ).inputSchema;
+  const memorySchemas = (await bound.client.listTools()).tools
+    .filter((t) => t.name.startsWith("hub_memory"))
+    .map((t) => t.inputSchema);
   check(
     "no memory tool accepts an agent id",
-    !JSON.stringify(writeSchema).toLowerCase().includes("agentid"),
+    !JSON.stringify(memorySchemas).toLowerCase().includes("agentid"),
   );
   const visible = parse(await callText("hub_memory_list"));
   check(

@@ -8,9 +8,9 @@
 //
 // It talks to Postgres directly instead of importing @ai-hub/db: this runs as a
 // bare `node server.mjs` child process, and that package's TypeScript sources
-// use extensionless imports which only a bundler resolves. The four statements
-// below mirror packages/db/src/agents.ts — keep the upsert-by-key semantics in
-// step if either changes.
+// use extensionless imports which only a bundler resolves. The statements below
+// mirror packages/db/src/agents.ts — keep the upsert-by-key and active/inactive
+// semantics in step if either changes.
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import postgres from "postgres";
@@ -41,44 +41,59 @@ const server = new McpServer(
   {
     instructions:
       "Your own memory, carried between conversations. Call memory_list at the " +
-      "start of a conversation to recall what you already know. Use memory_write " +
-      "to record a durable fact — a client's preference, a decision and its " +
-      "reason, a correction someone made. Do not store transient detail you can " +
-      "look up again with another tool.",
+      "start of a conversation: it returns your ACTIVE memories — work in flight — " +
+      "and how many inactive ones you have set aside. Use memory_write to record " +
+      "a durable fact — a client's preference, a decision and its reason, a " +
+      "correction someone made. When a piece of work is finished or paused, mark " +
+      "its memories inactive with memory_set_active so they stop crowding the " +
+      "live work; when it comes back, find them with memory_search and mark them " +
+      "active again. Do not store transient detail you can look up again with " +
+      "another tool.",
   },
 );
+
+const memoryRow = (r) => ({ key: r.key, content: r.content, updatedAt: r.updatedAt });
 
 server.registerTool(
   "memory_list",
   {
     description:
-      "List everything you remember, most recently updated first. Call this at the start of a conversation.",
-    inputSchema: {},
+      "List your active memories (work in flight), most recently updated first, plus a count of inactive ones. Call this at the start of a conversation.",
+    inputSchema: {
+      include_inactive: z
+        .boolean()
+        .optional()
+        .describe("Also return inactive memories (finished, paused or background work)."),
+    },
   },
-  async () => {
+  async ({ include_inactive }) => {
     const rows = await sql`
-      select key, content, updated_at as "updatedAt"
+      select key, content, active, updated_at as "updatedAt"
       from agent_memories where agent_id = ${AGENT_ID}
       order by updated_at desc
     `;
     if (rows.length === 0) return text("You have no memories yet.");
-    return text(rows);
+    const active = rows.filter((r) => r.active).map(memoryRow);
+    const inactive = rows.filter((r) => !r.active).map(memoryRow);
+    if (include_inactive) return text({ active, inactive });
+    return text({ active, inactiveCount: inactive.length });
   },
 );
 
 server.registerTool(
   "memory_search",
   {
-    description: "Search your memories by keyword, matching the key or the content.",
+    description:
+      "Search all your memories, active and inactive, by keyword in the key or the content. Each result says whether it is active.",
     inputSchema: { query: z.string().describe("Keyword or phrase to look for.") },
   },
   async ({ query }) => {
     const term = `%${String(query ?? "").trim()}%`;
     const rows = await sql`
-      select key, content, updated_at as "updatedAt"
+      select key, content, active, updated_at as "updatedAt"
       from agent_memories
       where agent_id = ${AGENT_ID} and (key ilike ${term} or content ilike ${term})
-      order by updated_at desc
+      order by active desc, updated_at desc
       limit 20
     `;
     if (rows.length === 0) return text(`Nothing remembered matching "${query}".`);
@@ -90,24 +105,52 @@ server.registerTool(
   "memory_write",
   {
     description:
-      "Remember a fact under a short key. Writing an existing key replaces it — use that to correct yourself rather than recording a second, contradictory version.",
+      "Remember a fact under a short key. Writing an existing key replaces it — use that to correct yourself rather than recording a second, contradictory version. New and rewritten memories are active unless you say otherwise.",
     inputSchema: {
       key: z
         .string()
         .min(1)
         .describe("Short stable name for this fact, e.g. 'client-reporting-cadence'."),
       content: z.string().min(1).describe("The fact, written so it still makes sense months later."),
+      active: z
+        .boolean()
+        .optional()
+        .describe("False to file it straight away as inactive (finished or background work). Default true."),
     },
   },
-  async ({ key, content }) => {
+  async ({ key, content, active }) => {
+    const isActive = active ?? true;
     const [row] = await sql`
-      insert into agent_memories (agent_id, key, content)
-      values (${AGENT_ID}, ${key.trim()}, ${content})
+      insert into agent_memories (agent_id, key, content, active)
+      values (${AGENT_ID}, ${key.trim()}, ${content}, ${isActive})
       on conflict (agent_id, key) do update
-        set content = excluded.content, updated_at = now()
-      returning key, content, (created_at = updated_at) as "isNew"
+        set content = excluded.content, active = excluded.active, updated_at = now()
+      returning key, (created_at = updated_at) as "isNew"
     `;
-    return text(`${row.isNew ? "Remembered" : "Updated"} "${row.key}".`);
+    return text(`${row.isNew ? "Remembered" : "Updated"} "${row.key}"${isActive ? "" : " (inactive)"}.`);
+  },
+);
+
+server.registerTool(
+  "memory_set_active",
+  {
+    description:
+      "Mark a memory active (work in flight) or inactive (finished, paused or background) without changing what it says.",
+    inputSchema: {
+      key: z.string().min(1).describe("The key to move."),
+      active: z.boolean().describe("True for active work, false to set it aside."),
+    },
+  },
+  async ({ key, active }) => {
+    const rows = await sql`
+      update agent_memories set active = ${active}, updated_at = now()
+       where agent_id = ${AGENT_ID} and key = ${key.trim()}
+    `;
+    return text(
+      rows.count > 0
+        ? `Marked "${key}" ${active ? "active" : "inactive"}.`
+        : `Nothing was stored under "${key}".`,
+    );
   },
 );
 

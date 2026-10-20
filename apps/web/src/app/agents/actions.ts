@@ -9,6 +9,7 @@ import {
   deleteAgent,
   listMemories,
   forgetMemory,
+  setMemoryActive,
   type AgentInput,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
@@ -99,6 +100,17 @@ export async function forgetMemoryAction(
 ): Promise<{ ok: boolean; error?: string }> {
   if (!(await sessionCan("agent:manage"))) return { ok: false, error: NOT_ALLOWED };
   const ok = await forgetMemory(agentId, key);
+  revalidatePath("/agents");
+  return { ok };
+}
+
+export async function setMemoryActiveAction(
+  agentId: string,
+  key: string,
+  active: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!(await sessionCan("agent:manage"))) return { ok: false, error: NOT_ALLOWED };
+  const ok = await setMemoryActive(agentId, key, active);
   revalidatePath("/agents");
   return { ok };
 }

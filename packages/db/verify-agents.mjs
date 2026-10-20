@@ -43,7 +43,7 @@ if (!process.env.DATABASE_URL) {
 
 const {
   createAgent, getAgent, listAgents, updateAgent, deleteAgent,
-  rememberMemory, listMemories, searchMemories, forgetMemory,
+  rememberMemory, listMemories, searchMemories, forgetMemory, setMemoryActive,
 } = await import("./src/agents.ts");
 const { getSql } = await import("./src/client.ts");
 
@@ -132,6 +132,22 @@ try {
     "writing the same key replaces rather than appends",
     afterUpsert.length === 2 &&
       afterUpsert.find((m) => m.key === "cadence")?.content.includes("Wednesday"),
+  );
+
+  check("new memories are active", afterUpsert.every((m) => m.active === true));
+  check("setMemoryActive moves a memory to inactive", (await setMemoryActive(agent.id, "style", false)) === true);
+  const ordered = await listMemories(agent.id);
+  check(
+    "listMemories puts active work first",
+    ordered[0].key === "cadence" && ordered[1].key === "style" && ordered[1].active === false,
+    ordered.map((m) => `${m.key}:${m.active}`).join(", "),
+  );
+  check("setMemoryActive on an absent key is false",
+    (await setMemoryActive(agent.id, "never-existed", true)) === false);
+  await rememberMemory(agent.id, "style", "Muted navy, one chart per slide.");
+  check(
+    "rewriting an inactive memory makes it active again",
+    (await listMemories(agent.id)).find((m) => m.key === "style")?.active === true,
   );
 
   const found = await searchMemories(agent.id, "navy");

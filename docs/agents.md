@@ -24,9 +24,10 @@ agents                    a name, instructions, model, tools, knowledge scope
 
 ## Memory
 
-Memory is an MCP server (`packages/mcp/servers/memory/server.mjs`) with four
-tools: `memory_list`, `memory_search`, `memory_write`, `memory_forget`. The
-agent decides what is worth keeping; nothing is captured automatically.
+Memory is an MCP server (`packages/mcp/servers/memory/server.mjs`) with five
+tools: `memory_list`, `memory_search`, `memory_write`, `memory_set_active`,
+`memory_forget`. The agent decides what is worth keeping; nothing is captured
+automatically.
 
 **Scope travels in the environment, never in a tool argument.** The server is
 spawned with `HUB_AGENT_ID` and refuses to start without it. A tool argument
@@ -41,15 +42,26 @@ server.
 agent told "actually, they moved the review to Wednesday" should correct itself,
 not end up holding two contradictory facts that both surface at once.
 
-**Active work context is separate from inactive context** *(required, not
-built yet)*. What an agent knows about work currently in flight — the open
-engagement, this week's deadlines, the decision still being made — must be kept
-apart from what it knows about work that is finished, paused, or background.
-Active context is what a conversation starts from; inactive context is kept,
-searchable, and brought back when the work resumes, but is not loaded by
-default. Today there is one undifferentiated pool: `memory_list` returns every
-memory, so a closed engagement's details compete with the live one's for the
-model's attention, and the pool gets noisier the longer an agent is used.
+**Active work context is separate from inactive context.** What an agent knows
+about work currently in flight — the open engagement, this week's deadlines, the
+decision still being made — is kept apart from what it knows about work that is
+finished, paused, or background. Without the split, a closed engagement's details
+compete with the live one's for the model's attention, and the pool gets noisier
+the longer an agent is used.
+
+Each memory has an `active` flag (`agent_memories.active`, default true):
+
+- `memory_list` returns the active memories and only a *count* of inactive ones;
+  `include_inactive: true` returns both groups. Active context is what a
+  conversation starts from.
+- `memory_search` covers both and labels each result, so set-aside work is found
+  when it comes back.
+- `memory_set_active` moves a memory between the two without rewriting it.
+- `memory_write` stores a memory as active unless told `active: false`, and
+  rewriting an inactive memory makes it active again — recording a fact is
+  working on it.
+
+The Memory tab groups memories the same way and can move them by hand.
 
 **Every memory is visible and deletable** from the agent's Memory tab. An agent
 that silently accumulates beliefs about a client is a liability; being able to
@@ -57,7 +69,7 @@ read and prune them is what makes it something to point at real work.
 
 The server talks to Postgres directly rather than importing `@ai-hub/db`: it
 runs as a bare `node server.mjs` child process, and that package's TypeScript
-uses extensionless imports only a bundler resolves. Its four statements mirror
+uses extensionless imports only a bundler resolves. Its statements mirror
 `packages/db/src/agents.ts` — keep the upsert-by-key semantics in step.
 
 ## A run
@@ -92,7 +104,7 @@ gets the model's last half-formed sentence as though it were the answer.
 | Command | Covers |
 | --- | --- |
 | `npm run verify:agents -w @ai-hub/db` | the store: CRUD, that an omitted field is left alone while an explicit null clears one, memory upsert/search/forget, and that deleting an agent takes its memories with it |
-| `npm run verify:memory -w @ai-hub/mcp` | the server through the hub's own client path: the four tools, upsert-not-append, that one agent cannot read another's memories, and that it refuses to start unscoped |
+| `npm run verify:memory -w @ai-hub/mcp` | the server through the hub's own client path: the five tools, upsert-not-append, active vs inactive memories, that one agent cannot read another's memories, and that it refuses to start unscoped |
 | `npm run verify:loop -w @ai-hub/agent` | the tool-use loop: that the cap binds at the default and at a per-agent value, that it is clamped at both ends, and that a cut-off run reports itself instead of returning a partial as an answer |
 | `npm run verify:m365 -w @ai-hub/mcp` | the secretary's mailbox and calendar ([secretary-agent.md](secretary-agent.md)) |
 | `npm run verify:schedules -w @ai-hub/db` | the clock: when a schedule is due, and that two simultaneous claims produce one run ([schedules.md](schedules.md)) |
@@ -119,8 +131,6 @@ code at it.
 - **Schedules have no UI.** An agent *can* now be put on a clock — see
   [schedules.md](schedules.md) — but schedules are created through `@ai-hub/db`
   or SQL; there is no panel on `/agents/[slug]` yet.
-- **Memory has no active/inactive split.** See *Memory* above: every memory
-  is loaded on `memory_list`, whether the work it belongs to is live or done.
 - **Agent *runs* are not reachable from Claude Code.** Memory now is — see
   below — but there is still no tool that runs an agent turn remotely, and
   `POST /api/agent/run` ignores `agentId`, so a turn taken through it has no
@@ -128,9 +138,10 @@ code at it.
 
 ## Memory from an outside client
 
-`/api/mcp` offers four memory tools — `hub_memory_list`, `hub_memory_search`,
-`hub_memory_write`, `hub_memory_forget` — so Claude Code can carry an agent's
-memory in the terminal.
+`/api/mcp` offers five memory tools — `hub_memory_list`, `hub_memory_search`,
+`hub_memory_write`, `hub_memory_set_active`, `hub_memory_forget` — so Claude Code
+can carry an agent's memory in the terminal. They split active from inactive
+memories exactly as the stdio server does.
 
 **The agent is bound to the token, never to a tool argument.** A `HUB_API_TOKENS`
 entry may carry an `agentId` (an id or a slug):
@@ -155,7 +166,7 @@ tools at all, rather than tools that error:
 | `viewer` role (lacks `agent:run`) | no memory tools |
 | `agentId` that is not a string | dropped at parse; no memory tools |
 
-`npm run verify:hub-memory -w web` covers all of it (19 checks, no API key —
+`npm run verify:hub-memory -w web` covers all of it (23 checks, no API key —
 needs `DATABASE_URL`). It drives the real server through a real MCP client over
 an in-memory transport, so a pass means a Claude Code session sees the same
 thing.

@@ -115,6 +115,10 @@ create table if not exists agent_memories (
 );
 create index if not exists agent_memories_agent_idx
   on agent_memories (agent_id, updated_at desc);
+-- Active memories are the work in flight and are what a conversation starts
+-- from; inactive ones (finished, paused, background) are kept and searchable
+-- but not loaded by default. Defaults to true so existing memories keep loading.
+alter table agent_memories add column if not exists active boolean not null default true;
 
 -- ---------------------------------------------------------------------------
 -- Identity and credentials (increment 01: OAuth 2.1 with WorkOS as the

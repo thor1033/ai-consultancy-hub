@@ -36,6 +36,7 @@ export interface AgentMemory {
   id: string;
   key: string;
   content: string;
+  active: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -152,31 +153,52 @@ export async function deleteAgent(id: string): Promise<boolean> {
 // here rather than in the server so the /agents UI can read and prune what an
 // agent believes without going through the model.
 
+const MEMORY_COLUMNS = `id, key, content, active, created_at as "createdAt", updated_at as "updatedAt"`;
+
+/** Active memories first, then most recently updated. */
 export async function listMemories(agentId: string): Promise<AgentMemory[]> {
   const sql = getSql();
   return sql<AgentMemory[]>`
-    select id, key, content, created_at as "createdAt", updated_at as "updatedAt"
+    select ${sql.unsafe(MEMORY_COLUMNS)}
     from agent_memories
     where agent_id = ${agentId}
-    order by updated_at desc
+    order by active desc, updated_at desc
   `;
 }
 
-/** Upsert by key — an agent correcting itself replaces the fact, never doubles it. */
+/**
+ * Upsert by key — an agent correcting itself replaces the fact, never doubles it.
+ * A write is active unless said otherwise: recording a fact is working on it.
+ */
 export async function rememberMemory(
   agentId: string,
   key: string,
   content: string,
+  active = true,
 ): Promise<AgentMemory> {
   const sql = getSql();
   const rows = await sql<AgentMemory[]>`
-    insert into agent_memories (agent_id, key, content)
-    values (${agentId}, ${key}, ${content})
+    insert into agent_memories (agent_id, key, content, active)
+    values (${agentId}, ${key}, ${content}, ${active})
     on conflict (agent_id, key) do update
-      set content = excluded.content, updated_at = now()
-    returning id, key, content, created_at as "createdAt", updated_at as "updatedAt"
+      set content = excluded.content, active = excluded.active, updated_at = now()
+    returning ${sql.unsafe(MEMORY_COLUMNS)}
   `;
   return rows[0];
+}
+
+/** Move a memory between active and inactive work without rewriting it. */
+export async function setMemoryActive(
+  agentId: string,
+  key: string,
+  active: boolean,
+): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`
+    update agent_memories set active = ${active}, updated_at = now()
+     where agent_id = ${agentId} and key = ${key}
+  `;
+  return rows.count > 0;
 }
 
 export async function forgetMemory(agentId: string, key: string): Promise<boolean> {
@@ -203,7 +225,7 @@ export async function searchMemories(
   const sql = getSql();
   const term = `%${query.trim()}%`;
   return sql<AgentMemory[]>`
-    select id, key, content, created_at as "createdAt", updated_at as "updatedAt"
+    select ${sql.unsafe(MEMORY_COLUMNS)}
     from agent_memories
     where agent_id = ${agentId}
       and (key ilike ${term} or content ilike ${term})
