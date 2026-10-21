@@ -5,8 +5,11 @@ export {
   setMcpServerEnabled,
   deleteMcpServer,
   disabledMcpServerNames,
+  serverUsage,
+  toolCallCounts,
+  listServerRuns,
 } from "./mcpServers";
-export type { McpServerRow } from "./mcpServers";
+export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun } from "./mcpServers";
 export { recordSession, listSessions, getSession, startRun, finishRun, failRun, getRunStatus } from "./sessions";
 export type {
   SessionSummary,
