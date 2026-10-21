@@ -51,10 +51,21 @@ export async function saveAgentAction(
 
   const slug = toSlug(input.slug?.trim() || name);
   if (!slug) return { error: "That name does not make a usable slug — use some letters." };
+  // /agents/new is the builder, so an agent with that slug could never be opened.
+  if (slug === "new") return { error: `"new" is reserved — give the agent a more specific name.` };
 
-  const servers = (input.mcpServers ?? []).filter(
-    (e) => typeof (e as { name?: unknown }).name === "string" && isKnownServer(String((e as { name: string }).name)),
+  // A server this agent already has is kept even if this deployment does not
+  // declare it right now — otherwise saving any other field would silently cut
+  // the agent off from it. New ones must be known; runSession skips undeclared
+  // names at run time either way.
+  const existing = id ? await getAgent(id) : null;
+  const already = new Set(
+    (existing?.mcpServers ?? []).map((e) => String((e as { name?: unknown }).name ?? "")),
   );
+  const servers = (input.mcpServers ?? []).filter((e) => {
+    const name = (e as { name?: unknown }).name;
+    return typeof name === "string" && (isKnownServer(name) || already.has(name));
+  });
 
   // A server action is a public endpoint, so the number is validated here and
   // not only by the <input type="number"> that usually produces it. Anything

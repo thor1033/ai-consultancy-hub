@@ -66,7 +66,7 @@ export function Sidebar() {
       )}
 
       <div className="mt-auto flex flex-col gap-3 px-0.5 pt-6">
-        <Link href="/agents" className="btn-brand w-full">
+        <Link href="/agents/new" className="btn-brand w-full">
           New agent
         </Link>
         <div className="flex items-center justify-between border border-[var(--border)] bg-[var(--panel)] px-3 py-2">

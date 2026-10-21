@@ -201,6 +201,100 @@ export async function setMemoryActive(
   return rows.count > 0;
 }
 
+export interface AgentRosterRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  model: string | null;
+  knowledgeCollection: string | null;
+  mcpServers: McpEntry[];
+  memoriesLoaded: number;
+  memoriesAside: number;
+  skills: number;
+  schedules: number;
+  schedulesEnabled: number;
+  scheduleError: string | null;
+  runs7d: number;
+  failed7d: number;
+  spend7d: number;
+  lastRunAt: string | null;
+  lastRunStatus: string | null;
+  /** Runs per day for the last 7 days, oldest first (UTC days). */
+  runsByDay: number[];
+}
+
+/**
+ * Every agent with what it is equipped with and how it has been doing — one
+ * query, so the agents overview reads as a roster rather than a list of names.
+ */
+export async function agentRoster(): Promise<AgentRosterRow[]> {
+  const sql = getSql();
+  return sql<AgentRosterRow[]>`
+    select a.id, a.slug, a.name, a.description, a.enabled, a.model,
+           a.knowledge_collection as "knowledgeCollection", a.mcp_servers as "mcpServers",
+           (select count(*)::int from agent_memories m where m.agent_id = a.id and m.active) as "memoriesLoaded",
+           (select count(*)::int from agent_memories m where m.agent_id = a.id and not m.active) as "memoriesAside",
+           (select count(*)::int from agent_skills k where k.agent_id = a.id) as skills,
+           (select count(*)::int from agent_schedules c where c.agent_id = a.id) as schedules,
+           (select count(*)::int from agent_schedules c where c.agent_id = a.id and c.enabled) as "schedulesEnabled",
+           (select c.last_error from agent_schedules c
+             where c.agent_id = a.id and c.last_error is not null
+             order by c.updated_at desc limit 1) as "scheduleError",
+           r.runs7d as "runs7d", r.failed7d as "failed7d", r.spend7d as "spend7d",
+           last.at as "lastRunAt", last.status as "lastRunStatus",
+           (select array_agg(coalesce(x.n, 0) order by d)
+              from generate_series(current_date - 6, current_date, interval '1 day') d
+              left join lateral (
+                select count(*)::int as n from agent_sessions s
+                 where s.agent_id = a.id
+                   and coalesce(s.started_at, s.created_at)::date = d::date
+              ) x on true) as "runsByDay"
+      from agents a
+      left join lateral (
+        select count(*)::int as runs7d,
+               count(*) filter (where s.status = 'failed')::int as failed7d,
+               coalesce(sum(s.cost_usd), 0)::float8 as spend7d
+          from agent_sessions s
+         where s.agent_id = a.id
+           and coalesce(s.started_at, s.created_at) > now() - interval '7 days'
+      ) r on true
+      left join lateral (
+        select coalesce(s.started_at, s.created_at) as at, s.status
+          from agent_sessions s where s.agent_id = a.id
+         order by coalesce(s.started_at, s.created_at) desc limit 1
+      ) last on true
+     order by a.enabled desc, a.name
+  `;
+}
+
+export interface AgentRun {
+  id: string;
+  at: string;
+  prompt: string;
+  status: string;
+  costUsd: number | null;
+  latencyMs: number | null;
+  skill: string | null;
+  error: string | null;
+}
+
+/** An agent's most recent runs, newest first. */
+export async function listAgentRuns(agentId: string, limit = 12): Promise<AgentRun[]> {
+  const sql = getSql();
+  return sql<AgentRun[]>`
+    select s.id, coalesce(s.started_at, s.created_at) as at, s.prompt, s.status,
+           s.cost_usd::float8 as "costUsd", s.latency_ms as "latencyMs",
+           k.name as skill, s.error
+      from agent_sessions s
+      left join agent_skills k on k.id = s.agent_skill_id
+     where s.agent_id = ${agentId}
+     order by coalesce(s.started_at, s.created_at) desc
+     limit ${limit}
+  `;
+}
+
 /** Which agents retrieve from which knowledge collection — for the Knowledge page. */
 export async function listAgentKnowledgeScopes(): Promise<{ name: string; slug: string; collection: string }[]> {
   const sql = getSql();
