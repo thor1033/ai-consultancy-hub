@@ -1,23 +1,12 @@
 import Link from "next/link";
 import { agentRoster, listMcpServers, type AgentRosterRow } from "@ai-hub/db";
+import { money, rel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
 
 // The agents roster: every standing agent, what it is equipped with and how it
 // has been doing this week. Read on the server per request — it is a view of
 // the store, not an editor, so nothing here needs to run in the browser.
-
-const money = (n: number) => (n === 0 ? "$0" : n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`);
-
-function rel(iso: string | null, now: number): string {
-  if (!iso) return "Never run";
-  const s = Math.max(0, (now - Date.parse(iso)) / 1000);
-  if (s < 60) return "Just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  if (s < 86400 * 14) return `${Math.floor(s / 86400)}d ago`;
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
-}
 
 const serverList = (a: AgentRosterRow) =>
   (a.mcpServers ?? [])
@@ -192,7 +181,7 @@ function AgentRow({
             <span className="text-[var(--text)]">{a.runs7d}</span> run{a.runs7d === 1 ? "" : "s"} · {money(a.spend7d)} this week
           </div>
           <div className="text-xs text-[var(--muted)] lg:text-right">
-            Last run: <span className="text-[var(--text-soft)]">{rel(a.lastRunAt, now)}</span>
+            Last run: <span className="text-[var(--text-soft)]">{rel(a.lastRunAt, now, "Never run")}</span>
             {a.lastRunStatus === "failed" && <span className="text-[var(--danger)]"> · failed</span>}
           </div>
           {a.schedulesEnabled > 0 && (

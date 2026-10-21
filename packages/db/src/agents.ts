@@ -295,6 +295,56 @@ export async function listAgentRuns(agentId: string, limit = 12): Promise<AgentR
   `;
 }
 
+export interface HubDay {
+  /** YYYY-MM-DD, in the database's time zone. */
+  day: string;
+  runs: number;
+  failed: number;
+  spend: number;
+}
+
+/**
+ * Runs, failures and spend per day across every agent, oldest first, with the
+ * empty days filled in — for the Overview's activity chart.
+ */
+export async function hubActivity(days = 14): Promise<HubDay[]> {
+  const sql = getSql();
+  const span = Math.max(1, Math.min(Math.trunc(days), 90));
+  return sql<HubDay[]>`
+    select to_char(d, 'YYYY-MM-DD') as day,
+           coalesce(x.runs, 0) as runs, coalesce(x.failed, 0) as failed, coalesce(x.spend, 0) as spend
+      from generate_series(current_date - ${span - 1}::int, current_date, interval '1 day') d
+      left join lateral (
+        select count(*)::int as runs,
+               count(*) filter (where s.status = 'failed')::int as failed,
+               coalesce(sum(s.cost_usd), 0)::float8 as spend
+          from agent_sessions s
+         where coalesce(s.started_at, s.created_at)::date = d::date
+      ) x on true
+     order by d
+  `;
+}
+
+export interface HubRun extends AgentRun {
+  agentName: string | null;
+  agentSlug: string | null;
+}
+
+/** The latest runs across the whole hub, newest first, with the agent that made each. */
+export async function listRecentRuns(limit = 8): Promise<HubRun[]> {
+  const sql = getSql();
+  return sql<HubRun[]>`
+    select s.id, coalesce(s.started_at, s.created_at) as at, s.prompt, s.status,
+           s.cost_usd::float8 as "costUsd", s.latency_ms as "latencyMs",
+           k.name as skill, s.error, a.name as "agentName", a.slug as "agentSlug"
+      from agent_sessions s
+      left join agents a on a.id = s.agent_id
+      left join agent_skills k on k.id = s.agent_skill_id
+     order by coalesce(s.started_at, s.created_at) desc
+     limit ${limit}
+  `;
+}
+
 /** Which agents retrieve from which knowledge collection — for the Knowledge page. */
 export async function listAgentKnowledgeScopes(): Promise<{ name: string; slug: string; collection: string }[]> {
   const sql = getSql();

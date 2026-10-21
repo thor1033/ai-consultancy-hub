@@ -46,7 +46,7 @@ const {
   rememberMemory, listMemories, searchMemories, forgetMemory, setMemoryActive, setMemoryRegion,
 } = await import("./src/agents.ts");
 const { contextSnapshot } = await import("./src/context.ts");
-const { agentRoster, listAgentRuns } = await import("./src/agents.ts");
+const { agentRoster, listAgentRuns, hubActivity, listRecentRuns } = await import("./src/agents.ts");
 const { getSql } = await import("./src/client.ts");
 
 const slug = `verify-agents-${Date.now()}`;
@@ -203,6 +203,17 @@ try {
   check("listAgentRuns is newest first and limited",
     runs.length === 2 && runs[0].prompt === "verify run ok" && runs[1].status === "failed");
   check("run cost comes back as a number", typeof runs[0].costUsd === "number");
+  const days = await hubActivity(14);
+  const today = days[days.length - 1];
+  check("hubActivity fills every day, oldest first",
+    days.length === 14 && days[0].day < today.day, `${days[0]?.day} … ${today?.day}`);
+  check("hubActivity counts today's runs and failures",
+    today.runs >= 2 && today.failed >= 1 && typeof today.spend === "number", JSON.stringify(today));
+  const recent = await listRecentRuns(50);
+  const ours = recent.filter((r) => r.agentSlug === slug);
+  check("listRecentRuns names the agent behind each run",
+    ours.length === 3 && ours[0].agentName === "Renamed" && ours[0].prompt === "verify run ok",
+    JSON.stringify(ours.map((r) => [r.prompt, r.agentName])));
   await getSql()`delete from agent_sessions where agent_id = ${agent.id}`;
   check("knowledge counts are numbers",
     Number.isInteger(snap.knowledge.documents) && Number.isInteger(snap.knowledge.collections));
