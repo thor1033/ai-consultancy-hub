@@ -61,6 +61,17 @@ When adding behaviour, extend or add a verify script in the same style: drive th
 shipping code path, create and delete its own fixtures, and report what it could
 not prove rather than faking a pass.
 
+## Querying the database
+
+```bash
+node --env-file=apps/web/.env.local scripts/db-query.mjs "select slug, enabled from agents"
+```
+
+Read-only by construction (`BEGIN READ ONLY`, 20 s statement timeout), prints
+rows never the connection string. Uses `HUB_DB_READONLY_URL` when set — a role
+granted SELECT only — else `DATABASE_URL`. Use this rather than reading
+`.env.local`; the secret stays out of the transcript.
+
 ## Env
 
 Local config lives in `apps/web/.env.local` (template: `.env.example`). AuthKit

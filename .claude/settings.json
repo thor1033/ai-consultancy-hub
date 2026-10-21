@@ -8,6 +8,7 @@
       "Bash(npm run typecheck:*)",
       "Bash(npm run verify:*)",
       "Bash(npm run migrate:*)",
+      "Bash(node --env-file=apps/web/.env.local scripts/db-query.mjs:*)",
       "Bash(docker compose up -d db)",
       "Bash(docker compose ps)",
       "Bash(git status:*)",
