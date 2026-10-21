@@ -25,10 +25,23 @@ export {
   listMemories,
   rememberMemory,
   setMemoryActive,
+  setMemoryRegion,
+  MEMORY_REGIONS,
   forgetMemory,
   searchMemories,
 } from "./agents";
-export type { AgentSummary, Agent, AgentMemory, AgentInput } from "./agents";
+export type { AgentSummary, Agent, AgentMemory, AgentInput, MemoryRegion } from "./agents";
+export { contextSnapshot } from "./context";
+export type {
+  ContextSnapshot,
+  ContextAgent,
+  ContextMemory,
+  ContextSkill,
+  ContextServer,
+  ContextPerson,
+  ContextSchedule,
+  ContextActivity,
+} from "./context";
 export {
   listPrincipals,
   getPrincipal,

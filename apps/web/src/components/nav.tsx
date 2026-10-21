@@ -57,6 +57,21 @@ export const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/context",
+    label: "Context",
+    icon: (
+      // A small network: nodes joined to a centre — what the agents hold.
+      <svg {...s}>
+        <rect x="10" y="10" width="4" height="4" />
+        <rect x="3" y="4" width="3" height="3" />
+        <rect x="18" y="4" width="3" height="3" />
+        <rect x="3" y="17" width="3" height="3" />
+        <rect x="18" y="17" width="3" height="3" />
+        <path d="M6 6.5l4 4M18 6.5l-4 4M6 17.5l4-4M18 17.5l-4-4" />
+      </svg>
+    ),
+  },
+  {
     href: "/mcp",
     label: "MCP servers",
     icon: (

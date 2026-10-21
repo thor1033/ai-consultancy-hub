@@ -201,6 +201,26 @@ export async function setMemoryActive(
   return rows.count > 0;
 }
 
+export const MEMORY_REGIONS = ["projects", "people", "rules", "routines"] as const;
+export type MemoryRegion = (typeof MEMORY_REGIONS)[number];
+
+/**
+ * File a memory under a region of the Context map, or null to untag it. Not a
+ * change to what the memory says, so updated_at is left alone.
+ */
+export async function setMemoryRegion(
+  agentId: string,
+  key: string,
+  region: MemoryRegion | null,
+): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`
+    update agent_memories set region = ${region}
+     where agent_id = ${agentId} and key = ${key}
+  `;
+  return rows.count > 0;
+}
+
 export async function forgetMemory(agentId: string, key: string): Promise<boolean> {
   const sql = getSql();
   const rows = await sql`

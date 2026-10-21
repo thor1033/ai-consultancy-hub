@@ -43,8 +43,9 @@ if (!process.env.DATABASE_URL) {
 
 const {
   createAgent, getAgent, listAgents, updateAgent, deleteAgent,
-  rememberMemory, listMemories, searchMemories, forgetMemory, setMemoryActive,
+  rememberMemory, listMemories, searchMemories, forgetMemory, setMemoryActive, setMemoryRegion,
 } = await import("./src/agents.ts");
+const { contextSnapshot } = await import("./src/context.ts");
 const { getSql } = await import("./src/client.ts");
 
 const slug = `verify-agents-${Date.now()}`;
@@ -162,6 +163,27 @@ try {
 
   const counted = await getAgent(agent.id);
   check("the agent's memoryCount reflects the store", counted.memoryCount === 1, String(counted.memoryCount));
+
+  // ── context map ───────────────────────────────────────────────────────────
+  const [{ updatedAt: before }] = await getSql()`
+    select updated_at as "updatedAt" from agent_memories where agent_id = ${agent.id} and key = 'cadence'
+  `;
+  check("setMemoryRegion files a memory", (await setMemoryRegion(agent.id, "cadence", "routines")) === true);
+  let snap = await contextSnapshot();
+  const filed = snap.memories.find((m) => m.agentId === agent.id && m.key === "cadence");
+  check("the context snapshot carries the region", filed?.region === "routines", String(filed?.region));
+  check("filing is not an edit: updated_at is unchanged", filed && Date.parse(filed.updatedAt) === new Date(before).getTime());
+  check("setMemoryRegion with null untags it", (await setMemoryRegion(agent.id, "cadence", null)) === true);
+  snap = await contextSnapshot();
+  check("an untagged memory has a null region",
+    snap.memories.find((m) => m.agentId === agent.id && m.key === "cadence")?.region === null);
+  check("setMemoryRegion on an absent key is false", (await setMemoryRegion(agent.id, "never-existed", "people")) === false);
+  const mine = snap.agents.find((a) => a.id === agent.id);
+  check("the snapshot lists the agent with its brief", mine?.brief === "Be brief.", mine?.brief);
+  check("the snapshot's activity is newest first and capped",
+    snap.activity.length <= 10 && snap.activity.every((e, i, all) => i === 0 || all[i - 1].at >= e.at));
+  check("knowledge counts are numbers",
+    Number.isInteger(snap.knowledge.documents) && Number.isInteger(snap.knowledge.collections));
 
   // ── delete cascades ───────────────────────────────────────────────────────
   const agentId = agent.id;
