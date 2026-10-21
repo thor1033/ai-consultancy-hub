@@ -356,3 +356,33 @@ create table if not exists agent_schedules (
 );
 create index if not exists agent_schedules_due_idx on agent_schedules (enabled, last_run_at);
 create index if not exists agent_schedules_agent_idx on agent_schedules (agent_id);
+
+-- Where an agent runs (see docs/local-agents.md).
+--
+--   hub    the hub's own runtime: hub_agent_<slug>, the /agents console, schedules
+--   local  synced into Claude Code as a sub-agent; the hub never runs it itself
+--   both   both of the above
+--
+-- Defaults to 'hub' so every existing agent keeps doing exactly what it did.
+-- Changing it is admin-only (agents/actions.ts): it changes where an agent's
+-- instructions are copied to and who reaches its tools.
+alter table agents add column if not exists placement text not null default 'hub'
+  check (placement in ('hub', 'local', 'both'));
+
+-- What a local agent did through the hub.
+--
+-- A local agent's model runs in someone's Claude Code session, so the hub never
+-- sees a prompt, a transcript or a cost — only the tool calls that come back
+-- through /api/mcp/agents/<slug>. That is what is recorded, one row per call,
+-- and deliberately NOT in agent_sessions: a row there claims a run the hub
+-- performed and priced, and the ROI report would count these as such.
+create table if not exists agent_local_calls (
+  id           uuid primary key default gen_random_uuid(),
+  agent_id     uuid not null references agents(id) on delete cascade,
+  principal_id text,
+  tool         text not null,
+  ok           boolean not null,
+  latency_ms   int,
+  at           timestamptz not null default now()
+);
+create index if not exists agent_local_calls_agent_idx on agent_local_calls (agent_id, at desc);

@@ -43,6 +43,9 @@ hub/
 - **Agents anywhere** — every agent registers as `hub_agent_<slug>` in any MCP client,
   and its Skills as `hub_skill_<slug>` with real arguments, so work built in the hub runs
   from Claude Code, VS Code or Cursor ([docs/agents-anywhere.md](docs/agents-anywhere.md)).
+- **Local agents** — set an agent to run locally (or both) and it is synced into Claude
+  Code as a sub-agent with its skills; its tools, memory and knowledge stay behind a
+  per-agent hub endpoint that checks every call ([docs/local-agents.md](docs/local-agents.md)).
 - **Schedules** — an agent on a clock: `every N minutes`, or daily at a local
   time on chosen weekdays. Runs execute as the principal who owns the schedule,
   so an unattended run has exactly the reach of the person who asked for it.

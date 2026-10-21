@@ -27,8 +27,22 @@ export {
   setMemoryActive,
   forgetMemory,
   searchMemories,
+  isPlacement,
+  runsOnHub,
+  runsLocally,
+  PLACEMENTS,
+  recordLocalCall,
+  localActivity,
 } from "./agents";
-export type { AgentSummary, Agent, AgentMemory, AgentInput } from "./agents";
+export type {
+  AgentSummary,
+  Agent,
+  AgentMemory,
+  AgentInput,
+  Placement,
+  LocalCallInput,
+  LocalActivity,
+} from "./agents";
 export {
   listPrincipals,
   getPrincipal,

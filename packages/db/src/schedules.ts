@@ -271,6 +271,9 @@ export async function schedulesToConsider(): Promise<Schedule[]> {
     join principals p on p.id = s.owner_principal_id
     join agents a on a.id = s.agent_id
     where s.enabled and p.enabled and a.enabled
+      -- A local-only agent runs in someone's editor, not here: there is nothing
+      -- for a tick to run, and claiming it would stamp a failure every minute.
+      and a.placement <> 'local'
     order by s.created_at
   `;
 }

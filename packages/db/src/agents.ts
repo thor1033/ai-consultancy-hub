@@ -11,12 +11,31 @@ import { getSql } from "./client";
  */
 export type McpEntry = Record<string, unknown>;
 
+/**
+ * Where an agent runs: on the hub's runtime, in a Claude Code session as a
+ * synced sub-agent, or both. See docs/local-agents.md.
+ */
+export type Placement = "hub" | "local" | "both";
+
+export const PLACEMENTS: readonly Placement[] = ["hub", "local", "both"];
+
+export function isPlacement(value: unknown): value is Placement {
+  return value === "hub" || value === "local" || value === "both";
+}
+
+/** Whether the hub itself may run this agent (chat, MCP tools, schedules). */
+export const runsOnHub = (p: Placement) => p !== "local";
+
+/** Whether this agent is synced into Claude Code as a sub-agent. */
+export const runsLocally = (p: Placement) => p !== "hub";
+
 export interface AgentSummary {
   id: string;
   slug: string;
   name: string;
   description: string;
   enabled: boolean;
+  placement: Placement;
   memoryCount: number;
   createdAt: string;
   updatedAt: string;
@@ -52,6 +71,7 @@ export interface AgentInput {
   knowledgeCollection?: string | null;
   maxIterations?: number | null;
   enabled?: boolean;
+  placement?: Placement;
 }
 
 // Unqualified on purpose: this list is reused in a RETURNING clause, where
@@ -60,7 +80,7 @@ const AGENT_COLUMNS = `
   id, slug, name, description, instructions, model, effort,
   mcp_servers as "mcpServers", knowledge_collection as "knowledgeCollection",
   max_iterations as "maxIterations",
-  enabled, created_at as "createdAt", updated_at as "updatedAt"
+  enabled, placement, created_at as "createdAt", updated_at as "updatedAt"
 `;
 
 export async function listAgents(): Promise<AgentSummary[]> {
@@ -68,7 +88,7 @@ export async function listAgents(): Promise<AgentSummary[]> {
   // The memory count is what tells a reader an agent has actually been used,
   // so it belongs in the list rather than one level down.
   return sql<AgentSummary[]>`
-    select a.id, a.slug, a.name, a.description, a.enabled,
+    select a.id, a.slug, a.name, a.description, a.enabled, a.placement,
            count(m.id)::int as "memoryCount",
            a.created_at as "createdAt", a.updated_at as "updatedAt"
     from agents a
@@ -97,12 +117,13 @@ export async function createAgent(input: AgentInput): Promise<Agent> {
   const sql = getSql();
   const rows = await sql<Agent[]>`
     insert into agents (slug, name, description, instructions, model, effort,
-                        mcp_servers, knowledge_collection, max_iterations, enabled)
+                        mcp_servers, knowledge_collection, max_iterations, enabled,
+                        placement)
     values (${input.slug}, ${input.name}, ${input.description ?? ""},
             ${input.instructions ?? ""}, ${input.model ?? null}, ${input.effort ?? null},
             ${sql.json((input.mcpServers ?? []) as Parameters<typeof sql.json>[0])},
             ${input.knowledgeCollection ?? null}, ${input.maxIterations ?? null},
-            ${input.enabled ?? true})
+            ${input.enabled ?? true}, ${input.placement ?? "hub"})
     returning ${sql.unsafe(AGENT_COLUMNS)}, 0 as "memoryCount"
   `;
   return rows[0];
@@ -133,6 +154,7 @@ export async function updateAgent(
       knowledge_collection = ${next.knowledgeCollection ?? null},
       max_iterations = ${next.maxIterations ?? null},
       enabled = ${next.enabled ?? true},
+      placement = ${next.placement ?? "hub"},
       updated_at = now()
     where id = ${id}
     returning ${sql.unsafe(AGENT_COLUMNS)},
@@ -232,4 +254,47 @@ export async function searchMemories(
     order by updated_at desc
     limit ${limit}
   `;
+}
+
+// ── local activity ──────────────────────────────────────────────────────────
+// One row per tool call a local agent made through the hub. See schema.sql for
+// why this is not agent_sessions.
+
+export interface LocalCallInput {
+  agentId: string;
+  principalId: string | null;
+  tool: string;
+  ok: boolean;
+  latencyMs: number;
+}
+
+export async function recordLocalCall(input: LocalCallInput): Promise<void> {
+  const sql = getSql();
+  await sql`
+    insert into agent_local_calls (agent_id, principal_id, tool, ok, latency_ms)
+    values (${input.agentId}, ${input.principalId}, ${input.tool}, ${input.ok},
+            ${Math.round(input.latencyMs)})
+  `;
+}
+
+export interface LocalActivity {
+  calls: number;
+  failed: number;
+  people: number;
+  lastAt: string | null;
+}
+
+/** What a local agent did through the hub in the last `days` days. */
+export async function localActivity(agentId: string, days = 30): Promise<LocalActivity> {
+  const sql = getSql();
+  const [row] = await sql<LocalActivity[]>`
+    select count(*)::int                          as calls,
+           count(*) filter (where not ok)::int    as failed,
+           count(distinct principal_id)::int      as people,
+           max(at)                                as "lastAt"
+      from agent_local_calls
+     where agent_id = ${agentId}
+       and at > now() - make_interval(days => ${days})
+  `;
+  return row ?? { calls: 0, failed: 0, people: 0, lastAt: null };
 }

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { Agent, AgentMemory } from "@ai-hub/db";
+import type { Agent, AgentMemory, Placement } from "@ai-hub/db";
 import {
   sendAgentMessageAction,
   saveAgentAction,
@@ -11,6 +11,24 @@ import {
   setMemoryActiveAction,
   type AgentChatMessage,
 } from "../actions";
+
+const PLACEMENT_OPTIONS: { id: Placement; label: string; help: string }[] = [
+  {
+    id: "hub",
+    label: "Hub",
+    help: "Runs on the hub: this console, hub_agent_* tools in connected clients, and schedules.",
+  },
+  {
+    id: "local",
+    label: "Local",
+    help: "Synced into Claude Code as a sub-agent with its skills. The hub no longer runs it, and its schedules pause.",
+  },
+  {
+    id: "both",
+    label: "Both",
+    help: "Runs on the hub as today and is also synced into Claude Code.",
+  },
+];
 
 const MODELS = [
   { id: "", label: "Default" },
@@ -42,6 +60,9 @@ export function AgentConsole({
   // and langfuse, and this is a client component.
   defaultMaxIterations,
   maxIterationsCeiling,
+  canSetPlacement,
+  localFiles,
+  localActivity,
 }: {
   agent: Agent;
   memories: AgentMemory[];
@@ -49,6 +70,11 @@ export function AgentConsole({
   collections: string[];
   defaultMaxIterations: number;
   maxIterationsCeiling: number;
+  /** Only an admin may move an agent between the hub and Claude Code. */
+  canSetPlacement: boolean;
+  /** What a sync would write for this agent, if it were placed local. */
+  localFiles: { path: string; content: string }[];
+  localActivity: { calls: number; failed: number; people: number; lastAt: string | null } | null;
 }) {
   const router = useRouter();
   const [tab, setTab] = useState<"chat" | "memory" | "settings">("chat");
@@ -93,6 +119,7 @@ export function AgentConsole({
   );
   const [picked, setPicked] = useState<string[]>(serverNames(agent));
   const [enabled, setEnabled] = useState(agent.enabled);
+  const [placement, setPlacement] = useState<Placement>(agent.placement);
   const [saveMsg, setSaveMsg] = useState<string | null>(null);
   const [saving, startSave] = useTransition();
 
@@ -109,6 +136,7 @@ export function AgentConsole({
         maxIterations: maxIterations.trim() === "" ? null : Number(maxIterations),
         mcpServers: picked.map((n) => ({ name: n })),
         enabled,
+        placement,
       });
       setSaveMsg("error" in res ? res.error : "Saved.");
       if (!("error" in res)) router.refresh();
@@ -147,7 +175,15 @@ export function AgentConsole({
         ))}
       </div>
 
-      {tab === "chat" && (
+      {tab === "chat" && agent.placement === "local" && (
+        <div className="panel p-5 text-sm text-[var(--muted)]">
+          {agent.name} runs locally, as the <span className="mono">hub-{agent.slug}</span> sub-agent in
+          Claude Code, so the hub does not run it here. Set it to <strong>Hub</strong> or{" "}
+          <strong>Both</strong> under Settings to talk to it in this console.
+        </div>
+      )}
+
+      {tab === "chat" && agent.placement !== "local" && (
         <div className="panel p-5">
           <div className="space-y-3">
             {messages.length === 0 && (
@@ -369,6 +405,66 @@ export function AgentConsole({
               memory is attached automatically and is not listed here.
             </p>
           </div>
+
+          <fieldset className="text-sm">
+            <legend className="text-[var(--muted)]">Where it runs</legend>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {PLACEMENT_OPTIONS.map((p) => (
+                <label
+                  key={p.id}
+                  className={`chip cursor-pointer ${placement === p.id ? "text-[var(--brand-ink)]" : "text-[var(--muted)]"} ${canSetPlacement ? "" : "opacity-60"}`}
+                >
+                  <input
+                    type="radio"
+                    name="placement"
+                    className="mr-1.5"
+                    value={p.id}
+                    checked={placement === p.id}
+                    disabled={!canSetPlacement}
+                    onChange={() => setPlacement(p.id)}
+                  />
+                  {p.label}
+                </label>
+              ))}
+            </div>
+            <p className="mt-2 text-xs text-[var(--muted)]">
+              {PLACEMENT_OPTIONS.find((p) => p.id === placement)?.help}
+              {!canSetPlacement && " Only an admin can change this."}
+            </p>
+            {placement !== "hub" && (
+              <details className="mt-3 rounded-lg border border-[var(--border)] p-3">
+                <summary className="cursor-pointer text-xs text-[var(--muted)]">
+                  What Claude Code receives ({localFiles.length}{" "}
+                  {localFiles.length === 1 ? "file" : "files"} under <span className="mono">.claude/</span>)
+                </summary>
+                <div className="mt-3 space-y-3">
+                  {localFiles.map((f) => (
+                    <div key={f.path}>
+                      <div className="mono text-xs text-[var(--brand-ink)]">{f.path}</div>
+                      <pre className="mono mt-1 max-h-72 overflow-auto rounded bg-[var(--panel-inset)] p-3 text-xs whitespace-pre-wrap">
+                        {f.content}
+                      </pre>
+                    </div>
+                  ))}
+                  <p className="text-xs text-[var(--muted)]">
+                    Written by <span className="mono">scripts/sync-hub-agents.mjs</span> when a Claude
+                    Code session starts. The files hold no credential: tools, memory and knowledge
+                    are reached through <span className="mono">/api/mcp/agents/{agent.slug}</span>,
+                    which the hub checks on every call. Save first — the preview shows the saved agent.
+                  </p>
+                </div>
+              </details>
+            )}
+            {localActivity && agent.placement !== "hub" && (
+              <p className="mono mt-2 text-xs text-[var(--muted)]">
+                Local use, last 30 days: {localActivity.calls} tool{" "}
+                {localActivity.calls === 1 ? "call" : "calls"}
+                {localActivity.failed > 0 && ` (${localActivity.failed} refused or failed)`} by{" "}
+                {localActivity.people} {localActivity.people === 1 ? "person" : "people"}
+                {localActivity.lastAt && ` · last ${new Date(localActivity.lastAt).toLocaleString()}`}
+              </p>
+            )}
+          </fieldset>
 
           <label className="flex items-center gap-2 text-sm">
             <input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} />

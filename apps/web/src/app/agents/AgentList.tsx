@@ -9,6 +9,12 @@ import { saveAgentAction } from "./actions";
 // The list of standing agents, plus the form that creates one. Creation is
 // inline rather than on its own route: an agent is a handful of fields, and the
 // point of the page is that making one is cheap.
+const PLACEMENT_LABEL: Record<string, string> = {
+  hub: "runs on hub",
+  local: "runs locally",
+  both: "hub + local",
+};
+
 export function AgentList({
   agents,
   servers,
@@ -138,8 +144,13 @@ export function AgentList({
                 {a.description || "No description."}
               </p>
               <div className="mt-4 flex items-center justify-between text-xs">
-                <span className="mono rounded border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--brand-ink)]">
-                  {a.memoryCount} {a.memoryCount === 1 ? "memory" : "memories"}
+                <span className="flex gap-1.5">
+                  <span className="mono rounded border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--brand-ink)]">
+                    {a.memoryCount} {a.memoryCount === 1 ? "memory" : "memories"}
+                  </span>
+                  <span className="mono rounded border border-[var(--border)] px-1.5 py-0.5 text-[var(--muted)]">
+                    {PLACEMENT_LABEL[a.placement] ?? a.placement}
+                  </span>
                 </span>
                 <span className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-[var(--brand-ink)]">
                   Open →

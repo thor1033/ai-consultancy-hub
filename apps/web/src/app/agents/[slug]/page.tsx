@@ -1,13 +1,16 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getAgent, listMemories, listSkills } from "@ai-hub/db";
+import { headers } from "next/headers";
+import { getAgent, listMemories, listSkills, localActivity } from "@ai-hub/db";
 import { DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
 import { listCollections } from "@ai-hub/rag";
 import { PageHeader } from "@/components/PageHeader";
 import { knownServers } from "@/lib/runSession";
 import { AgentConsole } from "./AgentConsole";
 import { SkillsPanel } from "./SkillsPanel";
-import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
+import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
+import { appBaseUrl } from "@/lib/baseUrl";
+import { renderAgentFiles } from "@/lib/localAgents";
 
 export const dynamic = "force-dynamic";
 
@@ -27,11 +30,14 @@ export default async function AgentPage({
 
   // An empty knowledge list is not an error here — it just means nothing has
   // been ingested yet, and the agent still runs fine without RAG.
-  const [memories, collections, skills] = await Promise.all([
+  const [memories, collections, skills, activity, admin] = await Promise.all([
     listMemories(agent.id),
     listCollections(await sessionKnowledgeAccess()).catch(() => [] as string[]),
     listSkills(agent.id).catch(() => []),
+    localActivity(agent.id).catch(() => null),
+    sessionCan("admin:manage"),
   ]);
+  const baseUrl = appBaseUrl(await headers()) ?? "https://hub.example.com";
 
   return (
     <main className="mx-auto max-w-[80rem] px-5 py-7 lg:px-8">
@@ -52,6 +58,9 @@ export default async function AgentPage({
         collections={collections}
         defaultMaxIterations={DEFAULT_MAX_ITERATIONS}
         maxIterationsCeiling={MAX_ITERATIONS_CEILING}
+        canSetPlacement={Boolean(admin)}
+        localFiles={renderAgentFiles(agent, skills, baseUrl)}
+        localActivity={activity}
       />
       <SkillsPanel agentId={agent.id} initial={skills} />
     </main>
