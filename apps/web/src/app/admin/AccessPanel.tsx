@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from"react";
+import { useCallback, useEffect, useRef, useState } from"react";
 import {
   loadAccessAction,
   savePrincipalAction,
@@ -73,14 +73,6 @@ export function AccessPanel() {
         </div>
       )}
 
-      {freshToken && (
-        <FreshToken
-          name={freshToken.name}
-          token={freshToken.token}
-          onDismiss={() => setFreshToken(null)}
-        />
-      )}
-
       <OAuthStatusCard snap={snap} />
 
       <section>
@@ -106,6 +98,13 @@ export function AccessPanel() {
           title="Credentials"
           subtitle="Long-lived bearer tokens for clients that cannot do OAuth — CI, a cron job, another hub. Revoking one takes effect on the next request, with no deploy."
         />
+        {freshToken && (
+          <FreshToken
+            name={freshToken.name}
+            token={freshToken.token}
+            onDismiss={() => setFreshToken(null)}
+          />
+        )}
         <CredentialList
           snap={snap}
           busy={busy}
@@ -232,8 +231,14 @@ function FreshToken({
   onDismiss: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  // The issue form sits at the bottom of a long page; without this the one-time
+  // token renders out of view and is easily lost.
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [token]);
   return (
-    <div className="panel notice-info p-4">
+    <div ref={ref} className="panel notice-info mb-3 p-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold">Copy “{name}” now</h3>
@@ -247,7 +252,7 @@ function FreshToken({
         </button>
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <code className="mono min-w-0 flex-1 overflow-x-auto border border-[var(--border)] bg-[var(--panel-inset)] p-2 text-xs">
+        <code className="mono min-w-0 flex-1 select-all overflow-x-auto border border-[var(--border)] bg-[var(--panel-inset)] p-2 text-xs">
           {token}
         </code>
         <button
