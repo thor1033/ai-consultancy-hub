@@ -13,6 +13,7 @@ import {
 import { DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
 import { listCollections } from "@ai-hub/rag";
 import { sessionCan, sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
+import { DAYS, cadence, money, rel } from "@/lib/format";
 import { AgentForm } from "../AgentForm";
 import { toolCatalog } from "../catalog";
 import { MODELS, agentToolName, serverNames, skillToolName } from "../models";
@@ -26,33 +27,6 @@ export const dynamic = "force-dynamic";
 // One agent. The Overview answers "what is this, what does it start every run
 // with, and how has it been doing" without a click; the other tabs are where
 // you talk to it, prune what it remembers, give it skills and change it.
-
-const money = (n: number) => (n === 0 ? "$0" : n < 0.01 ? "<$0.01" : `$${n.toFixed(2)}`);
-
-function rel(iso: string | null, now: number): string {
-  if (!iso) return "Never";
-  const s = Math.max(0, (now - Date.parse(iso)) / 1000);
-  if (s < 60) return "Just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  if (s < 86400 * 14) return `${Math.floor(s / 86400)}d ago`;
-  return new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });
-}
-
-const DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-
-function cadence(s: Schedule): string {
-  if (s.kind === "every") {
-    const m = s.intervalMinutes ?? 0;
-    if (m && m % 1440 === 0) return m === 1440 ? "Every day" : `Every ${m / 1440} days`;
-    if (m && m % 60 === 0) return m === 60 ? "Every hour" : `Every ${m / 60} hours`;
-    return `Every ${m} minutes`;
-  }
-  const at = s.atMinute ?? 0;
-  const time = `${String(Math.floor(at / 60)).padStart(2, "0")}:${String(at % 60).padStart(2, "0")}`;
-  const days = s.weekdays.length === 0 || s.weekdays.length === 7 ? "Every day" : s.weekdays.map((d) => DAYS[d]).join(", ");
-  return `${days} at ${time}`;
-}
 
 export default async function AgentPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = await params;
