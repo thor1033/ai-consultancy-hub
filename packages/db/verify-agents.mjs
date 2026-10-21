@@ -47,6 +47,7 @@ const {
 } = await import("./src/agents.ts");
 const { contextSnapshot } = await import("./src/context.ts");
 const { agentRoster, listAgentRuns, hubActivity, listRecentRuns } = await import("./src/agents.ts");
+const { serverUsage, toolCallCounts, listServerRuns } = await import("./src/mcpServers.ts");
 const { getSql } = await import("./src/client.ts");
 
 const slug = `verify-agents-${Date.now()}`;
@@ -214,6 +215,25 @@ try {
   check("listRecentRuns names the agent behind each run",
     ours.length === 3 && ours[0].agentName === "Renamed" && ours[0].prompt === "verify run ok",
     JSON.stringify(ours.map((r) => [r.prompt, r.agentName])));
+  // ── server and tool usage ─────────────────────────────────────────────────
+  const srv = `verify-srv-${Date.now()}`;
+  const tool = `verify_tool_${Date.now()}`;
+  await getSql()`
+    insert into agent_sessions (prompt, status, agent_id, started_at, mcp_servers, tools_used)
+    values ('verify srv new', 'succeeded', ${agent.id}, now() - interval '1 hour',
+            ${getSql().json([srv])}, ${getSql().json([tool, tool])}),
+           ('verify srv old', 'succeeded', ${agent.id}, now() - interval '40 days',
+            ${getSql().json([srv])}, ${getSql().json([tool])})
+  `;
+  const usage = (await serverUsage(7)).find((u) => u.name === srv);
+  check("serverUsage counts only runs in the window but remembers the last use",
+    usage?.runs === 1 && Boolean(usage?.lastUsedAt), JSON.stringify(usage));
+  const calls = (await toolCallCounts(30)).find((t) => t.tool === tool);
+  check("toolCallCounts counts every call in the window", calls?.calls === 2, JSON.stringify(calls));
+  const srvRuns = await listServerRuns(srv, 5);
+  check("listServerRuns finds the runs that connected to a server, newest first",
+    srvRuns.length === 2 && srvRuns[0].prompt === "verify srv new" && Array.isArray(srvRuns[0].toolsUsed));
+  check("listServerRuns ignores other servers", (await listServerRuns(`${srv}-none`, 5)).length === 0);
   await getSql()`delete from agent_sessions where agent_id = ${agent.id}`;
   check("knowledge counts are numbers",
     Number.isInteger(snap.knowledge.documents) && Number.isInteger(snap.knowledge.collections));

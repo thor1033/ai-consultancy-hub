@@ -129,3 +129,26 @@ export async function countMcpTools(name: string): Promise<number | null> {
     return null;
   }
 }
+
+export interface ServerConnection {
+  /** remote: Streamable HTTP from HUB_REMOTE_MCP_SERVERS. local: a stdio child the hub starts. */
+  kind: "remote" | "local" | "unknown";
+  /** Remote only: the host, never the full URL — a URL can carry a key in its query. */
+  host?: string;
+  /** Remote only: whether a bearer token or headers are configured for it. */
+  authConfigured?: boolean;
+}
+
+export function serverConnection(name: string): ServerConnection {
+  const remote = remoteServerInfo().find((r) => r.name === name);
+  if (remote) {
+    let host: string | undefined;
+    try {
+      host = new URL(remote.url).host;
+    } catch {
+      host = undefined;
+    }
+    return { kind: "remote", host, authConfigured: remote.configured };
+  }
+  return resolveServerConfig(name) ? { kind: "local" } : { kind: "unknown" };
+}
