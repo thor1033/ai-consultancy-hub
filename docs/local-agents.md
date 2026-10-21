@@ -69,7 +69,9 @@ Configuration, from the environment:
 | `HUB_URL` | The hub's origin. Default `https://hub.teqneo.co`. |
 | `HUB_TOKEN` | A `hub_sk_…` credential from `/admin`, used for the export and by each sub-agent's MCP connection. Not needed where a proxy injects the hub's credential (the Claude Code cloud environment does). |
 
-Run it by hand with `node scripts/sync-hub-agents.mjs`.
+Run it by hand with `node scripts/sync-hub-agents.mjs`. With `--user` it writes to
+`~/.claude` instead, so the agents follow you into every project — that is what
+[the one-command setup](claude-code-setup.md) installs for a colleague.
 
 ### What a synced agent looks like
 

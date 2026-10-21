@@ -46,6 +46,7 @@ hub/
 - **Local agents** — set an agent to run locally (or both) and it is synced into Claude
   Code as a sub-agent with its skills; its tools, memory and knowledge stay behind a
   per-agent hub endpoint that checks every call ([docs/local-agents.md](docs/local-agents.md)).
+  A colleague gets the whole setup with one command ([docs/claude-code-setup.md](docs/claude-code-setup.md)).
 - **Schedules** — an agent on a clock: `every N minutes`, or daily at a local
   time on chosen weekdays. Runs execute as the principal who owns the schedule,
   so an unattended run has exactly the reach of the person who asked for it.

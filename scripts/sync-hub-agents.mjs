@@ -10,12 +10,18 @@
 // Never fails the session: if the hub is unreachable it says so on stderr and
 // leaves the last synced files in place. It only ever writes, and only ever
 // deletes, files it wrote itself — `hub-` prefixed, and listed in the manifest.
+//
+// --user writes into ~/.claude instead of the project, so the agents follow
+// you into every project. That is what scripts/setup-claude-code.mjs installs.
 
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, rmdirSync, readdirSync } from "node:fs";
+import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 const projectDir = process.env.CLAUDE_PROJECT_DIR || process.cwd();
-const claudeDir = join(projectDir, ".claude");
+const claudeDir = process.argv.includes("--user")
+  ? join(homedir(), ".claude")
+  : join(projectDir, ".claude");
 const manifestPath = join(claudeDir, ".hub-sync.json");
 const hubUrl = (process.env.HUB_URL || "https://hub.teqneo.co").replace(/\/+$/, "");
 const token = process.env.HUB_TOKEN?.trim();
