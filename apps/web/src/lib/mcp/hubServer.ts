@@ -17,6 +17,7 @@ import {
   getRunStatus,
   listMemories,
   rememberMemory,
+  setMemoryActive,
   forgetMemory,
   searchMemories,
 } from "@ai-hub/db";
@@ -98,10 +99,14 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         (canRunAgents ? ` ${LARGE_ARG_RULE}` : "") +
         (boundAgent
           ? ` This token also carries the memory of the agent "${boundAgent.name}". ` +
-            "Call hub_memory_list at the start of a conversation to recall what it " +
-            "already knows, and hub_memory_write to record a durable fact — a " +
-            "decision and its reason, a preference, a correction someone made. Do " +
-            "not store transient detail you can look up again with another tool."
+            "Call hub_memory_list at the start of a conversation: it returns the " +
+            "agent's ACTIVE memories — work in flight — and how many inactive ones " +
+            "are set aside. Use hub_memory_write to record a durable fact — a " +
+            "decision and its reason, a preference, a correction someone made. When " +
+            "work is finished or paused, mark its memories inactive with " +
+            "hub_memory_set_active; when it comes back, find them with " +
+            "hub_memory_search and mark them active again. Do not store transient " +
+            "detail you can look up again with another tool."
           : ""),
     },
   );
@@ -250,25 +255,42 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
   if (boundAgent) {
     const agentId = boundAgent.id;
 
+    const memoryRow = (m: { key: string; content: string; updatedAt: string }) => ({
+      key: m.key,
+      content: m.content,
+      updatedAt: m.updatedAt,
+    });
+
     server.registerTool(
       "hub_memory_list",
       {
         description:
-          "List everything you remember, most recently updated first. Call this " +
-          "at the start of a conversation.",
-        inputSchema: {},
+          "List your active memories (work in flight), most recently updated " +
+          "first, plus a count of inactive ones. Call this at the start of a " +
+          "conversation.",
+        inputSchema: {
+          include_inactive: z
+            .boolean()
+            .optional()
+            .describe("Also return inactive memories (finished, paused or background work)."),
+        },
       },
-      async () => {
+      async ({ include_inactive }) => {
         const rows = await listMemories(agentId);
         if (!rows.length) return text("You have no memories yet.");
-        return text(rows.map((m) => ({ key: m.key, content: m.content, updatedAt: m.updatedAt })));
+        const active = rows.filter((m) => m.active).map(memoryRow);
+        const inactive = rows.filter((m) => !m.active).map(memoryRow);
+        if (include_inactive) return text({ active, inactive });
+        return text({ active, inactiveCount: inactive.length });
       },
     );
 
     server.registerTool(
       "hub_memory_search",
       {
-        description: "Search your memories by keyword, matching the key or the content.",
+        description:
+          "Search all your memories, active and inactive, by keyword in the key " +
+          "or the content. Each result says whether it is active.",
         inputSchema: {
           query: z.string().min(1).describe("Keyword or phrase to look for."),
           limit: z
@@ -283,7 +305,7 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
       async ({ query, limit }) => {
         const rows = await searchMemories(agentId, query, limit ?? 20);
         if (!rows.length) return text(`No memories matched "${query}".`);
-        return text(rows.map((m) => ({ key: m.key, content: m.content, updatedAt: m.updatedAt })));
+        return text(rows.map((m) => ({ ...memoryRow(m), active: m.active })));
       },
     );
 
@@ -293,18 +315,48 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         description:
           "Record a durable fact under a short key. Writing an existing key " +
           "replaces it, so correcting yourself does not leave two contradictory " +
-          "memories.",
+          "memories. New and rewritten memories are active unless you say otherwise.",
         inputSchema: {
           key: z
             .string()
             .min(1)
             .describe("A short stable name for this fact, e.g. \"weekly-review-day\"."),
           content: z.string().min(1).describe("The fact, written so it reads on its own later."),
+          active: z
+            .boolean()
+            .optional()
+            .describe("False to file it straight away as inactive (finished or background work). Default true."),
         },
       },
-      async ({ key, content }) => {
-        const saved = await rememberMemory(agentId, key, content);
-        return text({ saved: saved.key, content: saved.content, updatedAt: saved.updatedAt });
+      async ({ key, content, active }) => {
+        const saved = await rememberMemory(agentId, key, content, active ?? true);
+        return text({
+          saved: saved.key,
+          content: saved.content,
+          active: saved.active,
+          updatedAt: saved.updatedAt,
+        });
+      },
+    );
+
+    server.registerTool(
+      "hub_memory_set_active",
+      {
+        description:
+          "Mark a memory active (work in flight) or inactive (finished, paused or " +
+          "background) without changing what it says.",
+        inputSchema: {
+          key: z.string().min(1).describe("The key to move."),
+          active: z.boolean().describe("True for active work, false to set it aside."),
+        },
+      },
+      async ({ key, active }) => {
+        const moved = await setMemoryActive(agentId, key, active);
+        return text(
+          moved
+            ? `Marked "${key}" ${active ? "active" : "inactive"}.`
+            : `Nothing was stored under "${key}".`,
+        );
       },
     );
 

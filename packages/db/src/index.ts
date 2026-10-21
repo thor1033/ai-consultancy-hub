@@ -24,6 +24,7 @@ export {
   deleteAgent,
   listMemories,
   rememberMemory,
+  setMemoryActive,
   forgetMemory,
   searchMemories,
 } from "./agents";

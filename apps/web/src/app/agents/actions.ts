@@ -9,20 +9,21 @@ import {
   deleteAgent,
   listMemories,
   forgetMemory,
+  setMemoryActive,
   type AgentInput,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
 import { MAX_ITERATIONS_CEILING, type ModelId } from "@ai-hub/agent";
-import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
+import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
 import { listSkills, createSkill, updateSkill, deleteSkill, type SkillParameter } from "@ai-hub/db";
-import { sessionPrincipal } from "@/lib/sessionPrincipal";
 import { undeclaredPlaceholders } from "@/lib/skillPrompt";
 import { isUniqueViolation } from "@/lib/apiError";
 
-// Server actions for the agents console. Like the rest of the dashboard these
-// run server-trusted; binding them to a logged-in principal (so the PolicyEngine
-// gates UI writes too) lands with WorkOS SSO in Phase 2.
+// Server actions for the agents console. Each one checks the signed-in user's
+// role: talking to an agent needs agent:run, changing one needs agent:manage.
+
+const NOT_ALLOWED = "You do not have permission to do that.";
 
 const MAX_MESSAGE = 8_000;
 const MAX_TURNS = 40;
@@ -44,6 +45,7 @@ export async function saveAgentAction(
   id: string | null,
   input: AgentInput,
 ): Promise<{ ok: true; slug: string } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
   const name = input.name?.trim();
   if (!name) return { error: "An agent needs a name." };
 
@@ -85,7 +87,8 @@ export async function saveAgentAction(
   }
 }
 
-export async function deleteAgentAction(id: string): Promise<{ ok: boolean }> {
+export async function deleteAgentAction(id: string): Promise<{ ok: boolean; error?: string }> {
+  if (!(await sessionCan("agent:manage"))) return { ok: false, error: NOT_ALLOWED };
   const ok = await deleteAgent(id);
   revalidatePath("/agents");
   return { ok };
@@ -94,17 +97,31 @@ export async function deleteAgentAction(id: string): Promise<{ ok: boolean }> {
 export async function forgetMemoryAction(
   agentId: string,
   key: string,
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; error?: string }> {
+  if (!(await sessionCan("agent:manage"))) return { ok: false, error: NOT_ALLOWED };
   const ok = await forgetMemory(agentId, key);
   revalidatePath("/agents");
   return { ok };
 }
 
+export async function setMemoryActiveAction(
+  agentId: string,
+  key: string,
+  active: boolean,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!(await sessionCan("agent:manage"))) return { ok: false, error: NOT_ALLOWED };
+  const ok = await setMemoryActive(agentId, key, active);
+  revalidatePath("/agents");
+  return { ok };
+}
+
 export async function listAgentsAction() {
+  if (!(await sessionCan("agent:run"))) return [];
   return listAgents();
 }
 
 export async function loadMemoriesAction(agentId: string) {
+  if (!(await sessionCan("agent:run"))) return [];
   return listMemories(agentId);
 }
 
@@ -140,6 +157,8 @@ export async function sendAgentMessageAction(
   slug: string,
   messages: AgentChatMessage[],
 ): Promise<AgentTurnResult> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { error: NOT_ALLOWED };
   const agent = await getAgent(slug);
   if (!agent) return { error: "That agent no longer exists." };
   if (!agent.enabled) return { error: `${agent.name} is disabled.` };
@@ -195,6 +214,7 @@ export async function sendAgentMessageAction(
       effort: effortOf(agent.effort),
       servers,
       agentId: agent.id,
+      principalId: principal.id,
     });
     revalidatePath(`/agents/${agent.slug}`); // memory may have changed
     return {
@@ -221,7 +241,7 @@ export async function sendAgentMessageAction(
 // user, because defining one changes what everybody's editor can invoke.
 
 export async function listSkillsAction(agentId: string) {
-  if (!(await sessionPrincipal())) return { error: "Sign in to manage skills." };
+  if (!(await sessionCan("agent:run"))) return { error: NOT_ALLOWED };
   try {
     return { skills: await listSkills(agentId) };
   } catch (e) {
@@ -238,7 +258,7 @@ export async function saveSkillAction(input: {
   promptTemplate: string;
   parameters: SkillParameter[];
 }) {
-  if (!(await sessionPrincipal())) return { error: "Sign in to manage skills." };
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
 
   const slug = input.slug.trim().toLowerCase();
   // The slug becomes an MCP tool name, so it has to survive that translation
@@ -297,7 +317,7 @@ export async function saveSkillAction(input: {
 }
 
 export async function setSkillEnabledAction(id: string, agentId: string, enabled: boolean) {
-  if (!(await sessionPrincipal())) return { error: "Sign in to manage skills." };
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
   try {
     await updateSkill(id, { enabled });
     return { skills: await listSkills(agentId) };
@@ -307,7 +327,7 @@ export async function setSkillEnabledAction(id: string, agentId: string, enabled
 }
 
 export async function deleteSkillAction(id: string, agentId: string) {
-  if (!(await sessionPrincipal())) return { error: "Sign in to manage skills." };
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
   try {
     await deleteSkill(id);
     return { skills: await listSkills(agentId) };

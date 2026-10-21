@@ -9,8 +9,10 @@ import {
   retrieveChunks,
   syncSource,
 } from "@ai-hub/rag";
-import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
+import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
 import type { KnowledgeSnapshot, RetrievedRow, DocDetail } from "./types";
+
+const NOT_ALLOWED = "You do not have permission to change the knowledge base.";
 
 // Server actions for the knowledge management page.
 //
@@ -34,6 +36,7 @@ export async function addDocumentAction(input: {
   collection?: string;
   content: string;
 }): Promise<KnowledgeSnapshot | { error: string }> {
+  if (!(await sessionCan("document:write"))) return { error: NOT_ALLOWED };
   if (!input.content.trim()) return { error: "Paste some content to ingest." };
   try {
     await ingestDocument({
@@ -71,6 +74,7 @@ export async function getDocumentAction(
 export async function deleteDocumentAction(
   id: string,
 ): Promise<KnowledgeSnapshot | { error: string }> {
+  if (!(await sessionCan("document:write"))) return { error: NOT_ALLOWED };
   try {
     const ok = await deleteDocument(id);
     if (!ok) return { error: "Document not found." };
@@ -84,6 +88,7 @@ export async function syncSourceAction(
   type: string,
   collection?: string,
 ): Promise<{ synced: number; chunks: number; snapshot: KnowledgeSnapshot } | { error: string }> {
+  if (!(await sessionCan("document:write"))) return { error: NOT_ALLOWED };
   try {
     const result = await syncSource(type, { collection: collection?.trim() || undefined });
     return { synced: result.documents, chunks: result.chunks, snapshot: await snapshot() };
