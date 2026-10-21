@@ -337,6 +337,52 @@ try {
     Array.isArray(skillList) && skillList.some((x) => x.slug === skillSlug),
   );
 
+  // --- large arguments: the generic rule, over the real MCP surface --------
+  // The store itself is covered by verify-large-args.mjs (no database). What
+  // only this harness can show is the substitution path: that a handle given
+  // to a real hub_skill_* tool is resolved BEFORE a run exists, so an
+  // incomplete upload is refused by name and costs nothing. The success path
+  // ends in a model call, which is the user's to verify with a key.
+  check(
+    "hub_put_text is offered to a principal who may run agents",
+    (await toolNames(a2.client)).includes("hub_put_text"),
+  );
+  check(
+    "and not to a viewer, who has no skill to pass an argument to",
+    !(await toolNames(v.client)).includes("hub_put_text"),
+  );
+  check(
+    "the skill's description states the rule, so a caller learns it from the tool list",
+    /hub_put_text/.test(skillTool?.description ?? ""),
+  );
+  const opened = await call(a2.client, "hub_put_text", { part: 1, parts: 2, text: "Aurora" });
+  check(
+    "a first part opens a handle and says what is still missing",
+    typeof opened?.handle === "string" && opened.complete === false && JSON.stringify(opened.missing) === JSON.stringify([2]),
+    JSON.stringify(opened),
+  );
+  const [{ n: runsBeforeHandle }] = await sql`
+    select count(*)::int as n from agent_sessions where principal_id = ${ANALYST.id}
+  `;
+  const halfway = await call(a2.client, skillTool.name, { client: `@text:${opened.handle}` });
+  const [{ n: runsAfterHandle }] = await sql`
+    select count(*)::int as n from agent_sessions where principal_id = ${ANALYST.id}
+  `;
+  check(
+    "a skill given an incomplete upload is refused, naming the missing part",
+    typeof halfway === "string" && /part 2 of 2/.test(halfway),
+    String(halfway).slice(0, 90),
+  );
+  check("and no run row is created for it", runsAfterHandle === runsBeforeHandle);
+  const closed = await call(a2.client, "hub_put_text", {
+    handle: opened.handle, part: 2, parts: 2, text: " Holdings",
+  });
+  check(
+    "the last part completes it and hands back the value to pass",
+    closed?.complete === true && closed?.use === `@text:${opened.handle}` && closed?.chars === 15,
+    JSON.stringify(closed),
+  );
+
   // --- a skill cannot be a way round a disabled agent or a role ------------
   const viewerSkill = await runSkillForPrincipal({
     skillRef: skillSlug, args: { client: "Aurora" }, principal: VIEWER,

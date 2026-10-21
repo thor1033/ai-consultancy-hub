@@ -4,6 +4,13 @@ import { authorize, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 import { runAgentForPrincipal, runSkillForPrincipal, runnableAgent } from "@/lib/agentRuns";
 import type { SkillParameter } from "@ai-hub/db";
 import {
+  putTextPart,
+  resolveLargeArgs,
+  LARGE_ARG_PART_CHARS,
+  LARGE_ARG_RULE,
+  HANDLE_PREFIX,
+} from "@/lib/mcp/largeArgs";
+import {
   getAgent,
   listAgents,
   listRunnableSkills,
@@ -73,6 +80,11 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
       ? await getAgent(principal.agentId)
       : null;
 
+  // Resolved once: it gates the agent and skill tools below, and whether the
+  // server's instructions mention the large-argument rule at all — a viewer
+  // who is offered no skill has no argument to split.
+  const canRunAgents = await may("agent:run");
+
   const server = new McpServer(
     { name: "ai-hub", version: "0.1.0" },
     {
@@ -83,6 +95,7 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         "indexed company documents that are not in your training data and not in " +
         "this repository. Prefer it over guessing, and cite the document titles " +
         "it returns." +
+        (canRunAgents ? ` ${LARGE_ARG_RULE}` : "") +
         (boundAgent
           ? ` This token also carries the memory of the agent "${boundAgent.name}". ` +
             "Call hub_memory_list at the start of a conversation to recall what it " +
@@ -323,7 +336,7 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
   // the hub, use it anywhere" true rather than aspirational: creating an agent
   // is all it takes. Clients cache tool lists, so a new agent appears on the
   // next reconnect rather than instantly.
-  if (await may("agent:run")) {
+  if (canRunAgents) {
     const agents = (await listAgents().catch(() => [])).filter((a) => a.enabled);
 
     for (const summary of agents) {
@@ -343,7 +356,11 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
               .describe("What you want the agent to do, in plain language."),
           },
         },
-        async ({ task }) => text(await describeOutcome(summary.slug, task)),
+        async ({ task }) => {
+          const big = resolveLargeArgs(principal.id, { task });
+          if ("error" in big) return text(big.error);
+          return text(await describeOutcome(summary.slug, String(big.args.task)));
+        },
       );
     }
 
@@ -362,7 +379,11 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
           task: z.string().min(1).describe("What you want the agent to do."),
         },
       },
-      async ({ agent, task }) => text(await describeOutcome(agent, task)),
+      async ({ agent, task }) => {
+        const big = resolveLargeArgs(principal.id, { task });
+        if ("error" in big) return text(big.error);
+        return text(await describeOutcome(agent, String(big.args.task)));
+      },
     );
 
     server.registerTool(
@@ -387,6 +408,48 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
       },
     );
 
+    // --- Large arguments ----------------------------------------------------
+    //
+    // A tool call is written out by the calling model, token by token, inside
+    // one turn — so a 90KB transcript cannot arrive as one argument however
+    // much the hub is willing to accept. This is the way round it, and it is
+    // one rule for every string argument of every tool below (see largeArgs.ts
+    // for why equal parts rather than "split in two").
+    server.registerTool(
+      "hub_put_text",
+      {
+        description:
+          "Upload a value too large for one tool call, in parts. " +
+          LARGE_ARG_RULE +
+          " Call once per part with the same handle (omit it on the first call; " +
+          "the result gives you the handle for the rest). Parts may be sent in any " +
+          "order. The result says when the upload is complete; only then pass " +
+          `"${HANDLE_PREFIX}<handle>" to a hub_skill_* or hub_agent_* tool, which ` +
+          "receives the whole text. Uploads are kept for an hour.",
+        inputSchema: {
+          handle: z
+            .string()
+            .optional()
+            .describe("The handle returned by the first call. Omit on the first part."),
+          part: z.number().int().min(1).describe("1-based number of this part."),
+          parts: z.number().int().min(1).describe("How many parts the value was split into."),
+          text: z
+            .string()
+            .describe(`This part's text, at most ${LARGE_ARG_PART_CHARS} characters.`),
+        },
+      },
+      async ({ handle, part, parts, text: body }) => {
+        const result = putTextPart(principal.id, { handle, part, parts, text: body });
+        if ("error" in result) return text(result.error);
+        return text({
+          ...result,
+          ...(result.complete
+            ? { use: `${HANDLE_PREFIX}${result.handle}` }
+            : { next: `Send part${result.missing && result.missing.length > 1 ? "s" : ""} ${result.missing?.join(", ")} with handle "${result.handle}".` }),
+        });
+      },
+    );
+
     // --- Skills: an agent's expertise, as tools with real arguments ---------
     //
     // The step up from hub_agent_*. That tool is "ask the delivery lead
@@ -404,13 +467,19 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
             (skill.description || `Run the "${skill.name}" workflow.`) +
             ` Carried out by the hub's "${skill.agentName}" agent, using its ` +
             "instructions, memory and curated knowledge. Long runs return a run id " +
-            "to poll with hub_run_status.",
+            "to poll with hub_run_status. A string argument longer than " +
+            `${LARGE_ARG_PART_CHARS} characters goes through hub_put_text first; pass ` +
+            "the handle it returns in place of the value.",
           inputSchema: schemaForParameters(skill.parameters ?? []),
         },
         async (args) => {
+          // Handles become their text here, before the template is filled, so
+          // the skill is written as if the value had arrived inline.
+          const big = resolveLargeArgs(principal.id, (args ?? {}) as Record<string, unknown>);
+          if ("error" in big) return text(big.error);
           const outcome = await runSkillForPrincipal({
             skillRef: skill.slug,
-            args: (args ?? {}) as Record<string, unknown>,
+            args: big.args,
             principal,
           });
           return text(renderOutcome(outcome, skill.name));
