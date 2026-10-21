@@ -112,12 +112,12 @@ export function placer() {
     for (let guard = 0; guard < 400; guard++) {
       const i = counters[region]++;
       const angle = i * 2.39996;
-      const r = 34 * Math.sqrt(i + 0.35);
+      const r = 38 * Math.sqrt(i + 0.35);
       const x = Math.round(a.x + Math.cos(angle) * r * 1.35);
       const y = Math.round(a.y + Math.sin(angle) * r * 0.9);
       if (!inBrain(x, y) || inKnowledgeBox(x, y, 14)) continue;
       if (Math.hypot(x - CORE.x, y - CORE.y) < 70) continue;
-      if (taken.some((t) => Math.hypot(t.x - x, t.y - y) < 26)) continue;
+      if (taken.some((t) => Math.hypot(t.x - x, t.y - y) < 32)) continue;
       taken.push({ x, y });
       return { x, y };
     }
@@ -125,15 +125,93 @@ export function placer() {
   };
 }
 
-/** Untagged memories wait in rings around the agent until someone files them. */
-export function ringSlot(i: number, n: number): { x: number; y: number } {
-  const perRing = 10;
-  const ring = Math.floor(i / perRing);
-  const inRing = Math.min(perRing, n - ring * perRing);
-  const a = -Math.PI / 2 + ((i % perRing) / Math.max(inRing, 1)) * Math.PI * 2;
-  const rx = 150 + ring * 46;
-  const ry = 104 + ring * 32;
-  return { x: Math.round(CORE.x + Math.cos(a) * rx), y: Math.round(CORE.y + Math.sin(a) * ry) };
+// Where an untagged memory most likely belongs, from the words in it. Only a
+// default for the map: a region a person chose always wins, and the page says
+// which memories were filed this way.
+const REGION_WORDS: Record<Region, RegExp> = {
+  people: /\b(people|person|founders?|owners?|team|speakers?|ceo|cto|cfo|sponsors?|stakeholders?|who|names?|labels?)\b/g,
+  rules: /\b(cannot|can't|never|must|only|rules?|policy|always|allowed|forbidden|don't|read-only|write-only|budget|limits?|scoped?)\b/g,
+  routines: /\b(how|process|weekly|daily|deploy|checks?|reviews?|appl(?:y|ied)|schedules?|cadence|routines?|workflows?|steps?|runs?)\b/g,
+  projects: /\b(projects?|boards?|milestones?|tasks?|scope|phases?|clients?|engagements?|deliver(?:y|ables?)?|plans?)\b/g,
+};
+
+export function inferRegion(key: string, content: string): Region {
+  const keyText = key.replace(/[-_]+/g, " ").toLowerCase();
+  const body = content.toLowerCase();
+  let best: Region = "projects";
+  let bestScore = 0;
+  for (const region of ["people", "rules", "routines", "projects"] as Region[]) {
+    const re = REGION_WORDS[region];
+    const score = (keyText.match(re)?.length ?? 0) * 3 + (body.match(re)?.length ?? 0);
+    if (score > bestScore) {
+      best = region;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+export interface LabelRequest {
+  id: string;
+  x: number;
+  y: number;
+  text: string;
+  /** Lower draws first and so claims the best spot. */
+  priority: number;
+}
+
+export interface PlacedLabel {
+  x: number;
+  y: number;
+  anchor: "start" | "middle" | "end";
+}
+
+interface Box {
+  x1: number;
+  y1: number;
+  x2: number;
+  y2: number;
+}
+
+const CHAR_W = 7.3; // 12px monospace
+const overlaps = (a: Box, b: Box) => a.x1 < b.x2 && b.x1 < a.x2 && a.y1 < b.y2 && b.y1 < a.y2;
+
+/**
+ * Gives each label the first of right / left / above / below that collides with
+ * no other label, node, the knowledge box or the agent's own label. A label
+ * with nowhere to go is left out — its point stays tappable, and selecting it
+ * gives it the first claim on the space.
+ */
+export function layoutLabels(requests: LabelRequest[], nodes: { x: number; y: number }[]): Map<string, PlacedLabel> {
+  const taken: Box[] = [
+    { x1: KNOWLEDGE_BOX.x - 4, y1: KNOWLEDGE_BOX.y - 4, x2: KNOWLEDGE_BOX.x + KNOWLEDGE_BOX.w + 4, y2: KNOWLEDGE_BOX.y + KNOWLEDGE_BOX.h + 4 },
+    { x1: CORE.x - 60, y1: CORE.y - 14, x2: CORE.x + 60, y2: CORE.y + 40 },
+    ...nodes.map((n) => ({ x1: n.x - 8, y1: n.y - 8, x2: n.x + 8, y2: n.y + 8 })),
+    ...Object.values(REGIONS).map((g) => {
+      const w = g.label.length * 10.5;
+      const x1 = g.anchor === "start" ? g.lx : g.lx - w;
+      return { x1: x1 - 4, y1: g.ly - 14, x2: x1 + w + 4, y2: g.ly + 4 };
+    }),
+  ];
+  const placed = new Map<string, PlacedLabel>();
+  for (const r of [...requests].sort((a, b) => a.priority - b.priority)) {
+    const w = r.text.length * CHAR_W;
+    const options: (PlacedLabel & { box: Box })[] = [
+      { x: r.x + 14, y: r.y + 4, anchor: "start", box: { x1: r.x + 12, y1: r.y - 9, x2: r.x + 16 + w, y2: r.y + 7 } },
+      { x: r.x - 14, y: r.y + 4, anchor: "end", box: { x1: r.x - 16 - w, y1: r.y - 9, x2: r.x - 12, y2: r.y + 7 } },
+      { x: r.x, y: r.y - 13, anchor: "middle", box: { x1: r.x - w / 2 - 2, y1: r.y - 26, x2: r.x + w / 2 + 2, y2: r.y - 9 } },
+      { x: r.x, y: r.y + 23, anchor: "middle", box: { x1: r.x - w / 2 - 2, y1: r.y + 10, x2: r.x + w / 2 + 2, y2: r.y + 27 } },
+    ];
+    // Facing away from the agent reads better, so try that side first.
+    if (r.x < CORE.x) options.splice(0, 2, options[1], options[0]);
+    const fit = options.find(
+      (o) => o.box.x1 > 44 && o.box.x2 < 976 && !taken.some((t) => overlaps(t, o.box) && !(t.x1 === r.x - 8 && t.y1 === r.y - 8)),
+    );
+    if (!fit) continue;
+    taken.push(fit.box);
+    placed.set(r.id, { x: fit.x, y: fit.y, anchor: fit.anchor });
+  }
+  return placed;
 }
 
 export const CYCLE_S = 7;
