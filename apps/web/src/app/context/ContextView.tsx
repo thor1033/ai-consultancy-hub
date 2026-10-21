@@ -11,7 +11,8 @@ import {
   cascades,
   network,
   placer,
-  ringSlot,
+  inferRegion,
+  layoutLabels,
   stipple,
   type Firing,
   type Region,
@@ -103,9 +104,8 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
     const items: Item[] = [];
 
     const memories = snapshot.memories.filter((m) => inScope(m.agentId));
-    const untagged = memories.filter((m) => !m.region);
     for (const m of memories) {
-      const pos = m.region ? place(m.region) : ringSlot(untagged.indexOf(m), untagged.length);
+      const pos = place(m.region ?? inferRegion(m.key, m.content));
       items.push({
         id: `mem:${m.agentId}:${m.key}`,
         kind: "memory",
@@ -163,10 +163,23 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
     });
 
     const loaded = memories.filter((m) => m.active).length;
-    return { items, signals, spikes, ink, loaded, aside: memories.length - loaded, untagged: untagged.length };
+    return { items, signals, spikes, ink, loaded, aside: memories.length - loaded, autoFiled: memories.filter((m) => !m.region).length };
   }, [filter, snapshot, points, net]);
 
-  const showAllLabels = view.items.length <= 18;
+  const labels = useMemo(
+    () =>
+      layoutLabels(
+        view.items.map((i, n) => ({
+          id: i.id,
+          x: i.x,
+          y: i.y,
+          text: trim(i.label, 26),
+          priority: i.id === selected ? -1 : i.kind === "memory" ? 10 + n : n,
+        })),
+        view.items,
+      ),
+    [view.items, selected],
+  );
 
   const detail: Detail | null = useMemo(() => {
     if (!selected) return null;
@@ -180,7 +193,7 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
         kindLabel: m.active ? "Memory · loaded" : "Memory · set aside",
         color: m.active ? KINDS.memory.color : "var(--muted)",
         title: m.key,
-        tags: [agentName(m.agentId), m.region ? REGION_NAME[m.region] : "Untagged"],
+        tags: [agentName(m.agentId), m.region ? REGION_NAME[m.region] : `${REGION_NAME[inferRegion(m.key, m.content)]} · auto-filed`],
         body: m.content,
         facts: [
           { k: "Updated", v: rel(m.updatedAt, snapshot.takenAt) },
@@ -289,8 +302,8 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
     const untagged = snapshot.memories.filter((m) => !m.region).length;
     if (untagged) {
       out.push({
-        title: `${untagged} ${untagged === 1 ? "memory is" : "memories are"} untagged.`,
-        detail: "They wait in the ring around the agent — tap one to file it.",
+        title: `${untagged} ${untagged === 1 ? "memory was" : "memories were"} filed automatically.`,
+        detail: "Placed by what they say — tap one to confirm or move it.",
         color: "var(--faint)",
       });
     }
@@ -517,8 +530,7 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
                 i.kind === "memory" && !i.on ? "var(--faint)" : k.shape === "outline" ? k.color : "none";
               const strokeWidth = k.shape === "outline" ? 3 : 1.5;
               const opacity = i.kind !== "memory" && !i.on ? 0.4 : 1;
-              const labelLeft = i.x < CORE.x;
-              const showLabel = showAllLabels || isSel || i.kind !== "memory";
+              const label = labels.get(i.id);
               const shapeStyle = { fill, stroke, strokeWidth, opacity, cursor: "pointer" };
               return (
                 <g
@@ -552,15 +564,15 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
                   {isSel && (
                     <rect x={i.x - 12} y={i.y - 12} width={24} height={24} style={{ fill: "none", stroke: "var(--brand)", strokeWidth: 1.5 }} />
                   )}
-                  {showLabel && (
+                  {label && (
                     <text
-                      x={i.x + (labelLeft ? -16 : 16)}
-                      y={i.y + 4}
-                      textAnchor={labelLeft ? "end" : "start"}
+                      x={label.x}
+                      y={label.y}
+                      textAnchor={label.anchor}
                       className="mono"
                       style={{ fill: i.on ? "var(--text)" : "var(--muted)", fontSize: 12, cursor: "pointer" }}
                     >
-                      {trim(i.label, 30)}
+                      {trim(i.label, 26)}
                     </text>
                   )}
                 </g>
@@ -582,7 +594,7 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
 
           <div className="flex flex-wrap gap-x-5 gap-y-1.5 text-[0.6875rem] font-medium uppercase tracking-[0.18em] text-[var(--muted)]">
             <span>Tap any point to read it</span>
-            {view.untagged > 0 && <span>Ring around the agent: {view.untagged} untagged</span>}
+            {view.autoFiled > 0 && <span>{view.autoFiled} filed automatically — tap one to confirm or move it</span>}
           </div>
         </section>
 

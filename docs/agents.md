@@ -67,8 +67,9 @@ The Memory tab groups memories the same way and can move them by hand.
 `people`, `rules` or `routines`; null when untagged). It only decides where a
 memory sits on the `/context` map, which draws every agent's live context as
 one brain — memories, skills, live sources, standing briefs and people — and
-fires a cascade from each loaded item into the agent. Untagged memories wait in
-a ring around the agent until someone files them from that page. Filing is not
+fires a cascade from each loaded item into the agent. An untagged memory is
+filed automatically by the words in its key and content (shown as
+"auto-filed"), until someone confirms or moves it from that page. Filing is not
 an edit, so it leaves `updated_at` alone.
 
 **Every memory is visible and deletable** from the agent's Memory tab. An agent
