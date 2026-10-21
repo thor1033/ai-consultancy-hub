@@ -1,22 +1,25 @@
-import Link from"next/link";
-import { countMcpTools, listRegisteredServers } from"@/lib/mcpCatalog";
-import { PageHeader } from"@/components/PageHeader";
+import Link from "next/link";
+import { Suspense } from "react";
+import { countMcpTools, listRegisteredServers } from "@/lib/mcpCatalog";
+import { PageHeader } from "@/components/PageHeader";
 
-export const dynamic ="force-dynamic";
+export const dynamic = "force-dynamic";
 
 // MCP explorer overview: every registered tool server, its status, and which
 // Skills use it. Click through for the live tool list and details.
+//
+// The cards come from the registry (one database read) and paint at once. The
+// tool count on each card needs a live connection to that server, so it
+// streams in behind a Suspense boundary: a server that is slow or down costs
+// its own count, not the page. This page used to await every connection before
+// sending anything, which is why the sidebar link seemed to need two clicks.
 export default async function McpOverviewPage() {
   let servers: Awaited<ReturnType<typeof listRegisteredServers>> = [];
-  const toolCounts = new Map<string, number | null>();
   let error: string | null = null;
   try {
     servers = await listRegisteredServers();
-    // Introspect every server's tool count in parallel; failures show"—".
-    const counts = await Promise.all(servers.map((s) => countMcpTools(s.name)));
-    servers.forEach((s, i) => toolCounts.set(s.name, counts[i]));
   } catch (e) {
-    error = e instanceof Error ? e.message :"Failed to load MCP servers.";
+    error = e instanceof Error ? e.message : "Failed to load MCP servers.";
   }
 
   return (
@@ -37,42 +40,48 @@ export default async function McpOverviewPage() {
         </div>
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-          {servers.map((s) => {
-            const count = toolCounts.get(s.name);
-            return (
-              <Link key={s.name} href={`/mcp/${s.name}`} className="panel panel-hover group p-5">
-                <div className="flex items-center justify-between">
-                  <h3 className="font-medium">{s.label || s.name}</h3>
-                  <span
-                    className="dot"
-                    style={{
-                      color: s.enabled ?"var(--positive)" :"var(--muted)",
-                      background: s.enabled ?"var(--positive)" :"var(--muted)",
-                    }}
-                  />
-                </div>
-                <div className="mono mt-0.5 text-xs text-[var(--muted)]">{s.name}</div>
-                <p className="mt-2 line-clamp-2 text-sm text-[var(--muted)]">
-                  {s.description ||"No description."}
-                </p>
-                <div className="mt-4 flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="mono border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--text-soft)]">
-                      {count == null ?"—" : count} tool{count === 1 ?"" :"s"}
-                    </span>
-                    <span className="text-[var(--muted)]">
-                      {s.enabled ?"enabled" :"disabled"}
-                    </span>
-                  </div>
-                  <span className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-[var(--brand-ink)]">
-                    Inspect →
+          {servers.map((s) => (
+            <Link key={s.name} href={`/mcp/${s.name}`} className="panel panel-hover group p-5">
+              <div className="flex items-center justify-between">
+                <h3 className="font-medium">{s.label || s.name}</h3>
+                <span
+                  className="dot"
+                  style={{ background: s.enabled ? "var(--ai)" : "var(--faint)" }}
+                />
+              </div>
+              <div className="mono mt-0.5 text-xs text-[var(--muted)]">{s.name}</div>
+              <p className="mt-2 line-clamp-2 text-sm text-[var(--muted)]">
+                {s.description || "No description."}
+              </p>
+              <div className="mt-4 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2">
+                  <span className="mono border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--text-soft)]">
+                    <Suspense fallback={<>… tools</>}>
+                      <ToolCount name={s.name} />
+                    </Suspense>
+                  </span>
+                  <span className="text-[var(--muted)]">
+                    {s.enabled ? "enabled" : "disabled"}
                   </span>
                 </div>
-              </Link>
-            );
-          })}
+                <span className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-[var(--brand-ink)]">
+                  Inspect →
+                </span>
+              </div>
+            </Link>
+          ))}
         </div>
       )}
     </main>
+  );
+}
+
+/** Connects, counts, closes — within the introspection deadline. "—" if it could not be reached. */
+async function ToolCount({ name }: { name: string }) {
+  const count = await countMcpTools(name);
+  return (
+    <>
+      {count == null ? "—" : count} tool{count === 1 ? "" : "s"}
+    </>
   );
 }
