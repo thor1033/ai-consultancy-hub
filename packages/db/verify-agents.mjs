@@ -46,6 +46,7 @@ const {
   rememberMemory, listMemories, searchMemories, forgetMemory, setMemoryActive, setMemoryRegion,
 } = await import("./src/agents.ts");
 const { contextSnapshot } = await import("./src/context.ts");
+const { agentRoster, listAgentRuns } = await import("./src/agents.ts");
 const { getSql } = await import("./src/client.ts");
 
 const slug = `verify-agents-${Date.now()}`;
@@ -182,6 +183,27 @@ try {
   check("the snapshot lists the agent with its brief", mine?.brief === "Be brief.", mine?.brief);
   check("the snapshot's activity is newest first and capped",
     snap.activity.length <= 10 && snap.activity.every((e, i, all) => i === 0 || all[i - 1].at >= e.at));
+  // ── roster and runs ───────────────────────────────────────────────────────
+  await getSql()`
+    insert into agent_sessions (prompt, status, agent_id, started_at, cost_usd)
+    values ('verify run ok', 'succeeded', ${agent.id}, now() - interval '1 hour', 0.25),
+           ('verify run failed', 'failed', ${agent.id}, now() - interval '2 hours', 0.05),
+           ('verify run old', 'succeeded', ${agent.id}, now() - interval '20 days', 9)
+  `;
+  const row = (await agentRoster()).find((r) => r.id === agent.id);
+  check("the roster lists the agent", Boolean(row));
+  check("the roster counts runs and failures in the last 7 days only",
+    row?.runs7d === 2 && row?.failed7d === 1, `${row?.runs7d} runs, ${row?.failed7d} failed`);
+  check("the roster sums 7-day spend as a number",
+    typeof row?.spend7d === "number" && Math.abs(row.spend7d - 0.3) < 1e-9, String(row?.spend7d));
+  check("runsByDay has 7 days and today's runs",
+    row?.runsByDay?.length === 7 && row.runsByDay[6] >= 1, JSON.stringify(row?.runsByDay));
+  check("the roster's last run is the newest", row?.lastRunStatus === "succeeded");
+  const runs = await listAgentRuns(agent.id, 2);
+  check("listAgentRuns is newest first and limited",
+    runs.length === 2 && runs[0].prompt === "verify run ok" && runs[1].status === "failed");
+  check("run cost comes back as a number", typeof runs[0].costUsd === "number");
+  await getSql()`delete from agent_sessions where agent_id = ${agent.id}`;
   check("knowledge counts are numbers",
     Number.isInteger(snap.knowledge.documents) && Number.isInteger(snap.knowledge.collections));
 

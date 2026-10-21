@@ -28,10 +28,12 @@ export {
   setMemoryRegion,
   MEMORY_REGIONS,
   listAgentKnowledgeScopes,
+  agentRoster,
+  listAgentRuns,
   forgetMemory,
   searchMemories,
 } from "./agents";
-export type { AgentSummary, Agent, AgentMemory, AgentInput, MemoryRegion } from "./agents";
+export type { AgentSummary, Agent, AgentMemory, AgentInput, MemoryRegion, AgentRosterRow, AgentRun } from "./agents";
 export { contextSnapshot } from "./context";
 export type {
   ContextSnapshot,
