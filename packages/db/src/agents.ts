@@ -201,6 +201,17 @@ export async function setMemoryActive(
   return rows.count > 0;
 }
 
+/** Which agents retrieve from which knowledge collection — for the Knowledge page. */
+export async function listAgentKnowledgeScopes(): Promise<{ name: string; slug: string; collection: string }[]> {
+  const sql = getSql();
+  return sql<{ name: string; slug: string; collection: string }[]>`
+    select name, slug, knowledge_collection as collection
+      from agents
+     where knowledge_collection is not null and knowledge_collection <> ''
+     order by name
+  `;
+}
+
 export const MEMORY_REGIONS = ["projects", "people", "rules", "routines"] as const;
 export type MemoryRegion = (typeof MEMORY_REGIONS)[number];
 

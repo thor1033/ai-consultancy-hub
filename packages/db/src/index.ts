@@ -27,6 +27,7 @@ export {
   setMemoryActive,
   setMemoryRegion,
   MEMORY_REGIONS,
+  listAgentKnowledgeScopes,
   forgetMemory,
   searchMemories,
 } from "./agents";
