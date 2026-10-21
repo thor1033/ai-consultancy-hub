@@ -1,11 +1,11 @@
-import Link from "next/link";
-import { listAgents, listSessions, type SessionSummary } from "@ai-hub/db";
-import { listDocuments, embedderStatus } from "@ai-hub/rag";
-import { listRegisteredServers } from "@/lib/mcpCatalog";
-import { PageHeader } from "@/components/PageHeader";
-import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
+import Link from"next/link";
+import { listAgents, listSessions, type SessionSummary } from"@ai-hub/db";
+import { listDocuments, embedderStatus } from"@ai-hub/rag";
+import { listRegisteredServers } from"@/lib/mcpCatalog";
+import { PageHeader } from"@/components/PageHeader";
+import { sessionKnowledgeAccess } from"@/lib/sessionPrincipal";
 
-export const dynamic = "force-dynamic";
+export const dynamic ="force-dynamic";
 
 // The overview. Every panel here answers one question about the running hub —
 // who is working, what it knows, what it can reach — rather than reporting a
@@ -13,11 +13,11 @@ export const dynamic = "force-dynamic";
 
 function relative(iso: string): string {
   const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
-  if (mins < 1) return "just now";
-  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1) return"just now";
+  if (mins < 60) return`${mins}m ago`;
   const hours = Math.round(mins / 60);
-  if (hours < 24) return `${hours}h ago`;
-  return `${Math.round(hours / 24)}d ago`;
+  if (hours < 24) return`${hours}h ago`;
+  return`${Math.round(hours / 24)}d ago`;
 }
 
 export default async function OverviewPage() {
@@ -43,13 +43,13 @@ export default async function OverviewPage() {
       />
 
       {!embedder.production && (
-        <div className="panel mb-6 border-l-2 border-l-[var(--danger)] p-4">
+        <div className="panel mb-6 notice-danger p-4">
           <p className="text-sm text-[var(--text)]">
             Embeddings are running on <code>{embedder.name}</code>, the development
             fallback.
           </p>
           <p className="mt-1 text-sm text-[var(--muted)]">
-            Retrieval will return confident nonsense rather than failing. Set{" "}
+            Retrieval will return confident nonsense rather than failing. Set{""}
             <code>VOYAGE_API_KEY</code> and re-index to fix it.
           </p>
         </div>
@@ -60,7 +60,7 @@ export default async function OverviewPage() {
         <Stat
           label="Documents indexed"
           value={String(docs.length)}
-          note={`${chunks} chunk${chunks === 1 ? "" : "s"}`}
+          note={`${chunks} chunk${chunks === 1 ?"" :"s"}`}
           href="/knowledge"
         />
         <Stat
@@ -91,18 +91,18 @@ export default async function OverviewPage() {
                   <span
                     className="dot"
                     style={{
-                      color: a.enabled ? "var(--positive)" : "var(--muted)",
-                      background: a.enabled ? "var(--positive)" : "var(--muted)",
+                      color: a.enabled ?"var(--positive)" :"var(--muted)",
+                      background: a.enabled ?"var(--positive)" :"var(--muted)",
                     }}
                   />
                 </div>
                 <div className="mono mt-0.5 text-xs text-[var(--muted)]">{a.slug}</div>
                 <p className="mt-2 line-clamp-2 text-sm text-[var(--muted)]">
-                  {a.description || "No description."}
+                  {a.description ||"No description."}
                 </p>
                 <div className="mt-4 flex items-center justify-between text-xs">
-                  <span className="mono rounded border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--brand-ink)]">
-                    {a.memoryCount} memor{a.memoryCount === 1 ? "y" : "ies"}
+                  <span className="mono border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--text-soft)]">
+                    {a.memoryCount} memor{a.memoryCount === 1 ?"y" :"ies"}
                   </span>
                   <span className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-[var(--brand-ink)]">
                     Open →
@@ -129,9 +129,9 @@ export default async function OverviewPage() {
                   </span>
                 </div>
                 <div className="mono mt-1 text-xs text-[var(--muted)]">
-                  {s.model ?? "—"}
-                  {s.latencyMs != null && ` · ${(s.latencyMs / 1000).toFixed(1)}s`}
-                  {s.toolsUsed.length > 0 && ` · ${s.toolsUsed.join(", ")}`}
+                  {s.model ??"—"}
+                  {s.latencyMs != null &&` · ${(s.latencyMs / 1000).toFixed(1)}s`}
+                  {s.toolsUsed.length > 0 &&` · ${s.toolsUsed.join(",")}`}
                 </div>
               </div>
             ))}
@@ -155,7 +155,7 @@ function Stat({
 }) {
   return (
     <Link href={href} className="panel panel-hover p-5">
-      <div className="text-xs uppercase tracking-[0.14em] text-[var(--muted)]">{label}</div>
+      <div className="text-xs uppercase tracking-[0.3em] text-[var(--muted)]">{label}</div>
       <div className="mt-1 text-2xl font-semibold text-[var(--text)]">{value}</div>
       {note && <div className="mono mt-0.5 text-xs text-[var(--muted)]">{note}</div>}
     </Link>

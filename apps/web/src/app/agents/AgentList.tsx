@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
-import type { AgentSummary } from "@ai-hub/db";
-import { saveAgentAction } from "./actions";
+import { useState, useTransition } from"react";
+import Link from"next/link";
+import { useRouter } from"next/navigation";
+import type { AgentSummary } from"@ai-hub/db";
+import { saveAgentAction } from"./actions";
 
 // The list of standing agents, plus the form that creates one. Creation is
 // inline rather than on its own route: an agent is a handful of fields, and the
@@ -51,7 +51,7 @@ export function AgentList({
     <div className="space-y-5">
       <div className="flex justify-end">
         <button className="btn" onClick={() => setOpen((o) => !o)}>
-          {open ? "Cancel" : "New agent"}
+          {open ?"Cancel" :"New agent"}
         </button>
       </div>
 
@@ -96,7 +96,7 @@ export function AgentList({
                   key={s}
                   type="button"
                   onClick={() => toggle(s)}
-                  className={`chip ${picked.includes(s) ? "text-[var(--brand-ink)]" : "text-[var(--muted)]"}`}
+                  className={`chip ${picked.includes(s) ?"text-[var(--brand-ink)]" :"text-[var(--muted)]"}`}
                 >
                   {s}
                 </button>
@@ -110,7 +110,7 @@ export function AgentList({
           {error && <p className="text-sm text-[var(--warning)]">{error}</p>}
 
           <button className="btn-brand" onClick={save} disabled={pending || !name.trim()}>
-            {pending ? "Creating…" : "Create agent"}
+            {pending ?"Creating…" :"Create agent"}
           </button>
         </div>
       )}
@@ -128,18 +128,18 @@ export function AgentList({
                 <span
                   className="dot"
                   style={{
-                    color: a.enabled ? "var(--positive)" : "var(--muted)",
-                    background: a.enabled ? "var(--positive)" : "var(--muted)",
+                    color: a.enabled ?"var(--positive)" :"var(--muted)",
+                    background: a.enabled ?"var(--positive)" :"var(--muted)",
                   }}
                 />
               </div>
               <div className="mono mt-0.5 text-xs text-[var(--muted)]">{a.slug}</div>
               <p className="mt-2 line-clamp-2 text-sm text-[var(--muted)]">
-                {a.description || "No description."}
+                {a.description ||"No description."}
               </p>
               <div className="mt-4 flex items-center justify-between text-xs">
-                <span className="mono rounded border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--brand-ink)]">
-                  {a.memoryCount} {a.memoryCount === 1 ? "memory" : "memories"}
+                <span className="mono border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--text-soft)]">
+                  {a.memoryCount} {a.memoryCount === 1 ?"memory" :"memories"}
                 </span>
                 <span className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-[var(--brand-ink)]">
                   Open →

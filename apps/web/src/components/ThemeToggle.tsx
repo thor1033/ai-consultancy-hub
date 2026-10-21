@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useTheme } from "next-themes";
+import { useEffect, useState } from"react";
+import { useTheme } from"next-themes";
 
 // A compact sun/moon switch. Renders a neutral placeholder until mounted so the
 // server/client markup matches (next-themes resolves the theme on the client).
@@ -10,14 +10,14 @@ export function ThemeToggle() {
   const [mounted, setMounted] = useState(false);
   useEffect(() => setMounted(true), []);
 
-  const isDark = resolvedTheme === "dark";
+  const isDark = resolvedTheme ==="dark";
 
   return (
     <button
       type="button"
       aria-label="Toggle color theme"
-      onClick={() => setTheme(isDark ? "light" : "dark")}
-      className="chip !px-2.5 !py-2 glass-hover"
+      onClick={() => setTheme(isDark ?"light" :"dark")}
+      className="chip !px-2.5 !py-2"
     >
       {!mounted ? (
         <span className="block h-4 w-4" />

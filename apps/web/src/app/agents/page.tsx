@@ -1,9 +1,9 @@
-import { listAgents } from "@ai-hub/db";
-import { PageHeader } from "@/components/PageHeader";
-import { knownServers } from "@/lib/runSession";
-import { AgentList } from "./AgentList";
+import { listAgents } from"@ai-hub/db";
+import { PageHeader } from"@/components/PageHeader";
+import { knownServers } from"@/lib/runSession";
+import { AgentList } from"./AgentList";
 
-export const dynamic = "force-dynamic";
+export const dynamic ="force-dynamic";
 
 // The agents console: every standing agent in this hub.
 //
@@ -16,7 +16,7 @@ export default async function AgentsPage() {
   try {
     agents = await listAgents();
   } catch (e) {
-    error = e instanceof Error ? e.message : "Failed to load agents.";
+    error = e instanceof Error ? e.message :"Failed to load agents.";
   }
 
   return (
@@ -27,7 +27,7 @@ export default async function AgentsPage() {
         subtitle="Named workers with their own instructions, tools and memory. Unlike a Skill, an agent persists between conversations and remembers what it learns."
       />
       {error ? (
-        <div className="panel border-l-2 border-l-[var(--warning)] p-4 text-sm text-[var(--warning)]">
+        <div className="panel notice-warning p-4 text-sm text-[var(--warning)]">
           {error}
         </div>
       ) : (

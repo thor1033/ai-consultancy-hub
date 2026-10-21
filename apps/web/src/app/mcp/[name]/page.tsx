@@ -1,10 +1,10 @@
-import Link from "next/link";
-import { notFound } from "next/navigation";
-import { describeMcpServer, listRegisteredServers, type McpToolInfo } from "@/lib/mcpCatalog";
-import { PageHeader } from "@/components/PageHeader";
+import Link from"next/link";
+import { notFound } from"next/navigation";
+import { describeMcpServer, listRegisteredServers, type McpToolInfo } from"@/lib/mcpCatalog";
+import { PageHeader } from"@/components/PageHeader";
 
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+export const dynamic ="force-dynamic";
+export const runtime ="nodejs";
 
 export default async function McpDetailPage({
   params,
@@ -23,7 +23,7 @@ export default async function McpDetailPage({
   try {
     tools = await describeMcpServer(name);
   } catch (e) {
-    toolsError = e instanceof Error ? e.message : "Could not connect to this server.";
+    toolsError = e instanceof Error ? e.message :"Could not connect to this server.";
   }
 
   return (
@@ -38,13 +38,13 @@ export default async function McpDetailPage({
         subtitle={server.description || undefined}
         actions={
           <span
-            className={`chip ${server.enabled ? "text-[var(--positive)]" : "text-[var(--muted)]"}`}
+            className={`chip ${server.enabled ?"text-[var(--positive)]" :"text-[var(--muted)]"}`}
           >
             <span
               className="dot"
-              style={{ background: server.enabled ? "var(--positive)" : "var(--muted)", color: server.enabled ? "var(--positive)" : "var(--muted)" }}
+              style={{ background: server.enabled ?"var(--positive)" :"var(--muted)", color: server.enabled ?"var(--positive)" :"var(--muted)" }}
             />
-            {server.enabled ? "Enabled" : "Disabled"}
+            {server.enabled ?"Enabled" :"Disabled"}
           </span>
         }
       />
@@ -52,10 +52,10 @@ export default async function McpDetailPage({
       {/* Facts */}
       <div className="grid gap-3 sm:grid-cols-3">
         <Fact label="Server id" value={server.name} mono />
-        <Fact label="Tools" value={toolsError ? "—" : String(tools.length)} />
+        <Fact label="Tools" value={toolsError ?"—" : String(tools.length)} />
         <Fact
           label="Status"
-          value={server.enabled ? "Enabled" : "Disabled"}
+          value={server.enabled ?"Enabled" :"Disabled"}
         />
       </div>
 
@@ -66,7 +66,7 @@ export default async function McpDetailPage({
         </h2>
 
         {toolsError ? (
-          <div className="panel border-l-2 border-l-[var(--warning)] p-4 text-sm text-[var(--warning)]">
+          <div className="panel notice-warning p-4 text-sm text-[var(--warning)]">
             Couldn&apos;t introspect this server: {toolsError}
           </div>
         ) : tools.length === 0 ? (
@@ -78,11 +78,11 @@ export default async function McpDetailPage({
             {tools.map((t) => (
               <div key={t.name} className="panel p-5">
                 <div className="flex flex-wrap items-center gap-2">
-                  <code className="mono rounded bg-[var(--brand-soft)] px-2 py-0.5 text-sm text-[var(--brand-ink)]">
+                  <code className="mono bg-[var(--brand-soft)] px-2 py-0.5 text-sm text-[var(--text-soft)]">
                     {t.name}
                   </code>
                   <span className="text-xs text-[var(--muted)]">
-                    {t.params.length} param{t.params.length === 1 ? "" : "s"}
+                    {t.params.length} param{t.params.length === 1 ?"" :"s"}
                   </span>
                 </div>
                 {t.description && (
@@ -93,9 +93,9 @@ export default async function McpDetailPage({
                     {t.params.map((p) => (
                       <div key={p.name} className="inset flex flex-wrap items-baseline gap-x-2 gap-y-0.5 px-3 py-2">
                         <code className="mono text-sm text-[var(--text)]">{p.name}</code>
-                        <span className="mono text-[0.7rem] text-[var(--brand-ink)]">{p.type}</span>
+                        <span className="mono text-[0.7rem] text-[var(--text-soft)]">{p.type}</span>
                         {p.required && (
-                          <span className="text-[0.65rem] uppercase tracking-wide text-[var(--warning)]">
+                          <span className="text-[0.65rem] uppercase tracking-[0.18em] text-[var(--warning)]">
                             required
                           </span>
                         )}
@@ -119,7 +119,7 @@ function Fact({ label, value, mono }: { label: string; value: string; mono?: boo
   return (
     <div className="panel p-4">
       <div className="text-xs text-[var(--muted)]">{label}</div>
-      <div className={`mt-1 text-sm font-medium text-[var(--text)] ${mono ? "mono" : ""}`}>
+      <div className={`mt-1 text-sm font-medium text-[var(--text)] ${mono ?"mono" :""}`}>
         {value}
       </div>
     </div>

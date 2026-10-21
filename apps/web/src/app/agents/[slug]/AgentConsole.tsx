@@ -1,21 +1,21 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
-import type { Agent, AgentMemory } from "@ai-hub/db";
+import { useState, useTransition } from"react";
+import { useRouter } from"next/navigation";
+import type { Agent, AgentMemory } from"@ai-hub/db";
 import {
   sendAgentMessageAction,
   saveAgentAction,
   deleteAgentAction,
   forgetMemoryAction,
   type AgentChatMessage,
-} from "../actions";
+} from"../actions";
 
 const MODELS = [
-  { id: "", label: "Default" },
-  { id: "claude-opus-4-8", label: "Opus" },
-  { id: "claude-sonnet-4-6", label: "Sonnet" },
-  { id: "claude-haiku-4-5", label: "Haiku" },
+  { id:"", label:"Default" },
+  { id:"claude-opus-4-8", label:"Opus" },
+  { id:"claude-sonnet-4-6", label:"Sonnet" },
+  { id:"claude-haiku-4-5", label:"Haiku" },
 ];
 
 interface Meta {
@@ -29,7 +29,7 @@ interface Meta {
 
 const serverNames = (agent: Agent): string[] =>
   (agent.mcpServers ?? [])
-    .map((e) => (typeof e === "string" ? e : String((e as { name?: unknown }).name ?? "")))
+    .map((e) => (typeof e ==="string" ? e : String((e as { name?: unknown }).name ??"")))
     .filter(Boolean);
 
 export function AgentConsole({
@@ -50,7 +50,7 @@ export function AgentConsole({
   maxIterationsCeiling: number;
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"chat" | "memory" | "settings">("chat");
+  const [tab, setTab] = useState<"chat" |"memory" |"settings">("chat");
 
   // ── chat ──────────────────────────────────────────────────────────────────
   const [messages, setMessages] = useState<AgentChatMessage[]>([]);
@@ -62,7 +62,7 @@ export function AgentConsole({
   function send() {
     const text = draft.trim();
     if (!text) return;
-    const next = [...messages, { role: "user" as const, content: text }];
+    const next = [...messages, { role:"user" as const, content: text }];
     setMessages(next);
     setDraft("");
     setChatError(null);
@@ -72,7 +72,7 @@ export function AgentConsole({
         setChatError(res.error);
         return;
       }
-      setMessages([...next, { role: "assistant", content: res.content }]);
+      setMessages([...next, { role:"assistant", content: res.content }]);
       setLastMeta(res.meta);
       // The turn may have written a memory; pull the server state back in.
       router.refresh();
@@ -83,12 +83,12 @@ export function AgentConsole({
   const [name, setName] = useState(agent.name);
   const [description, setDescription] = useState(agent.description);
   const [instructions, setInstructions] = useState(agent.instructions);
-  const [model, setModel] = useState(agent.model ?? "");
-  const [collection, setCollection] = useState(agent.knowledgeCollection ?? "");
-  // Kept as a string so the box can be emptied back to "use the default"
+  const [model, setModel] = useState(agent.model ??"");
+  const [collection, setCollection] = useState(agent.knowledgeCollection ??"");
+  // Kept as a string so the box can be emptied back to"use the default"
   // rather than forcing a number the moment it is touched.
   const [maxIterations, setMaxIterations] = useState(
-    agent.maxIterations === null ? "" : String(agent.maxIterations),
+    agent.maxIterations === null ?"" : String(agent.maxIterations),
   );
   const [picked, setPicked] = useState<string[]>(serverNames(agent));
   const [enabled, setEnabled] = useState(agent.enabled);
@@ -105,11 +105,11 @@ export function AgentConsole({
         instructions,
         model: model || null,
         knowledgeCollection: collection || null,
-        maxIterations: maxIterations.trim() === "" ? null : Number(maxIterations),
+        maxIterations: maxIterations.trim() ==="" ? null : Number(maxIterations),
         mcpServers: picked.map((n) => ({ name: n })),
         enabled,
       });
-      setSaveMsg("error" in res ? res.error : "Saved.");
+      setSaveMsg("error" in res ? res.error :"Saved.");
       if (!("error" in res)) router.refresh();
     });
   }
@@ -123,9 +123,9 @@ export function AgentConsole({
   }
 
   const tabs = [
-    ["chat", "Conversation"],
-    ["memory", `Memory (${memories.length})`],
-    ["settings", "Settings"],
+    ["chat","Conversation"],
+    ["memory",`Memory (${memories.length})`],
+    ["settings","Settings"],
   ] as const;
 
   return (
@@ -135,14 +135,14 @@ export function AgentConsole({
           <button
             key={id}
             onClick={() => setTab(id)}
-            className={`chip ${tab === id ? "text-[var(--brand-ink)]" : "text-[var(--muted)]"}`}
+            className={`chip ${tab === id ?"text-[var(--brand-ink)]" :"text-[var(--muted)]"}`}
           >
             {label}
           </button>
         ))}
       </div>
 
-      {tab === "chat" && (
+      {tab ==="chat" && (
         <div className="panel p-5">
           <div className="space-y-3">
             {messages.length === 0 && (
@@ -154,14 +154,14 @@ export function AgentConsole({
             {messages.map((m, i) => (
               <div
                 key={i}
-                className={`rounded-lg p-3 text-sm ${
-                  m.role === "user"
-                    ? "bg-[var(--panel-inset)]"
-                    : "border border-[var(--border)]"
+                className={`p-3 text-sm ${
+                  m.role ==="user"
+                    ?"bg-[var(--panel-inset)]"
+                    :"border border-[var(--border)]"
                 }`}
               >
                 <div className="mono mb-1 text-xs text-[var(--muted)]">
-                  {m.role === "user" ? "You" : agent.name}
+                  {m.role ==="user" ?"You" : agent.name}
                 </div>
                 <div className="whitespace-pre-wrap">{m.content}</div>
               </div>
@@ -176,7 +176,7 @@ export function AgentConsole({
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
+                if (e.key ==="Enter" && (e.metaKey || e.ctrlKey)) send();
               }}
               placeholder="Ask this agent something…  (⌘/Ctrl+Enter to send)"
             />
@@ -188,17 +188,17 @@ export function AgentConsole({
           {lastMeta && (
             <p className="mono mt-3 text-xs text-[var(--muted)]">
               {lastMeta.model} · {lastMeta.latencyMs}ms · ${lastMeta.costUsd.toFixed(4)}
-              {lastMeta.toolsUsed.length > 0 && ` · tools: ${lastMeta.toolsUsed.join(", ")}`}
-              {lastMeta.sources > 0 && ` · ${lastMeta.sources} knowledge chunk(s)`}
+              {lastMeta.toolsUsed.length > 0 &&` · tools: ${lastMeta.toolsUsed.join(",")}`}
+              {lastMeta.sources > 0 &&` · ${lastMeta.sources} knowledge chunk(s)`}
             </p>
           )}
         </div>
       )}
 
-      {tab === "memory" && (
+      {tab ==="memory" && (
         <div className="panel p-5">
           <p className="mb-4 text-sm text-[var(--muted)]">
-            What this agent has chosen to remember. It writes these itself through the{" "}
+            What this agent has chosen to remember. It writes these itself through the{""}
             <span className="mono">memory</span> server; delete any that are wrong or stale.
           </p>
           {memories.length === 0 ? (
@@ -206,10 +206,10 @@ export function AgentConsole({
           ) : (
             <ul className="space-y-3">
               {memories.map((m) => (
-                <li key={m.id} className="rounded-lg border border-[var(--border)] p-3">
+                <li key={m.id} className="border border-[var(--border)] p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="mono text-xs text-[var(--brand-ink)]">{m.key}</div>
+                      <div className="mono text-xs font-medium text-[var(--text)]">{m.key}</div>
                       <p className="mt-1 text-sm">{m.content}</p>
                     </div>
                     <button
@@ -234,7 +234,7 @@ export function AgentConsole({
         </div>
       )}
 
-      {tab === "settings" && (
+      {tab ==="settings" && (
         <div className="panel space-y-4 p-5">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block text-sm">
@@ -300,7 +300,7 @@ export function AgentConsole({
               onChange={(e) => setMaxIterations(e.target.value)}
             />
             <p className="mono mt-2 text-xs text-[var(--muted)]">
-              Blank uses the default ({defaultMaxIterations}); the ceiling is{" "}
+              Blank uses the default ({defaultMaxIterations}); the ceiling is{""}
               {maxIterationsCeiling}. Raise it for an agent that works through a
               queue — a run that hits the limit stops mid-task and says so.
             </p>
@@ -316,7 +316,7 @@ export function AgentConsole({
                   onClick={() =>
                     setPicked((p) => (p.includes(s) ? p.filter((x) => x !== s) : [...p, s]))
                   }
-                  className={`chip ${picked.includes(s) ? "text-[var(--brand-ink)]" : "text-[var(--muted)]"}`}
+                  className={`chip ${picked.includes(s) ?"text-[var(--brand-ink)]" :"text-[var(--muted)]"}`}
                 >
                   {s}
                 </button>
@@ -334,7 +334,7 @@ export function AgentConsole({
 
           <div className="flex items-center gap-3">
             <button className="btn-brand" onClick={save} disabled={saving}>
-              {saving ? "Saving…" : "Save"}
+              {saving ?"Saving…" :"Save"}
             </button>
             <button className="btn" onClick={remove} disabled={saving}>
               Delete agent

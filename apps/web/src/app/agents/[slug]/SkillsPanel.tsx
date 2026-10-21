@@ -1,12 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState } from"react";
 import {
   saveSkillAction,
   setSkillEnabledAction,
   deleteSkillAction,
-} from "../actions";
-import type { Skill, SkillParameter } from "@ai-hub/db";
+} from"../actions";
+import type { Skill, SkillParameter } from"@ai-hub/db";
 
 /*
  * Where an agent's expertise gets defined.
@@ -20,10 +20,10 @@ import type { Skill, SkillParameter } from "@ai-hub/db";
 
 const EMPTY = {
   id: undefined as string | undefined,
-  slug: "",
-  name: "",
-  description: "",
-  promptTemplate: "",
+  slug:"",
+  name:"",
+  description:"",
+  promptTemplate:"",
   parameters: [] as SkillParameter[],
 };
 
@@ -73,14 +73,14 @@ export function SkillsPanel({
       </div>
 
       {error && (
-        <div className="panel mb-3 border-l-2 border-l-[var(--danger)] p-3 text-sm text-[var(--danger)]">
+        <div className="panel mb-3 notice-danger p-3 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}
 
       {!skills.length && !draft && (
         <p className="panel p-4 text-sm text-[var(--muted)]">
-          No skills yet. Without one, this agent is still reachable as{" "}
+          No skills yet. Without one, this agent is still reachable as{""}
           <code>hub_agent_…</code> — a skill turns a specific task into its own tool.
         </p>
       )}
@@ -89,24 +89,24 @@ export function SkillsPanel({
         {skills.map((s) => (
           <div
             key={s.id}
-            className={`panel p-4 ${s.enabled ? "" : "opacity-65"}`}
+            className={`panel p-4 ${s.enabled ?"" :"opacity-65"}`}
           >
             <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
                   <h3 className="font-medium text-[var(--text)]">{s.name}</h3>
                   {!s.enabled && (
-                    <span className="rounded border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted)]">
+                    <span className="border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[var(--muted)]">
                       disabled
                     </span>
                   )}
                 </div>
                 <p className="mt-0.5 text-sm text-[var(--text-soft)]">{s.description}</p>
                 <div className="mono mt-1 text-xs text-[var(--muted)]">
-                  hub_skill_{s.slug.replace(/-/g, "_")}
+                  hub_skill_{s.slug.replace(/-/g,"_")}
                   {s.parameters?.length
-                    ? ` (${s.parameters.map((p) => p.name + (p.required ? "" : "?")).join(", ")})`
-                    : " (no arguments)"}
+                    ?` (${s.parameters.map((p) => p.name + (p.required ?"" :"?")).join(",")})`
+                    :" (no arguments)"}
                 </div>
               </div>
               <div className="flex shrink-0 gap-2">
@@ -134,13 +134,13 @@ export function SkillsPanel({
                     setBusy(false);
                   }}
                 >
-                  {s.enabled ? "Disable" : "Enable"}
+                  {s.enabled ?"Disable" :"Enable"}
                 </button>
                 <button
                   className="chip text-[var(--danger)]"
                   disabled={busy}
                   onClick={async () => {
-                    if (!confirm(`Delete "${s.name}"? It disappears from every client.`)) return;
+                    if (!confirm(`Delete"${s.name}"? It disappears from every client.`)) return;
                     setBusy(true);
                     apply(await deleteSkillAction(s.id, agentId));
                     setBusy(false);
@@ -157,7 +157,7 @@ export function SkillsPanel({
       {draft && (
         <div className="panel mt-3 p-4">
           <h3 className="text-sm font-semibold">
-            {draft.id ? "Edit skill" : "New skill"}
+            {draft.id ?"Edit skill" :"New skill"}
           </h3>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
             <Field
@@ -199,7 +199,7 @@ export function SkillsPanel({
               value={draft.promptTemplate}
               onChange={(e) => setDraft({ ...draft, promptTemplate: e.target.value })}
               placeholder={
-                "Write the weekly delivery update for {{client}} covering {{week}}.\nPull current task status from PM-tool and check the knowledge base for commitments."
+"Write the weekly delivery update for {{client}} covering {{week}}.\nPull current task status from PM-tool and check the knowledge base for commitments."
               }
             />
           </label>
@@ -212,7 +212,7 @@ export function SkillsPanel({
 
           <div className="mt-4 flex gap-2">
             <button className="btn-brand" disabled={busy} onClick={save}>
-              {busy ? "Saving…" : "Save skill"}
+              {busy ?"Saving…" :"Save skill"}
             </button>
             <button className="chip" onClick={() => { setDraft(null); setError(null); }}>
               Cancel
@@ -235,7 +235,7 @@ function ParameterEditor({
 }) {
   // Placeholders in the prompt with no parameter behind them. Offered as a
   // one-click fix because this is the mistake everyone makes, and the failure
-  // it causes — a literal "{{client}}" in a client-facing document — surfaces
+  // it causes — a literal"{{client}}" in a client-facing document — surfaces
   // far from its cause.
   const declared = new Set(parameters.map((p) => p.name));
   const missing = [
@@ -253,7 +253,7 @@ function ParameterEditor({
           type="button"
           className="chip"
           onClick={() =>
-            onChange([...parameters, { name: "", description: "", required: true }])
+            onChange([...parameters, { name:"", description:"", required: true }])
           }
         >
           Add argument
@@ -261,23 +261,23 @@ function ParameterEditor({
       </div>
 
       {missing.length > 0 && (
-        <div className="mb-2 rounded-lg border border-[var(--border)] border-l-2 border-l-[var(--danger)] p-3 text-sm">
-          The prompt uses{" "}
+        <div className="mb-2 border border-[var(--border)] notice-danger p-3 text-sm">
+          The prompt uses{""}
           {missing.map((n) => (
             <code key={n} className="mr-1">{`{{${n}}}`}</code>
           ))}
-          with no argument behind it.{" "}
+          with no argument behind it.{""}
           <button
             type="button"
             className="underline"
             onClick={() =>
               onChange([
                 ...parameters,
-                ...missing.map((name) => ({ name, description: "", required: true })),
+                ...missing.map((name) => ({ name, description:"", required: true })),
               ])
             }
           >
-            Add {missing.length === 1 ? "it" : "them"}
+            Add {missing.length === 1 ?"it" :"them"}
           </button>
           .
         </div>
@@ -285,7 +285,7 @@ function ParameterEditor({
 
       <div className="space-y-2">
         {parameters.map((p, i) => (
-          <div key={i} className="rounded-lg border border-[var(--border)] p-3">
+          <div key={i} className="border border-[var(--border)] p-3">
             <div className="grid gap-2 sm:grid-cols-3">
               <input
                 className="field"
@@ -303,7 +303,7 @@ function ParameterEditor({
             <div className="mt-2 flex flex-wrap items-center gap-3">
               <select
                 className="field max-w-36"
-                value={p.type ?? "string"}
+                value={p.type ??"string"}
                 onChange={(e) => update(i, { type: e.target.value as SkillParameter["type"] })}
               >
                 <option value="string">text</option>
@@ -320,7 +320,7 @@ function ParameterEditor({
               </label>
               <input
                 className="field min-w-48 flex-1"
-                value={(p.options ?? []).join(", ")}
+                value={(p.options ?? []).join(",")}
                 onChange={(e) =>
                   update(i, {
                     options: e.target.value
@@ -373,7 +373,7 @@ function Field({
 function slugify(name: string): string {
   return name
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
+    .replace(/[^a-z0-9]+/g,"-")
+    .replace(/^-+|-+$/g,"")
     .slice(0, 63);
 }

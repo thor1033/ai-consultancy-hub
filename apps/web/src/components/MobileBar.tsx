@@ -2,21 +2,19 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NAV, isActive, Logo } from "./nav";
+import { NAV, isActive, Wordmark } from "./nav";
 import { ThemeToggle } from "./ThemeToggle";
 
-// Compact top bar for < lg: logo + horizontally scrollable nav + theme toggle.
+// Compact top bar for < lg: wordmark + horizontally scrollable nav + theme
+// toggle. Solid paper-2; the system has no blur.
 export function MobileBar() {
   const pathname = usePathname();
 
   return (
-    <div className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--panel-2)]/90 backdrop-blur lg:hidden">
+    <div className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--panel-2)] lg:hidden">
       <div className="flex items-center gap-3 px-4 py-2.5">
-        <Link href="/" className="flex items-center gap-2">
-          <Logo size={26} />
-          <span className="text-sm font-semibold tracking-tight">
-            AI&nbsp;<span className="text-gradient">Hub</span>
-          </span>
+        <Link href="/">
+          <Wordmark />
         </Link>
         <div className="ml-auto">
           <ThemeToggle />

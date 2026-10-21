@@ -1,8 +1,8 @@
-import Link from "next/link";
-import { countMcpTools, listRegisteredServers } from "@/lib/mcpCatalog";
-import { PageHeader } from "@/components/PageHeader";
+import Link from"next/link";
+import { countMcpTools, listRegisteredServers } from"@/lib/mcpCatalog";
+import { PageHeader } from"@/components/PageHeader";
 
-export const dynamic = "force-dynamic";
+export const dynamic ="force-dynamic";
 
 // MCP explorer overview: every registered tool server, its status, and which
 // Skills use it. Click through for the live tool list and details.
@@ -12,11 +12,11 @@ export default async function McpOverviewPage() {
   let error: string | null = null;
   try {
     servers = await listRegisteredServers();
-    // Introspect every server's tool count in parallel; failures show "—".
+    // Introspect every server's tool count in parallel; failures show"—".
     const counts = await Promise.all(servers.map((s) => countMcpTools(s.name)));
     servers.forEach((s, i) => toolCounts.set(s.name, counts[i]));
   } catch (e) {
-    error = e instanceof Error ? e.message : "Failed to load MCP servers.";
+    error = e instanceof Error ? e.message :"Failed to load MCP servers.";
   }
 
   return (
@@ -28,7 +28,7 @@ export default async function McpOverviewPage() {
       />
 
       {error ? (
-        <div className="panel border-l-2 border-l-[var(--warning)] p-4 text-sm text-[var(--warning)]">
+        <div className="panel notice-warning p-4 text-sm text-[var(--warning)]">
           {error}
         </div>
       ) : servers.length === 0 ? (
@@ -46,22 +46,22 @@ export default async function McpOverviewPage() {
                   <span
                     className="dot"
                     style={{
-                      color: s.enabled ? "var(--positive)" : "var(--muted)",
-                      background: s.enabled ? "var(--positive)" : "var(--muted)",
+                      color: s.enabled ?"var(--positive)" :"var(--muted)",
+                      background: s.enabled ?"var(--positive)" :"var(--muted)",
                     }}
                   />
                 </div>
                 <div className="mono mt-0.5 text-xs text-[var(--muted)]">{s.name}</div>
                 <p className="mt-2 line-clamp-2 text-sm text-[var(--muted)]">
-                  {s.description || "No description."}
+                  {s.description ||"No description."}
                 </p>
                 <div className="mt-4 flex items-center justify-between text-xs">
                   <div className="flex items-center gap-2">
-                    <span className="mono rounded border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--brand-ink)]">
-                      {count == null ? "—" : count} tool{count === 1 ? "" : "s"}
+                    <span className="mono border border-[var(--border)] bg-[var(--panel-inset)] px-1.5 py-0.5 text-[var(--text-soft)]">
+                      {count == null ?"—" : count} tool{count === 1 ?"" :"s"}
                     </span>
                     <span className="text-[var(--muted)]">
-                      {s.enabled ? "enabled" : "disabled"}
+                      {s.enabled ?"enabled" :"disabled"}
                     </span>
                   </div>
                   <span className="text-[var(--muted)] transition group-hover:translate-x-0.5 group-hover:text-[var(--brand-ink)]">

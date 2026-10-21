@@ -1,10 +1,10 @@
-import { listDocuments, listCollections, embedderStatus, listSources } from "@ai-hub/rag";
-import { KnowledgeConsole } from "./KnowledgeConsole";
-import { PageHeader } from "@/components/PageHeader";
-import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
-import type { KnowledgeSnapshot, SourceRow } from "./types";
+import { listDocuments, listCollections, embedderStatus, listSources } from"@ai-hub/rag";
+import { KnowledgeConsole } from"./KnowledgeConsole";
+import { PageHeader } from"@/components/PageHeader";
+import { sessionKnowledgeAccess } from"@/lib/sessionPrincipal";
+import type { KnowledgeSnapshot, SourceRow } from"./types";
 
-export const dynamic = "force-dynamic";
+export const dynamic ="force-dynamic";
 
 // The Knowledge / RAG management page (docs/knowledge-rag.md, Phase 1): see what
 // the RAG knows, add or remove documents, and test what a query would retrieve —
@@ -24,7 +24,7 @@ export default async function KnowledgePage() {
     sources = listSources();
     embedder = embedderStatus();
   } catch (e) {
-    error = e instanceof Error ? e.message : "Failed to load knowledge.";
+    error = e instanceof Error ? e.message :"Failed to load knowledge.";
   }
 
   return (
@@ -36,10 +36,10 @@ export default async function KnowledgePage() {
       />
 
       {error ? (
-        <div className="panel border-l-2 border-l-[var(--warning)] p-4 text-sm text-[var(--warning)]">
+        <div className="panel notice-warning p-4 text-sm text-[var(--warning)]">
           Couldn&apos;t load knowledge: {error}
           <div className="mt-2 text-[var(--muted)]">
-            Set <code>DATABASE_URL</code> and run{" "}
+            Set <code>DATABASE_URL</code> and run{""}
             <code>npm run migrate -w @ai-hub/db</code>.
           </div>
         </div>

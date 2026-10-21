@@ -1,22 +1,22 @@
 "use client";
 
-import { useState } from "react";
+import { useState } from"react";
 import {
   addDocumentAction,
   deleteDocumentAction,
   getDocumentAction,
   testRetrievalAction,
   syncSourceAction,
-} from "./actions";
+} from"./actions";
 import type {
   DocRow,
   DocDetail,
   KnowledgeSnapshot,
   RetrievedRow,
   SourceRow,
-} from "./types";
+} from"./types";
 
-const H2 = "text-xs font-medium uppercase tracking-wide text-[var(--muted)]";
+const H2 ="text-xs font-medium uppercase tracking-[0.18em] text-[var(--muted)]";
 
 export function KnowledgeConsole({
   initial,
@@ -41,7 +41,7 @@ export function KnowledgeConsole({
   return (
     <div className="space-y-8">
       {embedder && !embedder.production && (
-        <div className="panel border-l-2 border-l-[var(--warning)] p-4 text-sm text-[var(--warning)]">
+        <div className="panel notice-warning p-4 text-sm text-[var(--warning)]">
           Embedder is <code>{embedder.name}</code> — a dev fallback. Its vectors
           aren&apos;t compatible with Voyage, so set <code>VOYAGE_API_KEY</code> and
           re-ingest before relying on retrieval quality.
@@ -49,7 +49,7 @@ export function KnowledgeConsole({
       )}
 
       {error && (
-        <div className="panel border-l-2 border-l-[var(--danger)] p-3 text-sm text-[var(--danger)]">
+        <div className="panel notice-danger p-3 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}
@@ -64,9 +64,9 @@ export function KnowledgeConsole({
         <div className="flex items-center justify-between px-5 py-3.5">
           <h2 className={H2}>Indexed documents</h2>
           <span className="text-xs text-[var(--muted)]">
-            {snap.documents.length} docs ·{" "}
+            {snap.documents.length} docs ·{""}
             {snap.documents.reduce((a, d) => a + d.chunkCount, 0)} chunks
-            {embedder && ` · ${embedder.name}`}
+            {embedder &&` · ${embedder.name}`}
           </span>
         </div>
 
@@ -142,7 +142,7 @@ function AddDocument({
       />
       <div className="mt-3 flex justify-end">
         <button onClick={add} disabled={busy || !content.trim()} className="btn-brand">
-          {busy ? "Indexing…" : "Index document"}
+          {busy ?"Indexing…" :"Index document"}
         </button>
       </div>
     </section>
@@ -168,7 +168,7 @@ function Sources({
     const out = await syncSourceAction(type, collection);
     if ("error" in out) setError(out.error);
     else {
-      setNote(`Synced ${out.synced} document${out.synced === 1 ? "" : "s"} (${out.chunks} chunks).`);
+      setNote(`Synced ${out.synced} document${out.synced === 1 ?"" :"s"} (${out.chunks} chunks).`);
       onSynced(out.snapshot);
     }
     setBusy(null);
@@ -197,13 +197,13 @@ function Sources({
               <div className="flex items-center gap-2">
                 <h3 className="font-medium text-[var(--text)]">{s.label}</h3>
                 <span
-                  className={`rounded px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+                  className={`px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] ${
                     s.configured
-                      ? "bg-[var(--brand-soft)] text-[var(--positive)]"
-                      : "border border-[var(--border)] text-[var(--muted)]"
+                      ?"bg-[var(--brand-soft)] text-[var(--positive)]"
+                      :"border border-[var(--border)] text-[var(--muted)]"
                   }`}
                 >
-                  {s.configured ? "Connected" : "Not configured"}
+                  {s.configured ?"Connected" :"Not configured"}
                 </span>
               </div>
               <div className="mono mt-1 text-xs text-[var(--muted)]">
@@ -213,10 +213,10 @@ function Sources({
             <button
               onClick={() => sync(s.type)}
               disabled={busy !== null || !s.configured}
-              title={s.configured ? "" : "Set this connector's credentials to enable sync"}
+              title={s.configured ?"" :"Set this connector's credentials to enable sync"}
               className="btn shrink-0"
             >
-              {busy === s.type ? "Syncing…" : "Sync"}
+              {busy === s.type ?"Syncing…" :"Sync"}
             </button>
           </div>
         ))}
@@ -255,7 +255,7 @@ function DocumentRow({
   }
 
   async function del() {
-    if (!confirm(`Delete "${doc.title || "(untitled)"}" and its chunks?`)) return;
+    if (!confirm(`Delete"${doc.title ||"(untitled)"}" and its chunks?`)) return;
     setBusy(true);
     onDone(await deleteDocumentAction(doc.id));
     setBusy(false);
@@ -272,16 +272,16 @@ function DocumentRow({
           className="flex min-w-0 flex-1 items-start gap-3 px-5 py-3.5 text-left transition hover:bg-[var(--panel-2)]"
         >
           <span
-            className={`mt-1 text-[var(--muted)] transition-transform ${open ? "rotate-90" : ""}`}
+            className={`mt-1 text-[var(--muted)] transition-transform ${open ?"rotate-90" :""}`}
             aria-hidden
           >
             ▸
           </span>
           <span className="min-w-0 flex-1">
             <span className="flex flex-wrap items-center gap-2">
-              <span className="font-medium text-[var(--text)]">{doc.title || "(untitled)"}</span>
+              <span className="font-medium text-[var(--text)]">{doc.title ||"(untitled)"}</span>
               {doc.collection && (
-                <span className="rounded bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--brand-ink)]">
+                <span className="bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[var(--brand-ink)]">
                   {doc.collection}
                 </span>
               )}
@@ -292,8 +292,8 @@ function DocumentRow({
               </span>
             )}
             <span className="mono mt-1 block text-xs text-[var(--muted)]">
-              {doc.chunkCount} chunk{doc.chunkCount === 1 ? "" : "s"} · {doc.sourceType}
-              {doc.source && ` · ${doc.source}`} ·{" "}
+              {doc.chunkCount} chunk{doc.chunkCount === 1 ?"" :"s"} · {doc.sourceType}
+              {doc.source &&` · ${doc.source}`} ·{""}
               {new Date(doc.createdAt).toLocaleDateString()}
             </span>
           </span>
@@ -303,7 +303,7 @@ function DocumentRow({
           disabled={busy}
           className="shrink-0 px-5 py-3.5 text-xs text-[var(--muted)] transition hover:text-[var(--danger)] disabled:opacity-40"
         >
-          {busy ? "Deleting…" : "Delete"}
+          {busy ?"Deleting…" :"Delete"}
         </button>
       </div>
 
@@ -318,7 +318,7 @@ function DocumentRow({
               {meta.length > 0 && (
                 <div className="flex flex-wrap gap-1.5">
                   {meta.map(([k, v]) => (
-                    <span key={k} className="mono rounded border border-[var(--border)] px-2 py-0.5 text-[0.7rem] text-[var(--muted)]">
+                    <span key={k} className="mono border border-[var(--border)] px-2 py-0.5 text-[0.7rem] text-[var(--muted)]">
                       {k}: {String(v)}
                     </span>
                   ))}
@@ -374,12 +374,12 @@ function TestRetrieval() {
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && query.trim() && run()}
+          onKeyDown={(e) => e.key ==="Enter" && query.trim() && run()}
           placeholder="e.g. What is our refund window?"
           className="field flex-1"
         />
         <button onClick={run} disabled={busy || !query.trim()} className="btn">
-          {busy ? "Searching…" : "Search"}
+          {busy ?"Searching…" :"Search"}
         </button>
       </div>
 
@@ -394,7 +394,7 @@ function TestRetrieval() {
               <div key={`${c.documentId}-${c.chunkIndex}`} className="inset p-3">
                 <div className="flex items-center justify-between gap-3 text-xs text-[var(--muted)]">
                   <span className="truncate text-[var(--text-soft)]">
-                    {c.title || "(untitled)"}{" "}
+                    {c.title ||"(untitled)"}{""}
                     <span className="text-[var(--muted)]">#{c.chunkIndex}</span>
                   </span>
                   <span className="mono shrink-0 text-[var(--brand-ink)]">
