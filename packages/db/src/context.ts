@@ -12,7 +12,8 @@ export interface ContextAgent {
   enabled: boolean;
   brief: string;
   servers: string[];
-  knowledgeCollection: string | null;
+  knowledgeCollections: string[];
+  knowledgeAll: boolean;
   lastRunAt: string | null;
 }
 
@@ -103,12 +104,14 @@ export async function contextSnapshot(): Promise<ContextSnapshot> {
           enabled: boolean;
           instructions: string;
           mcpServers: unknown;
-          knowledgeCollection: string | null;
+          knowledgeCollections: string[];
+          knowledgeAll: boolean;
           lastRunAt: Date | null;
         }[]
       >`
         select a.id, a.slug, a.name, a.enabled, a.instructions,
-               a.mcp_servers as "mcpServers", a.knowledge_collection as "knowledgeCollection",
+               a.mcp_servers as "mcpServers", a.knowledge_collections as "knowledgeCollections",
+               a.knowledge_all as "knowledgeAll",
                (select max(coalesce(s.started_at, s.created_at)) from agent_sessions s
                  where s.agent_id = a.id) as "lastRunAt"
           from agents a
@@ -160,7 +163,8 @@ export async function contextSnapshot(): Promise<ContextSnapshot> {
     enabled: a.enabled,
     brief: a.instructions,
     servers: serverNames(a.mcpServers),
-    knowledgeCollection: a.knowledgeCollection,
+    knowledgeCollections: a.knowledgeCollections ?? [],
+    knowledgeAll: a.knowledgeAll,
     lastRunAt: a.lastRunAt ? iso(a.lastRunAt) : null,
   }));
 

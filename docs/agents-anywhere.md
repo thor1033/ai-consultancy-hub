@@ -132,7 +132,7 @@ would undo knowledge access one run at a time.
 ## Whose access
 
 An agent retrieves **as the caller**, never with a reach of its own. Its
-`knowledge_collection` is curation — which drawer it works out of — and the
+knowledge scope is curation — which drawers it works out of — and the
 caller's grants are permission; the two are ANDed. Otherwise an agent scoped to
 a restricted collection would be the way for anyone to read it, with the agent
 as the deputy.

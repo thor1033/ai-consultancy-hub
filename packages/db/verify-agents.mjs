@@ -46,7 +46,7 @@ const {
   rememberMemory, listMemories, searchMemories, forgetMemory, setMemoryActive, setMemoryRegion,
 } = await import("./src/agents.ts");
 const { contextSnapshot } = await import("./src/context.ts");
-const { agentRoster, listAgentRuns, hubActivity, listRecentRuns } = await import("./src/agents.ts");
+const { agentRoster, listAgentRuns, hubActivity, listRecentRuns, knowledgeScope, retrievalScope } = await import("./src/agents.ts");
 const { serverUsage, toolCallCounts, listServerRuns } = await import("./src/mcpServers.ts");
 const { getSql } = await import("./src/client.ts");
 
@@ -62,7 +62,9 @@ try {
     instructions: "Be brief.",
     model: "claude-opus-4-8",
     mcpServers: [{ name: "sample" }],
-    knowledgeCollection: "verify-collection",
+    // Untrimmed and repeated on purpose: names are matched exactly against
+    // documents.collection, so the store must clean them.
+    knowledgeCollections: ["verify-collection", " verify-playbook ", "verify-collection"],
     maxIterations: 25,
   });
   check("createAgent returns the stored row", Boolean(agent?.id), agent?.id?.slice(0, 8));
@@ -70,7 +72,8 @@ try {
     agent.slug === slug &&
     agent.instructions === "Be brief." &&
     agent.model === "claude-opus-4-8" &&
-    agent.knowledgeCollection === "verify-collection" &&
+    JSON.stringify(agent.knowledgeCollections) === JSON.stringify(["verify-collection", "verify-playbook"]) &&
+    agent.knowledgeAll === false &&
     Array.isArray(agent.mcpServers) && agent.mcpServers[0]?.name === "sample" &&
     agent.maxIterations === 25,
     JSON.stringify(agent.mcpServers),
@@ -93,21 +96,46 @@ try {
     renamed.name === "Renamed" &&
       renamed.instructions === "Be brief." &&
       renamed.model === "claude-opus-4-8" &&
-      renamed.knowledgeCollection === "verify-collection" &&
+      JSON.stringify(renamed.knowledgeCollections) === JSON.stringify(["verify-collection", "verify-playbook"]) &&
       renamed.maxIterations === 25,
-    `model=${renamed.model} collection=${renamed.knowledgeCollection} maxIterations=${renamed.maxIterations}`,
+    `model=${renamed.model} collections=${renamed.knowledgeCollections} maxIterations=${renamed.maxIterations}`,
+  );
+
+  // An agent reading "everything" keeps its list but the scope says all; back
+  // to a list, the scope names the list; emptied, it reads nothing.
+  const everything = await updateAgent(agent.id, { knowledgeAll: true });
+  check(
+    "knowledgeAll is stored and wins over the list",
+    everything.knowledgeAll === true && knowledgeScope(everything).kind === "all" && everything.knowledgeCollections.length === 2,
+  );
+  const listed2 = await updateAgent(agent.id, { knowledgeAll: false });
+  check(
+    "switched back, the scope is the list",
+    knowledgeScope(listed2).kind === "collections" && knowledgeScope(listed2).names.length === 2,
+    JSON.stringify(knowledgeScope(listed2)),
+  );
+  check(
+    "retrievalScope: all ⇒ unscoped, a list ⇒ that list, none ⇒ null",
+    JSON.stringify(retrievalScope({ kind: "all" })) === "{}" &&
+      JSON.stringify(retrievalScope({ kind: "collections", names: ["a"] })) === JSON.stringify({ collection: ["a"] }) &&
+      retrievalScope({ kind: "none" }) === null,
   );
 
   // The case a coalesce-based update gets wrong: null means clear it.
   const cleared = await updateAgent(agent.id, {
     model: null,
-    knowledgeCollection: null,
+    knowledgeCollections: [],
     maxIterations: null,
   });
   check(
     "an explicit null clears a nullable field",
-    cleared.model === null && cleared.knowledgeCollection === null && cleared.maxIterations === null,
-    `model=${cleared.model} collection=${cleared.knowledgeCollection} maxIterations=${cleared.maxIterations}`,
+    cleared.model === null && cleared.maxIterations === null,
+    `model=${cleared.model} maxIterations=${cleared.maxIterations}`,
+  );
+  check(
+    "an emptied collection list means the agent reads nothing",
+    cleared.knowledgeCollections.length === 0 && knowledgeScope(cleared).kind === "none",
+    JSON.stringify(cleared.knowledgeCollections),
   );
   // Null is not a gap in the data: it is how an agent says "use the runtime
   // default", which is what agentRuns passes through as undefined.

@@ -24,4 +24,8 @@ drop table if exists skills          cascade;
 drop table if exists templates       cascade;
 drop table if exists assessments     cascade;
 
+-- Superseded by agents.knowledge_collections; migrate copies the value across
+-- and nulls this column, so by the time this runs it holds nothing.
+alter table agents drop column if exists knowledge_collection;
+
 commit;

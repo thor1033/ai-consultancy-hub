@@ -14,6 +14,8 @@ import {
   runsOnHub,
   type AgentInput,
   type McpEntry,
+  knowledgeScope,
+  retrievalScope,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
@@ -100,6 +102,21 @@ export async function saveAgentAction(
   // reaches its tools from outside the hub, so changing it is admin-only even
   // if agent:manage is one day granted more widely. `existing` is the lookup
   // the server list above already paid for.
+  // Collection names are matched exactly against documents, so they are
+  // checked for shape here; whether one exists is not an error (a drawer can
+  // be named before anything is filed in it), and whether the asker may read
+  // it is decided at retrieval time, never here.
+  const knowledgeCollections: string[] = [];
+  for (const raw of input.knowledgeCollections ?? []) {
+    if (typeof raw !== "string") continue;
+    const name = raw.trim();
+    if (!name) continue;
+    if (name.length > 120) return { error: `"${name.slice(0, 40)}…" is too long for a collection name.` };
+    if (!knowledgeCollections.includes(name)) knowledgeCollections.push(name);
+  }
+  if (knowledgeCollections.length > 50) return { error: "An agent can work from at most 50 collections." };
+  const knowledgeAll = input.knowledgeAll === true;
+
   const placement = input.placement ?? existing?.placement ?? "hub";
   if (!isPlacement(placement)) return { error: "Unknown placement." };
   if (placement !== (existing?.placement ?? "hub") && !(await sessionCan("admin:manage"))) {
@@ -112,6 +129,8 @@ export async function saveAgentAction(
         ...input,
         name,
         mcpServers: servers,
+        knowledgeCollections,
+        knowledgeAll,
         maxIterations,
         placement,
       });
@@ -125,6 +144,8 @@ export async function saveAgentAction(
       name,
       slug,
       mcpServers: servers,
+      knowledgeCollections,
+      knowledgeAll,
       maxIterations,
       placement,
     });
@@ -237,8 +258,8 @@ export async function sendAgentMessageAction(
   // Best-effort retrieval: an agent scoped to a collection answers from it, but
   // a missing embedder or empty index must not take the conversation down.
   //
-  // Retrieved as the PERSON ASKING, not as the agent. An agent's
-  // knowledgeCollection is curation — which drawer it works out of — and never a
+  // Retrieved as the PERSON ASKING, not as the agent. An agent's knowledge
+  // scope is curation — which drawers it works out of — and never a
   // permission of its own. If it were, asking an agent scoped to a restricted
   // collection would be the way for anyone to read that collection, with the
   // agent as the deputy. The two are ANDed in retrieveChunks: a collection the
@@ -246,11 +267,10 @@ export async function sendAgentMessageAction(
   // answers from material its operator cannot open.
   let context: string | undefined;
   let sources = 0;
-  if (agent.knowledgeCollection) {
+  const scope = retrievalScope(knowledgeScope(agent));
+  if (scope) {
     try {
-      const chunks = await retrieveChunks(last.content, await sessionKnowledgeAccess(), 5, {
-        collection: agent.knowledgeCollection,
-      });
+      const chunks = await retrieveChunks(last.content, await sessionKnowledgeAccess(), 5, scope);
       if (chunks.length) {
         context = chunksToContext(chunks);
         sources = chunks.length;

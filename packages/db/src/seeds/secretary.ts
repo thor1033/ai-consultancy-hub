@@ -195,7 +195,8 @@ fetch it.`,
   // reasoning the budget cannot pay for.
   effort: "medium",
   mcpServers: [{ name: PM_TOOL_READ_SERVER }, { name: MAILBOX_SERVER, mailbox: SECRETARY_MAILBOX }],
-  knowledgeCollection: null,
+  knowledgeCollections: [],
+  knowledgeAll: false,
   // Ten rounds suits an agent that looks one thing up. This one reads its
   // memory, grounds against a ~114-task project, and may open several tasks
   // before it can call anything a diff.

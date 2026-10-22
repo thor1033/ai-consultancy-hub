@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { agentRoster, listMcpServers, type AgentRosterRow } from "@ai-hub/db";
+import { agentRoster, listMcpServers, knowledgeLabel, knowledgeScope, type AgentRosterRow } from "@ai-hub/db";
 import { money, rel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -164,7 +164,13 @@ function AgentRow({
             {servers.length ? servers.map((n) => labels.get(n) ?? n).join(", ") : <span className="text-[var(--muted)]">Memory only</span>}
           </Equip>
           <Equip label="Knowledge">
-            {a.knowledgeCollection ? <span className="mono text-xs">{a.knowledgeCollection}</span> : <span className="text-[var(--muted)]">None</span>}
+            {knowledgeScope(a).kind === "collections" ? (
+              <span className="mono text-xs">{knowledgeLabel(a)}</span>
+            ) : knowledgeScope(a).kind === "all" ? (
+              <span className="text-xs">Everything</span>
+            ) : (
+              <span className="text-[var(--muted)]">None</span>
+            )}
           </Equip>
         </dl>
 

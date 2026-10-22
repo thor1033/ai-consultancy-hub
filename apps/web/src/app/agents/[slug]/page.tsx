@@ -11,6 +11,8 @@ import {
   localActivity,
   type AgentRun,
   type Schedule,
+  knowledgeLabel,
+  knowledgeScope,
 } from "@ai-hub/db";
 import { DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
 import { listCollections } from "@ai-hub/rag";
@@ -61,6 +63,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
   const baseUrl = appBaseUrl(await headers()) ?? "https://hub.example.com";
 
   const stats = roster.find((r) => r.id === agent.id);
+  const scope = knowledgeScope(agent);
   const now = Date.now();
   const loaded = memories.filter((m) => m.active);
   const aside = memories.length - loaded.length;
@@ -122,8 +125,10 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
               </span>
             </Loadout>
             <Loadout label="Knowledge" href="#settings" action="Change">
-              {agent.knowledgeCollection ? (
-                <span className="mono text-sm">{agent.knowledgeCollection}</span>
+              {scope.kind === "collections" ? (
+                <span className="mono text-sm">{knowledgeLabel(agent)}</span>
+              ) : scope.kind === "all" ? (
+                <span className="text-sm">Everything the asker may read</span>
               ) : (
                 <span className="text-sm text-[var(--muted)]">None</span>
               )}
@@ -310,7 +315,8 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           description: agent.description,
           instructions: agent.instructions,
           model: agent.model ?? "",
-          knowledgeCollection: agent.knowledgeCollection ?? "",
+          knowledge: scope.kind === "collections" ? "selected" : scope.kind,
+          knowledgeCollections: agent.knowledgeCollections,
           // Kept as a string so the box can be emptied back to "use the default".
           maxIterations: agent.maxIterations === null ? "" : String(agent.maxIterations),
           servers: named,
