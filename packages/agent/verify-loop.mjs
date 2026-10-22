@@ -144,7 +144,7 @@ process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${http.address().port}`;
 process.env.ANTHROPIC_API_KEY = "fixture-key";
 delete process.env.LANGFUSE_PUBLIC_KEY; // no tracing side-trips
 
-const { runAgent, DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING, DEFAULT_MAX_TOKENS } =
+const { runAgent, clockLine, DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING, DEFAULT_MAX_TOKENS } =
   await import("./src/runAgent.ts");
 
 const TOOLS = [
@@ -225,6 +225,26 @@ try {
     "a tool_use input split across stream deltas arrives at the tool whole",
     lastToolInput?.note === "assembled from two partial-JSON deltas" && lastToolInput?.round === DEFAULT_MAX_ITERATIONS,
     JSON.stringify(lastToolInput),
+  );
+
+  // ── the model is told what day it is ─────────────────────────────────────
+  const clock = plan.requests[0]?.system?.find((b) => /^Today is /.test(b.text ?? ""));
+  check(
+    "every request carries today's date as a system block",
+    Boolean(clock) && plan.requests.every((r) => r.system?.some((b) => /^Today is /.test(b.text ?? ""))),
+    clock?.text?.slice(0, 60),
+  );
+  check("after the cached persona block, so the cache prefix is unchanged", plan.requests[0]?.system?.[0]?.cache_control?.type === "ephemeral" && !clock?.cache_control);
+  check(
+    "in the deployment's timezone when HUB_TIMEZONE names one",
+    /\(Europe\/Copenhagen\)/.test(clockLine(new Date("2026-10-22T19:40:00Z"), "Europe/Copenhagen")) &&
+      /Thursday 22 October 2026, 21:40/.test(clockLine(new Date("2026-10-22T19:40:00Z"), "Europe/Copenhagen")),
+    clockLine(new Date("2026-10-22T19:40:00Z"), "Europe/Copenhagen"),
+  );
+  check(
+    "and falls back to UTC on a zone name that does not exist",
+    /\(UTC\)/.test(clockLine(new Date(), "Mars/Olympus_Mons")),
+    clockLine(new Date(), "Mars/Olympus_Mons"),
   );
 
   // ── a run that finishes ──────────────────────────────────────────────────
