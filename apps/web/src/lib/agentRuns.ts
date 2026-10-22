@@ -1,4 +1,4 @@
-import { getAgent, getSkill, startRun, failRun, runsOnHub, type Agent, type SkillWithAgent } from "@ai-hub/db";
+import { getAgent, getSkill, startRun, failRun, runsOnHub, type Agent, type SkillWithAgent, knowledgeScope, retrievalScope } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { authorize, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 import { runSession, isKnownServer } from "@/lib/runSession";
@@ -29,7 +29,7 @@ import { fillTemplate } from "@/lib/skillPrompt";
  * 2. WHOSE ACCESS. The agent retrieves as the CALLER, never with a reach of its
  *    own, for the same reason the browser chat does (see agents/actions.ts): an
  *    agent scoped to a restricted collection must not become the way anyone
- *    reads that collection. Its knowledgeCollection is curation; the caller's
+ *    reads that collection. Its knowledge scope is curation; the caller's
  *    grants are permission, and the two are ANDed in retrieveChunks.
  */
 
@@ -91,14 +91,10 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
   // open. Best-effort: a missing embedder must not take the run down.
   let context: string | undefined;
   let sources = 0;
-  if (agent.knowledgeCollection) {
+  const scope = retrievalScope(knowledgeScope(agent));
+  if (scope) {
     try {
-      const chunks = await retrieveChunks(
-        prompt,
-        await knowledgeAccessFor(input.principal),
-        5,
-        { collection: agent.knowledgeCollection },
-      );
+      const chunks = await retrieveChunks(prompt, await knowledgeAccessFor(input.principal), 5, scope);
       if (chunks.length) {
         context = chunksToContext(chunks);
         sources = chunks.length;

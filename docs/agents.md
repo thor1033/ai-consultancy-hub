@@ -86,9 +86,28 @@ uses extensionless imports only a bundler resolves. Its statements mirror
 `runSession({ agentId, … })` attaches the agent's memory server automatically —
 an agent that could be configured to forget everything is just a chat window —
 and records the run in `agent_sessions` with `source: "agent"` so it is
-traceable back to the agent that made it. If the agent has a
-`knowledge_collection`, retrieval is scoped to it, best-effort: a missing
-embedder or an empty index answers without context rather than failing the turn.
+traceable back to the agent that made it. Retrieval follows the agent's
+knowledge scope, best-effort: a missing embedder or an empty index answers
+without context rather than failing the turn.
+
+### What it reads
+
+An agent's knowledge scope is one of three things, set under **What it may
+read** on its page:
+
+| Scope | Columns | Retrieval |
+|---|---|---|
+| Nothing | `knowledge_all = false`, `knowledge_collections = {}` | none: memory and tools only, and no knowledge tools at the per-agent endpoint |
+| Everything | `knowledge_all = true` | unscoped, narrowed to what the caller may read |
+| These collections | `knowledge_collections = {a, b}` | `collection in (a, b)`, narrowed to what the caller may read |
+
+A set rather than one collection, because real agents work out of a few
+drawers: a client's material plus the delivery playbook. A document still sits
+in exactly one collection, since a collection is the unit people are granted;
+curation got flexible, the permission boundary stayed simple. `knowledgeScope()`
+and `retrievalScope()` in `packages/db/src/agents.ts` turn the two columns into
+retrieval options, and every run path goes through them so the three scopes
+mean the same thing in the console, on a schedule and from Claude Code.
 
 ### Tool-use rounds
 

@@ -6,6 +6,8 @@ import {
   recordLocalCall,
   runsLocally,
   disabledMcpServerNames,
+  knowledgeScope,
+  retrievalScope,
   type Agent,
 } from "@ai-hub/db";
 import { isRemoteServer, remoteServerForwardsIdentity, remoteServerReadOnly } from "@ai-hub/mcp";
@@ -91,32 +93,44 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
   // Memory, wrapped so its calls are tracked like the rest.
   registerMemoryTools(trackingProxy(server, track), agent.id);
 
-  // Knowledge, as the caller. The agent's collection is curation and narrows
-  // what is searched; it never widens what the caller may read.
-  if (await authorize(principal, "rag:search")) {
+  // Knowledge, as the caller. The agent's scope is curation and narrows what
+  // is searched; it never widens what the caller may read. An agent set to
+  // read nothing is served no knowledge tools at all, so "memory and tools
+  // only" means the same thing here as it does on the hub.
+  const scope = knowledgeScope(agent);
+  const curated = retrievalScope(scope);
+  if (curated && (await authorize(principal, "rag:search"))) {
     const access = await knowledgeAccessFor(principal);
+    const drawers = scope.kind === "collections" ? scope.names : null;
     server.registerTool(
       "hub_search_knowledge",
       {
         description:
           "Search the hub's knowledge base for company context" +
-          (agent.knowledgeCollection
-            ? ` (this agent works from the "${agent.knowledgeCollection}" collection).`
-            : ".") +
+          (drawers ? ` (this agent works from the collections: ${drawers.map((n) => `"${n}"`).join(", ")}).` : ".") +
           " Returns passages with their source document and a score.",
         inputSchema: {
           query: z.string().min(1).describe("What you want to know."),
+          collection: z
+            .string()
+            .optional()
+            .describe(
+              drawers
+                ? "Narrow the search to one of this agent's collections. Omit to search all of them."
+                : "Restrict the search to one collection. Omit to search everything.",
+            ),
           limit: z.number().int().min(1).max(20).optional().describe("How many passages (default 5)."),
         },
       },
-      track("hub_search_knowledge", async ({ query, limit }: { query: string; limit?: number }) => {
-        const chunks = await retrieveChunks(
-          query,
-          access,
-          limit ?? 5,
-          agent.knowledgeCollection ? { collection: agent.knowledgeCollection } : {},
-        );
-        if (!chunks.length) return text(`No passages matched "${query}".`);
+      track("hub_search_knowledge", async ({ query, collection, limit }: { query: string; collection?: string; limit?: number }) => {
+        // A collection outside the agent's set is refused by name rather than
+        // searched: the model learns the boundary instead of getting an empty
+        // answer it would read as "nothing written about this".
+        if (collection && drawers && !drawers.includes(collection)) {
+          return text(`This agent does not work from "${collection}". Its collections: ${drawers.join(", ")}.`);
+        }
+        const chunks = await retrieveChunks(query, access, limit ?? 5, collection ? { collection } : curated);
+        if (!chunks.length) return text(`No passages matched "${query}"${collection ? ` in "${collection}"` : ""}.`);
         const status = embedderStatus();
         return text({
           ...(status.production
@@ -143,7 +157,7 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
           const doc = await getDocument(id, access);
           // The same answer for "missing" and "not yours", so an id cannot be
           // used to probe what exists in a collection the caller may not read.
-          if (!doc || (agent.knowledgeCollection && doc.collection !== agent.knowledgeCollection)) {
+          if (!doc || (drawers && !drawers.includes(doc.collection ?? ""))) {
             return text(`No document with id ${id}.`);
           }
           return text({

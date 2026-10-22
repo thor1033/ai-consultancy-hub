@@ -56,7 +56,7 @@ A `/knowledge` page that answers "what does the RAG have, and when does it apply
 ### Phase 2 — Curation (scope knowledge to a consumer)  ✅
 - Group documents into **collections** (an editable label), curated in the UI.
 - `retrieveChunks` can filter by collection.
-- An agent can be assigned a collection, so its runs retrieve from a curated set
+- An agent can be assigned one or more collections, so its runs retrieve from a curated set
   instead of the global soup. This is where retrieval *quality* improves.
   (Collections were originally scoped to skills; the mechanism outlived them.)
 

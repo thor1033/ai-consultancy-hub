@@ -130,8 +130,15 @@ try {
     model: "claude-sonnet-4-6",
     maxIterations: 12,
     mcpServers: [{ name: "verify-pm" }],
+    knowledgeAll: true,
   });
+  // Reads nothing: the default, and what "memory and tools only" must mean.
   const both = await mk("both", { placement: "both" });
+  // Works out of two drawers.
+  const scoped = await mk("scoped", {
+    placement: "local",
+    knowledgeCollections: [`verify-${stamp}-a`, `verify-${stamp}-b`],
+  });
 
   // --- the column -------------------------------------------------------
   check("an agent with no placement runs on the hub", hubOnly.placement === "hub");
@@ -195,7 +202,34 @@ try {
   const localClient = await connect(await buildAgentMcpServer(ANALYST, local));
   const localTools = await toolNames(localClient);
   check("memory tools are served", ["hub_memory_list", "hub_memory_write", "hub_memory_search", "hub_memory_set_active", "hub_memory_forget"].every((t) => localTools.includes(t)), localTools.join(", "));
-  check("knowledge search is served", localTools.includes("hub_search_knowledge"));
+  check("knowledge search is served to an agent that reads everything", localTools.includes("hub_search_knowledge"));
+
+  // --- what each knowledge scope is served ------------------------------
+  const noneClient = await connect(await buildAgentMcpServer(ANALYST, both));
+  const noneTools = await toolNames(noneClient);
+  check(
+    "an agent that reads nothing is served no knowledge tools",
+    !noneTools.includes("hub_search_knowledge") && !noneTools.includes("hub_get_document"),
+    noneTools.join(", "),
+  );
+  check("but still its memory", noneTools.includes("hub_memory_list"));
+  await noneClient.close();
+
+  const scopedClient = await connect(await buildAgentMcpServer(ANALYST, scoped));
+  const scopedSearch = (await scopedClient.listTools()).tools.find((t) => t.name === "hub_search_knowledge");
+  check(
+    "a scoped agent's search tool names its collections",
+    scopedSearch?.description.includes(`verify-${stamp}-a`) && scopedSearch?.description.includes(`verify-${stamp}-b`),
+    scopedSearch?.description,
+  );
+  const outside = await call(scopedClient, "hub_search_knowledge", { query: "anything", collection: "somewhere-else" });
+  const outsideText = typeof outside.body === "string" ? outside.body : JSON.stringify(outside.body);
+  check(
+    "a collection outside its set is refused by name, not searched",
+    /does not work from "somewhere-else"/.test(outsideText) && outsideText.includes(`verify-${stamp}-a`),
+    outsideText.slice(0, 120),
+  );
+  await scopedClient.close();
   check("the agent's own tool server is proxied", localTools.includes("pm_list_projects"), localTools.join(", "));
   check("no hub_agent_* runner is offered to a local agent", !localTools.some((t) => t.startsWith("hub_agent_") || t === "hub_run_agent"));
 

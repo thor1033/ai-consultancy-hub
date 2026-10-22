@@ -43,9 +43,13 @@ export {
   PLACEMENTS,
   recordLocalCall,
   localActivity,
+  knowledgeScope,
+  retrievalScope,
+  knowledgeLabel,
 } from "./agents";
 export type {
   McpEntry,
+  KnowledgeScope,
   AgentSummary,
   Agent,
   AgentMemory,

@@ -92,11 +92,32 @@ create table if not exists agents (
   model        text,
   effort       text,
   mcp_servers  jsonb not null default '[]'::jsonb,  -- [{"name":"pm-tool"}, …]
-  knowledge_collection text,                  -- curation: RAG scope for this agent
+  knowledge_collection text,                  -- superseded by knowledge_collections (below); dropped by drop-legacy.sql
   enabled      boolean not null default true,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
+
+-- What an agent reads: curation, never permission (docs/knowledge-access.md).
+--
+--   knowledge_all = true            retrieve from everything the CALLER may read
+--   knowledge_collections = {a, b}  retrieve from these collections only
+--   neither                         no retrieval: memory and tools only
+--
+-- A set rather than one name because real agents work out of a few drawers
+-- (a client's material plus the delivery playbook). A document still sits in
+-- exactly one collection: that is the unit people are granted, and it stays
+-- simple enough to audit. Names are not foreign keys because a collection may
+-- exist only as a label on documents, with no row in `collections` yet.
+alter table agents add column if not exists knowledge_collections text[] not null default '{}';
+alter table agents add column if not exists knowledge_all boolean not null default false;
+-- Carry the old single value over, once. Clearing the old column as it is
+-- copied is what makes this safe to re-run: an agent later set back to "no
+-- knowledge" is not re-scoped from a stale value on the next migrate.
+update agents
+   set knowledge_collections = array[knowledge_collection],
+       knowledge_collection = null
+ where knowledge_collection is not null and knowledge_collection <> '';
 
 -- What an agent remembers between conversations.
 --

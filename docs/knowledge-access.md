@@ -34,9 +34,11 @@ edit grants.
 
 ## Curation is not permission
 
-An agent's `knowledge_collection` and the `collection` argument on
-`hub_search_knowledge` are **curation** — which drawer to work out of. They are
-ANDed with the access filter, never substituted for it.
+An agent's knowledge scope (`knowledge_collections`, or `knowledge_all`) and
+the `collection` argument on `hub_search_knowledge` are **curation** — which
+drawers to work out of. They are ANDed with the access filter, never
+substituted for it. An agent may name several collections; a document still
+belongs to exactly one, because the collection is what people are granted.
 
 So naming a restricted collection you have not been granted returns nothing,
 rather than unlocking it. And an agent scoped to a restricted collection does

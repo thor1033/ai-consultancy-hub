@@ -30,8 +30,9 @@ memory and knowledge are reached through one endpoint per agent,
   edit (see [secretary-agent.md](secretary-agent.md)).
 - **Memory.** The agent's own, and only its own. The id is closed over by the
   server; no tool takes an agent id ([agents.md](agents.md#memory)).
-- **Knowledge.** Retrieved as the *caller*, narrowed to the agent's collection,
-  exactly as for a hub run ([knowledge-access.md](knowledge-access.md)).
+- **Knowledge.** Retrieved as the *caller*, narrowed to the agent's collections,
+  exactly as for a hub run ([knowledge-access.md](knowledge-access.md)). An
+  agent set to read nothing is served no knowledge tools at all.
 
 The synced sub-agent file holds instructions and that URL, never a credential.
 Editing it buys nothing a token would not already allow, and the next sync
@@ -108,7 +109,7 @@ and the ROI numbers would count it as one.
 npm run verify:local-agents -w web
 ```
 
-57 checks, no API key, needs `DATABASE_URL`. It drives the real endpoint, the
+61 checks, no API key, needs `DATABASE_URL`. It drives the real endpoint, the
 real export route with real credentials, a real remote MCP server standing in
 for the PM-tool, and the real sync script against a fake hub — covering who is
 refused, that proxied calls carry the hub's credential, memory isolation between

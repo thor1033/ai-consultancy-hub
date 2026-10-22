@@ -19,7 +19,9 @@ export interface AgentFormValues {
   description: string;
   instructions: string;
   model: string;
-  knowledgeCollection: string;
+  /** What it reads: nothing, everything the asker may read, or a curated set. */
+  knowledge: KnowledgeMode;
+  knowledgeCollections: string[];
   maxIterations: string;
   servers: string[];
   enabled: boolean;
@@ -27,6 +29,16 @@ export interface AgentFormValues {
   /** Per-server mailbox, for the servers in MAILBOX_SERVERS. Blank = the deployment default. */
   mailboxes: Record<string, string>;
 }
+
+export type KnowledgeMode = "none" | "all" | "selected";
+
+// What an agent reads. All three are curation: whichever is picked, retrieval
+// is still narrowed to what the person asking may read.
+const KNOWLEDGE_MODES: { id: KnowledgeMode; label: string; help: string }[] = [
+  { id: "none", label: "Nothing", help: "Memory and tools only. No passages are retrieved for it." },
+  { id: "all", label: "Everything", help: "Searches the whole knowledge base, narrowed to what the asker may read." },
+  { id: "selected", label: "These collections", help: "Works out of the drawers ticked below, and only those." },
+];
 
 // Where an agent runs. "local" moves the model into a Claude Code session; its
 // tools, memory and knowledge stay behind the hub's per-agent endpoint, so the
@@ -95,6 +107,9 @@ export function AgentForm({
 
   const slug = creating ? slugify(v.name) : v.slug;
   const toolName = agentToolName(slug || "your-agent");
+  // What the checklist offers: every collection this deployment has, plus any
+  // the agent already names that is not (yet, or any more) among them.
+  const knowledgeChoices = [...new Set([...collections, ...v.knowledgeCollections])];
   const picked = tools.filter((t) => v.servers.includes(t.name));
   const words = v.instructions.trim() ? v.instructions.trim().split(/\s+/).length : 0;
 
@@ -107,7 +122,8 @@ export function AgentForm({
         description: v.description,
         instructions: v.instructions,
         model: v.model || null,
-        knowledgeCollection: v.knowledgeCollection || null,
+        knowledgeAll: v.knowledge === "all",
+        knowledgeCollections: v.knowledge === "selected" ? v.knowledgeCollections : [],
         maxIterations: v.maxIterations.trim() === "" ? null : Number(v.maxIterations),
         mcpServers: v.servers.map((name) => {
           const mailbox = v.mailboxes[name]?.trim();
@@ -253,20 +269,84 @@ export function AgentForm({
         <Section
           n="04"
           title="What it may read"
-          hint="Scope its knowledge to one collection. It still only reads what the person asking may read."
+          hint="Which drawers of the knowledge base it works out of. Whatever is picked, it only reads what the person asking may read."
         >
-          <select className="field max-w-md" value={v.knowledgeCollection} onChange={(e) => set("knowledgeCollection", e.target.value)}>
-            <option value="">No knowledge — memory and tools only</option>
-            {collections.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          {collections.length === 0 && (
-            <p className="mt-2 text-xs text-[var(--muted)]">
-              No collections yet — file documents into one on the Knowledge page.
-            </p>
+          <fieldset>
+            <legend className="sr-only">What it may read</legend>
+            <ul className="grid gap-2 sm:grid-cols-3">
+              {KNOWLEDGE_MODES.map((m) => {
+                const on = v.knowledge === m.id;
+                return (
+                  <li key={m.id}>
+                    <label
+                      className={`flex min-h-full cursor-pointer items-start gap-3 border p-3.5 transition-colors ${
+                        on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="knowledge"
+                        className="mt-0.5 h-4 w-4 accent-[var(--text)]"
+                        value={m.id}
+                        checked={on}
+                        onChange={() => set("knowledge", m.id)}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{m.label}</span>
+                        <span className="mt-0.5 block text-xs text-[var(--muted)]">{m.help}</span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </fieldset>
+          {v.knowledge === "selected" && (
+            <div className="mt-3">
+              {knowledgeChoices.length === 0 ? (
+                <p className="text-xs text-[var(--muted)]">
+                  No collections yet — file documents into one on the Knowledge page, then tick it here.
+                </p>
+              ) : (
+                <ul className="grid gap-1.5 sm:grid-cols-2">
+                  {knowledgeChoices.map((c) => {
+                    const on = v.knowledgeCollections.includes(c);
+                    const known = collections.includes(c);
+                    return (
+                      <li key={c}>
+                        <label
+                          className={`flex cursor-pointer items-center gap-3 border px-3 py-2 transition-colors ${
+                            on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-[var(--text)]"
+                            checked={on}
+                            onChange={() =>
+                              set(
+                                "knowledgeCollections",
+                                on ? v.knowledgeCollections.filter((n) => n !== c) : [...v.knowledgeCollections, c],
+                              )
+                            }
+                          />
+                          <span className="mono min-w-0 truncate text-sm">{c}</span>
+                          {!known && (
+                            // Kept on the agent even though this deployment no longer
+                            // lists it: unticking should be a choice, not a side effect
+                            // of opening the form.
+                            <span className="ml-auto text-xs text-[var(--muted)]">no documents</span>
+                          )}
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {v.knowledge === "selected" && v.knowledgeCollections.length === 0 && knowledgeChoices.length > 0 && (
+                <p className="mt-2 text-xs text-[var(--warning)]">Nothing ticked yet: saved like this, it reads nothing.</p>
+              )}
+            </div>
           )}
         </Section>
 
@@ -420,7 +500,13 @@ export function AgentForm({
                 ? picked.map((t) => (v.mailboxes[t.name]?.trim() ? `${t.label} (${v.mailboxes[t.name].trim()})` : t.label)).join(", ")
                 : "Memory only"}
             </Row>
-            <Row k="Knowledge">{v.knowledgeCollection || "None"}</Row>
+            <Row k="Knowledge">
+              {v.knowledge === "all"
+                ? "Everything"
+                : v.knowledge === "selected" && v.knowledgeCollections.length
+                  ? v.knowledgeCollections.join(", ")
+                  : "None"}
+            </Row>
             <Row k="Model">{MODELS.find((m) => m.id === v.model)?.label ?? v.model}</Row>
           </dl>
           <button type="submit" disabled={pending || !v.name.trim()} className="btn-brand mt-5 min-h-11 w-full">
