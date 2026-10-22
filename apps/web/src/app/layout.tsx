@@ -1,38 +1,24 @@
 import type { Metadata } from "next";
-import { Inter, Sora } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import { Backdrop } from "@/components/Backdrop";
 import { Sidebar } from "@/components/Sidebar";
 import { MobileBar } from "@/components/MobileBar";
 
-const inter = Inter({
-  subsets: ["latin"],
-  variable: "--font-inter",
-  display: "swap",
-});
-const sora = Sora({
-  subsets: ["latin"],
-  variable: "--font-display",
-  weight: ["500", "600", "700"],
-  display: "swap",
-});
+// No web fonts: the design system's face is Helvetica Neue from the system
+// install (Helvetica → Arial as fallbacks), declared once in globals.css.
 
 export const metadata: Metadata = {
-  title: "AI Hub — Console",
+  title: "Teqneo — AI hub",
   description:
-    "The tailored AI hub — run your organization's Skills, Agents, and MCPs on the AI licenses you already pay for.",
+    "Ask anything your organisation has written down. Every answer shows where it came from.",
 };
 
 export default function RootLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   return (
-    <html
-      lang="en"
-      suppressHydrationWarning
-      className={`${inter.variable} ${sora.variable}`}
-    >
+    <html lang="en" suppressHydrationWarning>
       <body>
         <ThemeProvider>
           <Backdrop />

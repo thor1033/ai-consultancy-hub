@@ -223,6 +223,182 @@ export async function setMemoryActive(
   return rows.count > 0;
 }
 
+export interface AgentRosterRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
+  enabled: boolean;
+  placement: Placement;
+  model: string | null;
+  knowledgeCollection: string | null;
+  mcpServers: McpEntry[];
+  memoriesLoaded: number;
+  memoriesAside: number;
+  skills: number;
+  schedules: number;
+  schedulesEnabled: number;
+  scheduleError: string | null;
+  runs7d: number;
+  failed7d: number;
+  spend7d: number;
+  lastRunAt: string | null;
+  lastRunStatus: string | null;
+  /** Runs per day for the last 7 days, oldest first (UTC days). */
+  runsByDay: number[];
+}
+
+/**
+ * Every agent with what it is equipped with and how it has been doing — one
+ * query, so the agents overview reads as a roster rather than a list of names.
+ */
+export async function agentRoster(): Promise<AgentRosterRow[]> {
+  const sql = getSql();
+  return sql<AgentRosterRow[]>`
+    select a.id, a.slug, a.name, a.description, a.enabled, a.placement, a.model,
+           a.knowledge_collection as "knowledgeCollection", a.mcp_servers as "mcpServers",
+           (select count(*)::int from agent_memories m where m.agent_id = a.id and m.active) as "memoriesLoaded",
+           (select count(*)::int from agent_memories m where m.agent_id = a.id and not m.active) as "memoriesAside",
+           (select count(*)::int from agent_skills k where k.agent_id = a.id) as skills,
+           (select count(*)::int from agent_schedules c where c.agent_id = a.id) as schedules,
+           (select count(*)::int from agent_schedules c where c.agent_id = a.id and c.enabled) as "schedulesEnabled",
+           (select c.last_error from agent_schedules c
+             where c.agent_id = a.id and c.last_error is not null
+             order by c.updated_at desc limit 1) as "scheduleError",
+           r.runs7d as "runs7d", r.failed7d as "failed7d", r.spend7d as "spend7d",
+           last.at as "lastRunAt", last.status as "lastRunStatus",
+           (select array_agg(coalesce(x.n, 0) order by d)
+              from generate_series(current_date - 6, current_date, interval '1 day') d
+              left join lateral (
+                select count(*)::int as n from agent_sessions s
+                 where s.agent_id = a.id
+                   and coalesce(s.started_at, s.created_at)::date = d::date
+              ) x on true) as "runsByDay"
+      from agents a
+      left join lateral (
+        select count(*)::int as runs7d,
+               count(*) filter (where s.status = 'failed')::int as failed7d,
+               coalesce(sum(s.cost_usd), 0)::float8 as spend7d
+          from agent_sessions s
+         where s.agent_id = a.id
+           and coalesce(s.started_at, s.created_at) > now() - interval '7 days'
+      ) r on true
+      left join lateral (
+        select coalesce(s.started_at, s.created_at) as at, s.status
+          from agent_sessions s where s.agent_id = a.id
+         order by coalesce(s.started_at, s.created_at) desc limit 1
+      ) last on true
+     order by a.enabled desc, a.name
+  `;
+}
+
+export interface AgentRun {
+  id: string;
+  at: string;
+  prompt: string;
+  status: string;
+  costUsd: number | null;
+  latencyMs: number | null;
+  skill: string | null;
+  error: string | null;
+}
+
+/** An agent's most recent runs, newest first. */
+export async function listAgentRuns(agentId: string, limit = 12): Promise<AgentRun[]> {
+  const sql = getSql();
+  return sql<AgentRun[]>`
+    select s.id, coalesce(s.started_at, s.created_at) as at, s.prompt, s.status,
+           s.cost_usd::float8 as "costUsd", s.latency_ms as "latencyMs",
+           k.name as skill, s.error
+      from agent_sessions s
+      left join agent_skills k on k.id = s.agent_skill_id
+     where s.agent_id = ${agentId}
+     order by coalesce(s.started_at, s.created_at) desc
+     limit ${limit}
+  `;
+}
+
+export interface HubDay {
+  /** YYYY-MM-DD, in the database's time zone. */
+  day: string;
+  runs: number;
+  failed: number;
+  spend: number;
+}
+
+/**
+ * Runs, failures and spend per day across every agent, oldest first, with the
+ * empty days filled in — for the Overview's activity chart.
+ */
+export async function hubActivity(days = 14): Promise<HubDay[]> {
+  const sql = getSql();
+  const span = Math.max(1, Math.min(Math.trunc(days), 90));
+  return sql<HubDay[]>`
+    select to_char(d, 'YYYY-MM-DD') as day,
+           coalesce(x.runs, 0) as runs, coalesce(x.failed, 0) as failed, coalesce(x.spend, 0) as spend
+      from generate_series(current_date - ${span - 1}::int, current_date, interval '1 day') d
+      left join lateral (
+        select count(*)::int as runs,
+               count(*) filter (where s.status = 'failed')::int as failed,
+               coalesce(sum(s.cost_usd), 0)::float8 as spend
+          from agent_sessions s
+         where coalesce(s.started_at, s.created_at)::date = d::date
+      ) x on true
+     order by d
+  `;
+}
+
+export interface HubRun extends AgentRun {
+  agentName: string | null;
+  agentSlug: string | null;
+}
+
+/** The latest runs across the whole hub, newest first, with the agent that made each. */
+export async function listRecentRuns(limit = 8): Promise<HubRun[]> {
+  const sql = getSql();
+  return sql<HubRun[]>`
+    select s.id, coalesce(s.started_at, s.created_at) as at, s.prompt, s.status,
+           s.cost_usd::float8 as "costUsd", s.latency_ms as "latencyMs",
+           k.name as skill, s.error, a.name as "agentName", a.slug as "agentSlug"
+      from agent_sessions s
+      left join agents a on a.id = s.agent_id
+      left join agent_skills k on k.id = s.agent_skill_id
+     order by coalesce(s.started_at, s.created_at) desc
+     limit ${limit}
+  `;
+}
+
+/** Which agents retrieve from which knowledge collection — for the Knowledge page. */
+export async function listAgentKnowledgeScopes(): Promise<{ name: string; slug: string; collection: string }[]> {
+  const sql = getSql();
+  return sql<{ name: string; slug: string; collection: string }[]>`
+    select name, slug, knowledge_collection as collection
+      from agents
+     where knowledge_collection is not null and knowledge_collection <> ''
+     order by name
+  `;
+}
+
+export const MEMORY_REGIONS = ["projects", "people", "rules", "routines"] as const;
+export type MemoryRegion = (typeof MEMORY_REGIONS)[number];
+
+/**
+ * File a memory under a region of the Context map, or null to untag it. Not a
+ * change to what the memory says, so updated_at is left alone.
+ */
+export async function setMemoryRegion(
+  agentId: string,
+  key: string,
+  region: MemoryRegion | null,
+): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`
+    update agent_memories set region = ${region}
+     where agent_id = ${agentId} and key = ${key}
+  `;
+  return rows.count > 0;
+}
+
 export async function forgetMemory(agentId: string, key: string): Promise<boolean> {
   const sql = getSql();
   const rows = await sql`

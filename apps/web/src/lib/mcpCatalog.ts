@@ -64,11 +64,44 @@ function schemaParams(schema: unknown): McpToolParam[] {
   }));
 }
 
+/**
+ * How long introspection waits for a server to answer.
+ *
+ * connectMcpServers has no deadline of its own, which is right for an agent run
+ * (a slow server is still a server) and wrong for a page: a stdio child that
+ * never finishes starting, or a remote that does not answer, held /mcp open
+ * indefinitely — the click appeared to do nothing, so people clicked again,
+ * which restarted the wait. Six seconds is longer than any healthy server
+ * takes to say hello and shorter than anyone waits for a page.
+ */
+const INTROSPECT_DEADLINE_MS = 6000;
+
+async function connectWithDeadline(cfg: McpServerConfig) {
+  const connecting = connectMcpServers([cfg]);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(
+      () => reject(new Error(`"${cfg.name}" did not answer within ${INTROSPECT_DEADLINE_MS / 1000}s.`)),
+      INTROSPECT_DEADLINE_MS,
+    );
+  });
+  try {
+    return await Promise.race([connecting, deadline]);
+  } catch (err) {
+    // A connect that completes after we gave up must still be torn down, or
+    // every timed-out visit leaks a child process.
+    connecting.then((mcp) => mcp.close()).catch(() => {});
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 // Connects to a single server, returns its tools, and always closes the child.
 export async function describeMcpServer(name: string): Promise<McpToolInfo[]> {
   const cfg = resolveServerConfig(name);
   if (!cfg) throw new Error(`Unknown MCP server: ${name}`);
-  const mcp = await connectMcpServers([cfg]);
+  const mcp = await connectWithDeadline(cfg);
   try {
     return mcp.tools.map((t) => ({
       name: t.name,
@@ -86,7 +119,7 @@ export async function countMcpTools(name: string): Promise<number | null> {
   const cfg = resolveServerConfig(name);
   if (!cfg) return null;
   try {
-    const mcp = await connectMcpServers([cfg]);
+    const mcp = await connectWithDeadline(cfg);
     try {
       return mcp.tools.length;
     } finally {
@@ -95,4 +128,27 @@ export async function countMcpTools(name: string): Promise<number | null> {
   } catch {
     return null;
   }
+}
+
+export interface ServerConnection {
+  /** remote: Streamable HTTP from HUB_REMOTE_MCP_SERVERS. local: a stdio child the hub starts. */
+  kind: "remote" | "local" | "unknown";
+  /** Remote only: the host, never the full URL — a URL can carry a key in its query. */
+  host?: string;
+  /** Remote only: whether a bearer token or headers are configured for it. */
+  authConfigured?: boolean;
+}
+
+export function serverConnection(name: string): ServerConnection {
+  const remote = remoteServerInfo().find((r) => r.name === name);
+  if (remote) {
+    let host: string | undefined;
+    try {
+      host = new URL(remote.url).host;
+    } catch {
+      host = undefined;
+    }
+    return { kind: "remote", host, authConfigured: remote.configured };
+  }
+  return resolveServerConfig(name) ? { kind: "local" } : { kind: "unknown" };
 }

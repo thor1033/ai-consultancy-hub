@@ -43,8 +43,11 @@ if (!process.env.DATABASE_URL) {
 
 const {
   createAgent, getAgent, listAgents, updateAgent, deleteAgent,
-  rememberMemory, listMemories, searchMemories, forgetMemory, setMemoryActive,
+  rememberMemory, listMemories, searchMemories, forgetMemory, setMemoryActive, setMemoryRegion,
 } = await import("./src/agents.ts");
+const { contextSnapshot } = await import("./src/context.ts");
+const { agentRoster, listAgentRuns, hubActivity, listRecentRuns } = await import("./src/agents.ts");
+const { serverUsage, toolCallCounts, listServerRuns } = await import("./src/mcpServers.ts");
 const { getSql } = await import("./src/client.ts");
 
 const slug = `verify-agents-${Date.now()}`;
@@ -162,6 +165,78 @@ try {
 
   const counted = await getAgent(agent.id);
   check("the agent's memoryCount reflects the store", counted.memoryCount === 1, String(counted.memoryCount));
+
+  // ── context map ───────────────────────────────────────────────────────────
+  const [{ updatedAt: before }] = await getSql()`
+    select updated_at as "updatedAt" from agent_memories where agent_id = ${agent.id} and key = 'cadence'
+  `;
+  check("setMemoryRegion files a memory", (await setMemoryRegion(agent.id, "cadence", "routines")) === true);
+  let snap = await contextSnapshot();
+  const filed = snap.memories.find((m) => m.agentId === agent.id && m.key === "cadence");
+  check("the context snapshot carries the region", filed?.region === "routines", String(filed?.region));
+  check("filing is not an edit: updated_at is unchanged", filed && Date.parse(filed.updatedAt) === new Date(before).getTime());
+  check("setMemoryRegion with null untags it", (await setMemoryRegion(agent.id, "cadence", null)) === true);
+  snap = await contextSnapshot();
+  check("an untagged memory has a null region",
+    snap.memories.find((m) => m.agentId === agent.id && m.key === "cadence")?.region === null);
+  check("setMemoryRegion on an absent key is false", (await setMemoryRegion(agent.id, "never-existed", "people")) === false);
+  const mine = snap.agents.find((a) => a.id === agent.id);
+  check("the snapshot lists the agent with its brief", mine?.brief === "Be brief.", mine?.brief);
+  check("the snapshot's activity is newest first and capped",
+    snap.activity.length <= 10 && snap.activity.every((e, i, all) => i === 0 || all[i - 1].at >= e.at));
+  // ── roster and runs ───────────────────────────────────────────────────────
+  await getSql()`
+    insert into agent_sessions (prompt, status, agent_id, started_at, cost_usd)
+    values ('verify run ok', 'succeeded', ${agent.id}, now() - interval '1 hour', 0.25),
+           ('verify run failed', 'failed', ${agent.id}, now() - interval '2 hours', 0.05),
+           ('verify run old', 'succeeded', ${agent.id}, now() - interval '20 days', 9)
+  `;
+  const row = (await agentRoster()).find((r) => r.id === agent.id);
+  check("the roster lists the agent", Boolean(row));
+  check("the roster counts runs and failures in the last 7 days only",
+    row?.runs7d === 2 && row?.failed7d === 1, `${row?.runs7d} runs, ${row?.failed7d} failed`);
+  check("the roster sums 7-day spend as a number",
+    typeof row?.spend7d === "number" && Math.abs(row.spend7d - 0.3) < 1e-9, String(row?.spend7d));
+  check("runsByDay has 7 days and today's runs",
+    row?.runsByDay?.length === 7 && row.runsByDay[6] >= 1, JSON.stringify(row?.runsByDay));
+  check("the roster's last run is the newest", row?.lastRunStatus === "succeeded");
+  const runs = await listAgentRuns(agent.id, 2);
+  check("listAgentRuns is newest first and limited",
+    runs.length === 2 && runs[0].prompt === "verify run ok" && runs[1].status === "failed");
+  check("run cost comes back as a number", typeof runs[0].costUsd === "number");
+  const days = await hubActivity(14);
+  const today = days[days.length - 1];
+  check("hubActivity fills every day, oldest first",
+    days.length === 14 && days[0].day < today.day, `${days[0]?.day} … ${today?.day}`);
+  check("hubActivity counts today's runs and failures",
+    today.runs >= 2 && today.failed >= 1 && typeof today.spend === "number", JSON.stringify(today));
+  const recent = await listRecentRuns(50);
+  const ours = recent.filter((r) => r.agentSlug === slug);
+  check("listRecentRuns names the agent behind each run",
+    ours.length === 3 && ours[0].agentName === "Renamed" && ours[0].prompt === "verify run ok",
+    JSON.stringify(ours.map((r) => [r.prompt, r.agentName])));
+  // ── server and tool usage ─────────────────────────────────────────────────
+  const srv = `verify-srv-${Date.now()}`;
+  const tool = `verify_tool_${Date.now()}`;
+  await getSql()`
+    insert into agent_sessions (prompt, status, agent_id, started_at, mcp_servers, tools_used)
+    values ('verify srv new', 'succeeded', ${agent.id}, now() - interval '1 hour',
+            ${getSql().json([srv])}, ${getSql().json([tool, tool])}),
+           ('verify srv old', 'succeeded', ${agent.id}, now() - interval '40 days',
+            ${getSql().json([srv])}, ${getSql().json([tool])})
+  `;
+  const usage = (await serverUsage(7)).find((u) => u.name === srv);
+  check("serverUsage counts only runs in the window but remembers the last use",
+    usage?.runs === 1 && Boolean(usage?.lastUsedAt), JSON.stringify(usage));
+  const calls = (await toolCallCounts(30)).find((t) => t.tool === tool);
+  check("toolCallCounts counts every call in the window", calls?.calls === 2, JSON.stringify(calls));
+  const srvRuns = await listServerRuns(srv, 5);
+  check("listServerRuns finds the runs that connected to a server, newest first",
+    srvRuns.length === 2 && srvRuns[0].prompt === "verify srv new" && Array.isArray(srvRuns[0].toolsUsed));
+  check("listServerRuns ignores other servers", (await listServerRuns(`${srv}-none`, 5)).length === 0);
+  await getSql()`delete from agent_sessions where agent_id = ${agent.id}`;
+  check("knowledge counts are numbers",
+    Number.isInteger(snap.knowledge.documents) && Number.isInteger(snap.knowledge.collections));
 
   // ── delete cascades ───────────────────────────────────────────────────────
   const agentId = agent.id;

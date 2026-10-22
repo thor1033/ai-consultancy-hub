@@ -1,5 +1,6 @@
-// Shared navigation model for the command-center shell. Icons are compact
-// stroke glyphs so the sidebar reads as a tool, not a marketing menu.
+// Shared navigation model for the shell. Icons are square-cornered stroke
+// glyphs drawn from the brand's geometry (rectangle = data, circle = human,
+// stacked rectangles = knowledge, portal = access) — not a SaaS icon set.
 
 export interface NavItem {
   href: string;
@@ -8,14 +9,14 @@ export interface NavItem {
 }
 
 const s = {
-  width: 17,
-  height: 17,
+  width: 16,
+  height: 16,
   viewBox: "0 0 24 24",
   fill: "none",
   stroke: "currentColor",
-  strokeWidth: 1.8,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
+  strokeWidth: 1.6,
+  strokeLinecap: "square" as const,
+  strokeLinejoin: "miter" as const,
 };
 
 export const NAV: NavItem[] = [
@@ -24,10 +25,10 @@ export const NAV: NavItem[] = [
     label: "Overview",
     icon: (
       <svg {...s}>
-        <rect x="3" y="3" width="7" height="9" rx="1.5" />
-        <rect x="14" y="3" width="7" height="5" rx="1.5" />
-        <rect x="14" y="12" width="7" height="9" rx="1.5" />
-        <rect x="3" y="16" width="7" height="5" rx="1.5" />
+        <rect x="3" y="3" width="7" height="9" />
+        <rect x="14" y="3" width="7" height="5" />
+        <rect x="14" y="12" width="7" height="9" />
+        <rect x="3" y="16" width="7" height="5" />
       </svg>
     ),
   },
@@ -35,9 +36,11 @@ export const NAV: NavItem[] = [
     href: "/knowledge",
     label: "Knowledge",
     icon: (
+      // Stacked rectangles: the brand's symbol for knowledge / documents.
       <svg {...s}>
-        <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H20v15H6.5A2.5 2.5 0 0 0 4 20.5z" />
-        <path d="M4 5.5V20.5" />
+        <rect x="3" y="13" width="14" height="8" />
+        <path d="M6 13V9h14v8h-3" />
+        <path d="M9 9V5h12v8" />
       </svg>
     ),
   },
@@ -45,9 +48,26 @@ export const NAV: NavItem[] = [
     href: "/agents",
     label: "Agents",
     icon: (
+      // Human (circle) with the blue duplicate offset — here as a second outline.
       <svg {...s}>
-        <rect x="5" y="8" width="14" height="11" rx="2.5" />
-        <path d="M12 8V4.5M9.5 13h.01M14.5 13h.01M2.5 12v3M21.5 12v3" />
+        <circle cx="10" cy="10" r="5" />
+        <path d="M14 7.5a5 5 0 0 1 0 5" />
+        <path d="M3 21v-1a7 7 0 0 1 7-7h0a7 7 0 0 1 7 7v1" />
+      </svg>
+    ),
+  },
+  {
+    href: "/context",
+    label: "Context",
+    icon: (
+      // A small network: nodes joined to a centre — what the agents hold.
+      <svg {...s}>
+        <rect x="10" y="10" width="4" height="4" />
+        <rect x="3" y="4" width="3" height="3" />
+        <rect x="18" y="4" width="3" height="3" />
+        <rect x="3" y="17" width="3" height="3" />
+        <rect x="18" y="17" width="3" height="3" />
+        <path d="M6 6.5l4 4M18 6.5l-4 4M6 17.5l4-4M18 17.5l-4-4" />
       </svg>
     ),
   },
@@ -56,8 +76,8 @@ export const NAV: NavItem[] = [
     label: "MCP servers",
     icon: (
       <svg {...s}>
-        <rect x="3" y="4" width="18" height="6" rx="1.5" />
-        <rect x="3" y="14" width="18" height="6" rx="1.5" />
+        <rect x="3" y="4" width="18" height="6" />
+        <rect x="3" y="14" width="18" height="6" />
         <path d="M7 7h.01M7 17h.01" />
       </svg>
     ),
@@ -66,9 +86,11 @@ export const NAV: NavItem[] = [
     href: "/admin",
     label: "Control plane",
     icon: (
+      // Portal / arch: access.
       <svg {...s}>
-        <path d="M12 3l7 4v5c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V7z" />
-        <path d="M9.5 12l1.8 1.8 3.2-3.6" />
+        <path d="M4 21V11a8 8 0 0 1 16 0v10" />
+        <path d="M4 21h16" />
+        <path d="M9 21v-6h6v6" />
       </svg>
     ),
   },
@@ -78,15 +100,23 @@ export function isActive(pathname: string, href: string): boolean {
   return href === "/" ? pathname === "/" : pathname.startsWith(href);
 }
 
-export function Logo({ size = 30 }: { size?: number }) {
+/**
+ * The brand lockup for the product: the typographic wordmark with the product
+ * name beside it. The mark itself (assets/logo/mark-red.svg) is a supplied
+ * asset the design system says never to redraw, so there is a slot for it,
+ * not an imitation of it: drop the SVG into public/brand/mark-red.svg and set
+ * `mark` to true.
+ */
+export function Wordmark({ mark = false, product = "AI hub" }: { mark?: boolean; product?: string }) {
   return (
-    <span
-      className="brand-gradient relative grid place-items-center rounded-[0.55rem]"
-      style={{ width: size, height: size }}
-    >
-      <svg width={size * 0.56} height={size * 0.56} viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M12 3l2.1 5.1L19 10l-4.9 1.9L12 17l-2.1-5.1L5 10l4.9-1.9z" />
-      </svg>
+    <span className="flex items-center gap-2.5">
+      {mark && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src="/brand/mark-red.svg" alt="" width={14} height={14} className="shrink-0" />
+      )}
+      <span className="wordmark">Teqneo</span>
+      <span className="wordmark-rule" aria-hidden />
+      <span className="text-[0.8rem] font-medium text-[var(--text-soft)]">{product}</span>
     </span>
   );
 }

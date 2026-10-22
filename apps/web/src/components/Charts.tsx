@@ -17,6 +17,9 @@ import {
 
 // Recharts wrappers themed entirely through CSS variables, so charts re-theme
 // with light/dark automatically (SVG accepts var(--token) for fill/stroke).
+// Flat fills only: the design system allows no gradients outside the blue AI
+// layer, and no rounded geometry. Black carries the data, red the conclusion,
+// blue what the agent did.
 // Formatting is passed as a string kind (not a function) because these are Client
 // Components and functions can't cross the server→client boundary as props.
 
@@ -30,7 +33,7 @@ function formatValue(n: number, format?: ValueFormat): string {
     : n.toLocaleString();
 }
 
-function GlassTooltip({
+function ChartTooltip({
   active,
   payload,
   label,
@@ -44,36 +47,30 @@ function GlassTooltip({
   if (!active || !payload?.length) return null;
   const v = Number(payload[0]?.value ?? 0);
   return (
-    <div className="panel rounded-lg px-3 py-2 text-xs">
+    <div className="panel px-3 py-2 text-xs" style={{ boxShadow: "var(--shadow-popover)" }}>
       {label != null && <div className="mb-0.5 text-[var(--muted)]">{label}</div>}
       <div className="font-semibold text-[var(--text)]">{formatValue(v, format)}</div>
     </div>
   );
 }
 
-/** Hero area trend with a gradient fill. */
+/** Area trend with a flat tinted fill. */
 export function AreaTrend({
   points,
-  color = "var(--brand)",
+  color = "var(--text)",
   height = 240,
   format,
-  gradientId = "area-grad",
 }: {
   points: { label: string; value: number }[];
   color?: string;
   height?: number;
   format?: ValueFormat;
+  /** Kept for callers that still pass it; fills are flat now, so it is unused. */
   gradientId?: string;
 }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.5} />
-            <stop offset="100%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
         <XAxis
           dataKey="label"
           tick={{ fill: AXIS, fontSize: 11 }}
@@ -84,50 +81,46 @@ export function AreaTrend({
         <YAxis hide />
         <Tooltip
           cursor={{ stroke: "var(--border-strong)", strokeDasharray: 4 }}
-          content={<GlassTooltip format={format} />}
+          content={<ChartTooltip format={format} />}
         />
         <Area
-          type="monotone"
+          type="linear"
           dataKey="value"
           stroke={color}
-          strokeWidth={2.5}
-          fill={`url(#${gradientId})`}
+          strokeWidth={2}
+          fill={color}
+          fillOpacity={0.1}
           dot={false}
-          activeDot={{ r: 4, fill: color, stroke: "var(--panel)", strokeWidth: 2 }}
+          activeDot={{ r: 3, fill: "var(--brand)", stroke: "var(--panel)", strokeWidth: 2 }}
         />
       </AreaChart>
     </ResponsiveContainer>
   );
 }
 
-/** Tiny inline sparkline for KPI cards. */
+/** Tiny inline sparkline for KPI cards. Blue: it is the agent's trace. */
 export function Sparkline({
   points,
-  color = "var(--brand-2)",
+  color = "var(--ai)",
   height = 44,
-  id = "spark",
 }: {
   points: number[];
   color?: string;
   height?: number;
+  /** Kept for callers that still pass it; unused now that fills are flat. */
   id?: string;
 }) {
   const data = points.map((v, i) => ({ i, value: v }));
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={data} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
-        <defs>
-          <linearGradient id={id} x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%" stopColor={color} stopOpacity={0.45} />
-            <stop offset="100%" stopColor={color} stopOpacity={0} />
-          </linearGradient>
-        </defs>
         <Area
-          type="monotone"
+          type="linear"
           dataKey="value"
           stroke={color}
-          strokeWidth={2}
-          fill={`url(#${id})`}
+          strokeWidth={1.5}
+          fill={color}
+          fillOpacity={0.12}
           dot={false}
           isAnimationActive={false}
         />
@@ -136,7 +129,7 @@ export function Sparkline({
   );
 }
 
-/** Horizontal bars, e.g. net value by skill. */
+/** Horizontal bars, e.g. net value by skill. Square, black. */
 export function SkillBars({
   data,
   format,
@@ -154,12 +147,6 @@ export function SkillBars({
         margin={{ top: 4, right: 12, bottom: 4, left: 8 }}
         barCategoryGap={12}
       >
-        <defs>
-          <linearGradient id="bar-grad" x1="0" y1="0" x2="1" y2="0">
-            <stop offset="0%" stopColor="var(--brand)" />
-            <stop offset="100%" stopColor="var(--brand-2)" />
-          </linearGradient>
-        </defs>
         <XAxis type="number" hide />
         <YAxis
           type="category"
@@ -171,9 +158,9 @@ export function SkillBars({
         />
         <Tooltip
           cursor={{ fill: "var(--panel-inset)" }}
-          content={<GlassTooltip format={format} />}
+          content={<ChartTooltip format={format} />}
         />
-        <Bar dataKey="value" fill="url(#bar-grad)" radius={[6, 6, 6, 6]} maxBarSize={22}>
+        <Bar dataKey="value" fill="var(--text)" radius={0} maxBarSize={22}>
           {data.map((_, i) => (
             <Cell key={i} />
           ))}
@@ -183,7 +170,7 @@ export function SkillBars({
   );
 }
 
-/** Single-value radial gauge (0–100%). */
+/** Single-value radial gauge (0–100%). Red: the conclusion. */
 export function RatioGauge({
   percent,
   label,
@@ -206,23 +193,17 @@ export function RatioGauge({
           startAngle={90}
           endAngle={-270}
         >
-          <defs>
-            <linearGradient id="gauge-grad" x1="0" y1="0" x2="1" y2="1">
-              <stop offset="0%" stopColor="var(--brand)" />
-              <stop offset="100%" stopColor="var(--brand-2)" />
-            </linearGradient>
-          </defs>
           <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
           <RadialBar
             dataKey="value"
-            cornerRadius={999}
-            fill="url(#gauge-grad)"
+            cornerRadius={0}
+            fill="var(--brand)"
             background={{ fill: "var(--panel-inset)" }}
           />
         </RadialBarChart>
       </ResponsiveContainer>
       <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-        {center && <div className="text-2xl font-semibold text-[var(--text)]">{center}</div>}
+        {center && <div className="metric text-2xl font-bold text-[var(--text)]">{center}</div>}
         {label && <div className="mt-0.5 text-xs text-[var(--muted)]">{label}</div>}
       </div>
     </div>

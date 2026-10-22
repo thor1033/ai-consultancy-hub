@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from"react";
 import {
   loadAccessAction,
   savePrincipalAction,
@@ -10,15 +10,15 @@ import {
   setCollectionVisibilityAction,
   grantCollectionAction,
   revokeCollectionAction,
-} from "./accessActions";
+} from"./accessActions";
 import type {
   AccessSnapshot,
   AccessCredential,
   AccessPrincipal,
   AccessCollection,
-} from "./types";
+} from"./types";
 
-const ROLES = ["admin", "analyst", "viewer"] as const;
+const ROLES = ["admin","analyst","viewer"] as const;
 
 export function AccessPanel() {
   const [snap, setSnap] = useState<AccessSnapshot | null>(null);
@@ -53,8 +53,8 @@ export function AccessPanel() {
 
   if (!snap) {
     return (
-      <div className="panel border-l-2 border-l-[var(--danger)] p-4 text-sm text-[var(--danger)]">
-        {error ?? "Access is unavailable."}
+      <div className="panel notice-danger p-4 text-sm text-[var(--danger)]">
+        {error ??"Access is unavailable."}
       </div>
     );
   }
@@ -68,17 +68,9 @@ export function AccessPanel() {
   return (
     <div className="space-y-8">
       {error && (
-        <div className="panel border-l-2 border-l-[var(--danger)] p-3 text-sm text-[var(--danger)]">
+        <div className="panel notice-danger p-3 text-sm text-[var(--danger)]">
           {error}
         </div>
-      )}
-
-      {freshToken && (
-        <FreshToken
-          name={freshToken.name}
-          token={freshToken.token}
-          onDismiss={() => setFreshToken(null)}
-        />
       )}
 
       <OAuthStatusCard snap={snap} />
@@ -96,7 +88,7 @@ export function AccessPanel() {
           }
         />
         <PrincipalForm
-          busy={busy === "save-principal"}
+          busy={busy ==="save-principal"}
           onSave={(input) => run("save-principal", () => savePrincipalAction(input))}
         />
       </section>
@@ -106,18 +98,25 @@ export function AccessPanel() {
           title="Credentials"
           subtitle="Long-lived bearer tokens for clients that cannot do OAuth — CI, a cron job, another hub. Revoking one takes effect on the next request, with no deploy."
         />
+        {freshToken && (
+          <FreshToken
+            name={freshToken.name}
+            token={freshToken.token}
+            onDismiss={() => setFreshToken(null)}
+          />
+        )}
         <CredentialList
           snap={snap}
           busy={busy}
           onRevoke={(c) => {
-            if (!confirm(`Revoke "${c.name}" (${c.tokenPrefix}…)? Any client using it stops working immediately.`))
+            if (!confirm(`Revoke"${c.name}" (${c.tokenPrefix}…)? Any client using it stops working immediately.`))
               return;
             void run(`c:${c.id}`, () => revokeCredentialAction(c.id));
           }}
         />
         <IssueForm
           principals={snap.principals}
-          busy={busy === "issue"}
+          busy={busy ==="issue"}
           onIssue={async (input) => {
             setBusy("issue");
             const out = await issueCredentialAction(input);
@@ -144,7 +143,7 @@ export function AccessPanel() {
             run(`k:${c.name}`, () =>
               setCollectionVisibilityAction(
                 c.name,
-                c.visibility === "open" ? "restricted" : "open",
+                c.visibility ==="open" ?"restricted" :"open",
               ),
             )
           }
@@ -175,13 +174,13 @@ function OAuthStatusCard({ snap }: { snap: AccessSnapshot }) {
       <div className="flex flex-wrap items-center gap-2">
         <h2 className="text-sm font-semibold">OAuth 2.1</h2>
         <span
-          className={`rounded px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+          className={`px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] ${
             oauth.configured
-              ? "bg-[var(--brand-soft)] text-[var(--positive)]"
-              : "border border-[var(--border)] text-[var(--muted)]"
+              ?"bg-[var(--brand-soft)] text-[var(--positive)]"
+              :"border border-[var(--border)] text-[var(--muted)]"
           }`}
         >
-          {oauth.configured ? "Configured" : "Not configured"}
+          {oauth.configured ?"Configured" :"Not configured"}
         </span>
       </div>
 
@@ -211,10 +210,10 @@ function OAuthStatusCard({ snap }: { snap: AccessSnapshot }) {
       {legacyTokens > 0 && (
         <p className="mt-3 border-t border-[var(--border)] pt-3 text-sm text-[var(--text-soft)]">
           <strong className="text-[var(--danger)]">
-            {legacyTokens} legacy {legacyTokens === 1 ? "token" : "tokens"}
-          </strong>{" "}
+            {legacyTokens} legacy {legacyTokens === 1 ?"token" :"tokens"}
+          </strong>{""}
           still resolve from <code>HUB_API_TOKENS</code>. They cannot be revoked from here — every
-          deploy replaces the whole map. Reissue each as a credential, set{" "}
+          deploy replaces the whole map. Reissue each as a credential, set{""}
           <code>HUB_DISABLE_LEGACY_TOKENS=1</code>, then delete the secret.
         </p>
       )}
@@ -232,8 +231,14 @@ function FreshToken({
   onDismiss: () => void;
 }) {
   const [copied, setCopied] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  // The issue form sits at the bottom of a long page; without this the one-time
+  // token renders out of view and is easily lost.
+  useEffect(() => {
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [token]);
   return (
-    <div className="panel border-l-2 border-l-[var(--positive)] p-4">
+    <div ref={ref} className="panel notice-info mb-3 p-4">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <h3 className="text-sm font-semibold">Copy “{name}” now</h3>
@@ -247,7 +252,7 @@ function FreshToken({
         </button>
       </div>
       <div className="mt-3 flex items-center gap-2">
-        <code className="mono min-w-0 flex-1 overflow-x-auto rounded-lg border border-[var(--border)] bg-[var(--panel-inset)] p-2 text-xs">
+        <code className="mono min-w-0 flex-1 select-all overflow-x-auto border border-[var(--border)] bg-[var(--panel-inset)] p-2 text-xs">
           {token}
         </code>
         <button
@@ -259,7 +264,7 @@ function FreshToken({
             });
           }}
         >
-          {copied ? "Copied" : "Copy"}
+          {copied ?"Copied" :"Copy"}
         </button>
       </div>
     </div>
@@ -288,7 +293,7 @@ function PrincipalList({
       {snap.principals.map((p) => (
         <div
           key={p.id}
-          className={`panel flex items-start justify-between gap-4 p-4 ${p.enabled ? "" : "opacity-65"}`}
+          className={`panel flex items-start justify-between gap-4 p-4 ${p.enabled ?"" :"opacity-65"}`}
         >
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
@@ -296,31 +301,31 @@ function PrincipalList({
               {p.roles.map((r) => (
                 <span
                   key={r}
-                  className="rounded bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--positive)]"
+                  className="bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[var(--positive)]"
                 >
                   {r}
                 </span>
               ))}
               {!p.roles.length && (
-                <span className="rounded border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--muted)]">
+                <span className="border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[var(--muted)]">
                   no roles
                 </span>
               )}
             </div>
             <div className="mono mt-1 text-xs text-[var(--muted)]">
               {p.id}
-              {p.email ? ` · ${p.email}` : " · no email — OAuth cannot match this person"}
-              {p.workosBound ? " · WorkOS bound" : ""}
-              {p.agentId ? ` · agent ${p.agentId}` : ""}
-              {` · ${p.credentialCount} credential${p.credentialCount === 1 ? "" : "s"}`}
+              {p.email ?` · ${p.email}` :" · no email — OAuth cannot match this person"}
+              {p.workosBound ?" · WorkOS bound" :""}
+              {p.agentId ?` · agent ${p.agentId}` :""}
+              {` · ${p.credentialCount} credential${p.credentialCount === 1 ?"" :"s"}`}
             </div>
           </div>
           <button
             onClick={() => onToggle(p)}
-            disabled={busy === `p:${p.id}`}
+            disabled={busy ===`p:${p.id}`}
             className="chip shrink-0 disabled:opacity-50"
           >
-            {p.enabled ? "Disable" : "Enable"}
+            {p.enabled ?"Disable" :"Enable"}
           </button>
         </div>
       ))}
@@ -377,7 +382,7 @@ function PrincipalForm({
       </div>
       <RolePicker roles={roles} setRoles={setRoles} />
       <button type="submit" disabled={busy || !id.trim()} className="btn-brand mt-4">
-        {busy ? "Saving…" : "Save person"}
+        {busy ?"Saving…" :"Save person"}
       </button>
     </form>
   );
@@ -410,7 +415,7 @@ function CredentialList({
               {c.roles.map((r) => (
                 <span
                   key={r}
-                  className="rounded bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--positive)]"
+                  className="bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[var(--positive)]"
                 >
                   {r}
                 </span>
@@ -418,16 +423,16 @@ function CredentialList({
             </div>
             <div className="mono mt-1 text-xs text-[var(--muted)]">
               {c.tokenPrefix}… · {c.principalId}
-              {c.agentId ? ` · agent ${c.agentId}` : ""}
+              {c.agentId ?` · agent ${c.agentId}` :""}
               {` · issued ${shortDate(c.createdAt)}`}
-              {c.createdBy ? ` by ${c.createdBy}` : ""}
-              {` · ${c.lastUsedAt ? `last used ${shortDate(c.lastUsedAt)}` : "never used"}`}
-              {c.expiresAt ? ` · expires ${shortDate(c.expiresAt)}` : ""}
+              {c.createdBy ?` by ${c.createdBy}` :""}
+              {` · ${c.lastUsedAt ?`last used ${shortDate(c.lastUsedAt)}` :"never used"}`}
+              {c.expiresAt ?` · expires ${shortDate(c.expiresAt)}` :""}
             </div>
           </div>
           <button
             onClick={() => onRevoke(c)}
-            disabled={busy === `c:${c.id}`}
+            disabled={busy ===`c:${c.id}`}
             className="chip shrink-0 text-[var(--danger)] disabled:opacity-50"
           >
             Revoke
@@ -497,7 +502,7 @@ function IssueForm({
             {principals.map((p) => (
               <option key={p.id} value={p.id}>
                 {p.displayName || p.id}
-                {p.enabled ? "" : " (disabled)"}
+                {p.enabled ?"" :" (disabled)"}
               </option>
             ))}
           </select>
@@ -517,7 +522,7 @@ function IssueForm({
       </div>
       <RolePicker roles={roles} setRoles={setRoles} />
       <button type="submit" disabled={!canIssue} className="btn-brand mt-4">
-        {busy ? "Issuing…" : "Issue credential"}
+        {busy ?"Issuing…" :"Issue credential"}
       </button>
     </form>
   );
@@ -545,31 +550,31 @@ function KnowledgeList({
         <div className="flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold">Default for anything unclassified</h3>
           <span
-            className={`rounded px-2 py-0.5 text-[10px] uppercase tracking-wide ${
-              defaultVisibility === "restricted"
-                ? "bg-[var(--brand-soft)] text-[var(--positive)]"
-                : "border border-[var(--border)] text-[var(--muted)]"
+            className={`px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] ${
+              defaultVisibility ==="restricted"
+                ?"bg-[var(--brand-soft)] text-[var(--positive)]"
+                :"border border-[var(--border)] text-[var(--muted)]"
             }`}
           >
             {defaultVisibility}
           </span>
         </div>
-        {defaultVisibility === "open" ? (
+        {defaultVisibility ==="open" ? (
           <p className="mt-2 text-sm text-[var(--text-soft)]">
             {unclassified.length > 0 ? (
               <>
                 <strong className="text-[var(--danger)]">
-                  {unclassified.length} unclassified{" "}
-                  {unclassified.length === 1 ? "collection" : "collections"}
-                </strong>{" "}
-                and <strong>{unfiledDocuments}</strong> unfiled{" "}
-                {unfiledDocuments === 1 ? "document" : "documents"} are readable by everyone
-                who can authenticate. Classify them, then set{" "}
+                  {unclassified.length} unclassified{""}
+                  {unclassified.length === 1 ?"collection" :"collections"}
+                </strong>{""}
+                and <strong>{unfiledDocuments}</strong> unfiled{""}
+                {unfiledDocuments === 1 ?"document" :"documents"} are readable by everyone
+                who can authenticate. Classify them, then set{""}
                 <code>HUB_DEFAULT_COLLECTION_VISIBILITY=restricted</code>.
               </>
             ) : (
               <>
-                Everything is classified. Set{" "}
+                Everything is classified. Set{""}
                 <code>HUB_DEFAULT_COLLECTION_VISIBILITY=restricted</code> so anything added
                 later is private until it is granted.
               </>
@@ -577,9 +582,9 @@ function KnowledgeList({
           </p>
         ) : (
           <p className="mt-2 text-sm text-[var(--text-soft)]">
-            Nothing is readable without an explicit grant, including the{" "}
-            <strong>{unfiledDocuments}</strong> unfiled{" "}
-            {unfiledDocuments === 1 ? "document" : "documents"} — a document in no collection
+            Nothing is readable without an explicit grant, including the{""}
+            <strong>{unfiledDocuments}</strong> unfiled{""}
+            {unfiledDocuments === 1 ?"document" :"documents"} — a document in no collection
             has no drawer to be granted on.
           </p>
         )}
@@ -594,7 +599,7 @@ function KnowledgeList({
           key={c.name}
           collection={c}
           principals={snap.principals}
-          busy={busy === `k:${c.name}`}
+          busy={busy ===`k:${c.name}`}
           onToggle={() => onToggle(c)}
           onGrant={(pid) => onGrant(c.name, pid)}
           onRevoke={(pid) => onRevoke(c.name, pid)}
@@ -629,33 +634,33 @@ function CollectionRowView({
           <div className="flex flex-wrap items-center gap-2">
             <h3 className="font-medium text-[var(--text)]">{c.name}</h3>
             <span
-              className={`rounded px-2 py-0.5 text-[10px] uppercase tracking-wide ${
-                c.visibility === "restricted"
-                  ? "bg-[var(--brand-soft)] text-[var(--positive)]"
-                  : "border border-[var(--border)] text-[var(--muted)]"
+              className={`px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] ${
+                c.visibility ==="restricted"
+                  ?"bg-[var(--brand-soft)] text-[var(--positive)]"
+                  :"border border-[var(--border)] text-[var(--muted)]"
               }`}
             >
               {c.visibility}
             </span>
             {c.unclassified && (
-              <span className="rounded border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--danger)]">
+              <span className="border border-[var(--border)] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[var(--danger)]">
                 unclassified
               </span>
             )}
           </div>
           <div className="mono mt-1 text-xs text-[var(--muted)]">
-            {c.documentCount} {c.documentCount === 1 ? "document" : "documents"}
-            {c.visibility === "restricted"
-              ? ` · ${c.grantedTo.length} granted`
-              : " · readable by everyone"}
+            {c.documentCount} {c.documentCount === 1 ?"document" :"documents"}
+            {c.visibility ==="restricted"
+              ?` · ${c.grantedTo.length} granted`
+              :" · readable by everyone"}
           </div>
         </div>
         <button onClick={onToggle} disabled={busy} className="chip shrink-0 disabled:opacity-50">
-          {c.visibility === "open" ? "Restrict" : "Open to all"}
+          {c.visibility ==="open" ?"Restrict" :"Open to all"}
         </button>
       </div>
 
-      {c.visibility === "restricted" && (
+      {c.visibility ==="restricted" && (
         <div className="mt-3 border-t border-[var(--border)] pt-3">
           {c.grantedTo.length > 0 && (
             <div className="mb-2 flex flex-wrap gap-2">
@@ -712,16 +717,16 @@ function AuditList({ snap }: { snap: AccessSnapshot }) {
         <div key={e.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 p-3">
           <span
             className={`mono text-xs ${
-              e.event === "auth.denied" ? "text-[var(--danger)]" : "text-[var(--text-soft)]"
+              e.event ==="auth.denied" ?"text-[var(--danger)]" :"text-[var(--text-soft)]"
             }`}
           >
             {e.event}
           </span>
           <span className="mono text-xs text-[var(--muted)]">
             {shortDate(e.at)}
-            {e.source ? ` · ${e.source}` : ""}
-            {e.principalId ? ` · ${e.principalId}` : ""}
-            {e.actor ? ` · by ${e.actor}` : ""}
+            {e.source ?` · ${e.source}` :""}
+            {e.principalId ?` · ${e.principalId}` :""}
+            {e.actor ?` · by ${e.actor}` :""}
           </span>
           {Object.keys(e.detail).length > 0 && (
             <span className="mono min-w-0 flex-1 truncate text-xs text-[var(--muted)]">
@@ -753,7 +758,7 @@ function RolePicker({
               type="button"
               aria-pressed={on}
               onClick={() => setRoles(on ? roles.filter((x) => x !== r) : [...roles, r])}
-              className={`chip ${on ? "border-transparent bg-[var(--brand-soft)] text-[var(--positive)]" : ""}`}
+              className={`chip ${on ?"border-transparent bg-[var(--brand-soft)] text-[var(--positive)]" :""}`}
             >
               {r}
             </button>
@@ -804,9 +809,9 @@ function shortDate(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
+    month:"short",
+    day:"numeric",
+    hour:"2-digit",
+    minute:"2-digit",
   });
 }

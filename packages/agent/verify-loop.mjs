@@ -1,5 +1,5 @@
-// Verification of the tool-use loop's iteration cap — how many rounds an agent
-// may take, and what happens when it runs out.
+// Verification of the tool-use loop: its iteration cap, and the streamed
+// transport underneath it.
 //
 //   node packages/agent/verify-loop.mjs
 //
@@ -8,6 +8,13 @@
 // real runAgent runs against the real SDK — only the far end is fake. The
 // fixture counts the calls it receives, which is the only honest way to check a
 // cap: the tool output cannot tell you how many times the loop went round.
+//
+// The fixture speaks server-sent events, because runAgent now streams: the SDK
+// only permits an output budget above its ten-minute line on a streamed
+// request, and a non-streaming fixture would pass against a non-streaming
+// runAgent that throws on every real call. So the fixture records what each
+// request asked for, and the checks read that record rather than trusting the
+// loop's own account of itself.
 //
 // The case that matters is the last kind: a run that hits the cap has NOT
 // answered the question, and must not return its last half-formed sentence as
@@ -43,35 +50,93 @@ function check(label, ok, detail = "") {
 
 // ── the throwaway Messages API ───────────────────────────────────────────────
 // `plan.answerOn` is the turn the model finally stops asking for tools; Infinity
-// means it never does, which is what a runaway agent looks like.
-const plan = { calls: 0, answerOn: Infinity, textEachTurn: false };
+// means it never does, which is what a runaway agent looks like. `thinkOnly`
+// reproduces the expensive silence: a turn that is all thinking, cut off at
+// max_tokens before a visible character. `requests` keeps every request body
+// the SDK actually sent, so a check can read `stream` and `max_tokens` off the
+// wire instead of off the code.
+const plan = { calls: 0, answerOn: Infinity, textEachTurn: false, thinkOnly: false, requests: [] };
 
-const http = createServer(async (req, res) => {
-  for await (const _ of req) void _; // drain
-  plan.calls++;
+/**
+ * Writes one assistant message as the event stream the real API emits. Every
+ * block is split across two deltas on purpose — a tool_use input that arrives
+ * in two pieces of partial JSON is the thing streaming has to reassemble.
+ */
+function writeStream(res, blocks, stopReason) {
+  res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
+  const send = (event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
+  const halves = (s) => [s.slice(0, Math.ceil(s.length / 2)), s.slice(Math.ceil(s.length / 2))];
 
-  const answering = plan.calls >= plan.answerOn;
-  const content = [];
-  if (answering) {
-    content.push({ type: "text", text: "Two meetings tomorrow: standup at 09:00, review at 13:00." });
-  } else {
-    if (plan.textEachTurn) content.push({ type: "text", text: `Checking the calendar (round ${plan.calls})…` });
-    content.push({ type: "tool_use", id: `tu_${plan.calls}`, name: "probe", input: { round: plan.calls } });
-  }
-
-  res.writeHead(200, { "content-type": "application/json" });
-  res.end(
-    JSON.stringify({
+  send({
+    type: "message_start",
+    message: {
       id: `msg_${plan.calls}`,
       type: "message",
       role: "assistant",
       model: "claude-opus-4-8",
-      content,
-      stop_reason: answering ? "end_turn" : "tool_use",
+      content: [],
+      stop_reason: null,
       stop_sequence: null,
-      usage: { input_tokens: 100, output_tokens: 20 },
-    }),
-  );
+      usage: { input_tokens: 100, output_tokens: 0 },
+    },
+  });
+
+  blocks.forEach((block, index) => {
+    if (block.type === "text") {
+      send({ type: "content_block_start", index, content_block: { type: "text", text: "" } });
+      for (const piece of halves(block.text)) {
+        send({ type: "content_block_delta", index, delta: { type: "text_delta", text: piece } });
+      }
+    } else if (block.type === "tool_use") {
+      send({
+        type: "content_block_start",
+        index,
+        content_block: { type: "tool_use", id: block.id, name: block.name, input: {} },
+      });
+      for (const piece of halves(JSON.stringify(block.input))) {
+        send({ type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: piece } });
+      }
+    } else if (block.type === "thinking") {
+      send({ type: "content_block_start", index, content_block: { type: "thinking", thinking: "", signature: "" } });
+      send({ type: "content_block_delta", index, delta: { type: "thinking_delta", thinking: block.thinking } });
+      send({ type: "content_block_delta", index, delta: { type: "signature_delta", signature: "fixture-signature" } });
+    }
+    send({ type: "content_block_stop", index });
+  });
+
+  send({ type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 20 } });
+  send({ type: "message_stop" });
+  res.end();
+}
+
+const http = createServer(async (req, res) => {
+  let raw = "";
+  for await (const piece of req) raw += piece;
+  plan.calls++;
+  plan.requests.push(JSON.parse(raw));
+
+  const answering = plan.calls >= plan.answerOn;
+  const blocks = [];
+  let stopReason;
+  if (plan.thinkOnly) {
+    // The whole budget spent reasoning over a large tool result: a thinking
+    // block, no text, and the API's own verdict that the output limit was hit.
+    blocks.push({ type: "thinking", thinking: "Reading a 94KB project state against the transcript…" });
+    stopReason = "max_tokens";
+  } else if (answering) {
+    blocks.push({ type: "text", text: "Two meetings tomorrow: standup at 09:00, review at 13:00." });
+    stopReason = "end_turn";
+  } else {
+    if (plan.textEachTurn) blocks.push({ type: "text", text: `Checking the calendar (round ${plan.calls})…` });
+    blocks.push({
+      type: "tool_use",
+      id: `tu_${plan.calls}`,
+      name: "probe",
+      input: { round: plan.calls, note: "assembled from two partial-JSON deltas" },
+    });
+    stopReason = "tool_use";
+  }
+  writeStream(res, blocks, stopReason);
 });
 
 await new Promise((resolve) => http.listen(0, "127.0.0.1", resolve));
@@ -79,27 +144,41 @@ process.env.ANTHROPIC_BASE_URL = `http://127.0.0.1:${http.address().port}`;
 process.env.ANTHROPIC_API_KEY = "fixture-key";
 delete process.env.LANGFUSE_PUBLIC_KEY; // no tracing side-trips
 
-const { runAgent, DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } = await import("./src/runAgent.ts");
+const { runAgent, DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING, DEFAULT_MAX_TOKENS } =
+  await import("./src/runAgent.ts");
 
 const TOOLS = [
   { name: "probe", description: "A tool the fixture model keeps asking for.", input_schema: { type: "object", properties: {} } },
 ];
 
 let toolCalls = 0;
+let lastToolInput = null;
 /** Runs one scenario with a fresh fixture state. */
-async function run({ answerOn = Infinity, maxIterations, textEachTurn = false, tools = TOOLS } = {}) {
+async function run({
+  answerOn = Infinity,
+  maxIterations,
+  maxTokens,
+  textEachTurn = false,
+  thinkOnly = false,
+  tools = TOOLS,
+} = {}) {
   plan.calls = 0;
   plan.answerOn = answerOn;
   plan.textEachTurn = textEachTurn;
+  plan.thinkOnly = thinkOnly;
+  plan.requests = [];
   toolCalls = 0;
+  lastToolInput = null;
   const result = await runAgent({
     prompt: "What is on tomorrow?",
     tools,
-    toolExecutor: async () => {
+    toolExecutor: async (_name, input) => {
       toolCalls++;
+      lastToolInput = input;
       return "two events";
     },
     ...(maxIterations === undefined ? {} : { maxIterations }),
+    ...(maxTokens === undefined ? {} : { maxTokens }),
   });
   return result;
 }
@@ -127,6 +206,27 @@ try {
     /incomplete/.test(capped.text) && /iteration limit/.test(capped.text),
   );
 
+  // ── the transport ────────────────────────────────────────────────────────
+  // Read off the wire, not off the code: the SDK refuses a non-streaming
+  // request above ~21,333 max_tokens before it leaves the process, so a budget
+  // that reached the fixture at all is the proof that streaming is in place.
+  const NON_STREAMING_CEILING = 21333;
+  check(
+    "every request is a streamed one",
+    plan.requests.length > 0 && plan.requests.every((r) => r.stream === true),
+  );
+  check(
+    `the default output budget (${DEFAULT_MAX_TOKENS}) is above the old non-streaming ceiling and still reached the API`,
+    DEFAULT_MAX_TOKENS > NON_STREAMING_CEILING &&
+      plan.requests.every((r) => r.max_tokens === DEFAULT_MAX_TOKENS),
+    `max_tokens on the wire: ${plan.requests[0]?.max_tokens}`,
+  );
+  check(
+    "a tool_use input split across stream deltas arrives at the tool whole",
+    lastToolInput?.note === "assembled from two partial-JSON deltas" && lastToolInput?.round === DEFAULT_MAX_ITERATIONS,
+    JSON.stringify(lastToolInput),
+  );
+
   // ── a run that finishes ──────────────────────────────────────────────────
   const finished = await run({ answerOn: 3 });
   check("a run that reaches an answer stops there", plan.calls === 3 && finished.iterations === 3);
@@ -137,6 +237,43 @@ try {
     finished.text.slice(0, 60),
   );
   check("stopReason is the model's own", finished.stopReason === "end_turn", finished.stopReason);
+  check(
+    "text split across deltas is joined, and usage is summed across turns",
+    finished.text === "Two meetings tomorrow: standup at 09:00, review at 13:00." &&
+      finished.usage.inputTokens === 300 &&
+      finished.usage.outputTokens === 60,
+    `in ${finished.usage.inputTokens}, out ${finished.usage.outputTokens}`,
+  );
+  check(
+    "the transcript keeps the assembled tool_use blocks for a follow-up turn",
+    finished.transcript.filter((m) => m.role === "assistant").length === 3 &&
+      finished.transcript.some(
+        (m) => Array.isArray(m.content) && m.content.some((b) => b.type === "tool_use" && b.input?.round === 1),
+      ),
+  );
+
+  // ── the expensive silence ────────────────────────────────────────────────
+  // All thinking, no text, cut off at the limit. Was stored as `succeeded` with
+  // an empty string until commit 4db1740; the bigger budget makes it rarer, not
+  // impossible, so the loud failure has to survive the transport change.
+  const silent = await run({ thinkOnly: true });
+  check(
+    "a turn that is all thinking and cut off at max_tokens is a failed run, not an empty answer",
+    silent.stopReason === "max_tokens" && /Produced no answer/.test(silent.text),
+    silent.text.slice(0, 60),
+  );
+  check(
+    "and the note names the limit that was hit",
+    new RegExp(`${DEFAULT_MAX_TOKENS}-token output limit`).test(silent.text) && silent.iterations === 1,
+  );
+
+  // ── per-run budget ───────────────────────────────────────────────────────
+  const small = await run({ answerOn: 1, maxTokens: 5000 });
+  check(
+    "a per-run maxTokens override is sent as given",
+    plan.requests[0]?.max_tokens === 5000 && small.exhausted === false,
+    `max_tokens on the wire: ${plan.requests[0]?.max_tokens}`,
+  );
 
   // ── per-agent values ─────────────────────────────────────────────────────
   const tight = await run({ maxIterations: 3 });

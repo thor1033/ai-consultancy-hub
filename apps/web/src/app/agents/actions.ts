@@ -53,10 +53,21 @@ export async function saveAgentAction(
 
   const slug = toSlug(input.slug?.trim() || name);
   if (!slug) return { error: "That name does not make a usable slug — use some letters." };
+  // /agents/new is the builder, so an agent with that slug could never be opened.
+  if (slug === "new") return { error: `"new" is reserved — give the agent a more specific name.` };
 
-  const servers = (input.mcpServers ?? []).filter(
-    (e) => typeof (e as { name?: unknown }).name === "string" && isKnownServer(String((e as { name: string }).name)),
+  // A server this agent already has is kept even if this deployment does not
+  // declare it right now — otherwise saving any other field would silently cut
+  // the agent off from it. New ones must be known; runSession skips undeclared
+  // names at run time either way.
+  const existing = id ? await getAgent(id) : null;
+  const already = new Set(
+    (existing?.mcpServers ?? []).map((e) => String((e as { name?: unknown }).name ?? "")),
   );
+  const servers = (input.mcpServers ?? []).filter((e) => {
+    const name = (e as { name?: unknown }).name;
+    return typeof name === "string" && (isKnownServer(name) || already.has(name));
+  });
 
   // A server action is a public endpoint, so the number is validated here and
   // not only by the <input type="number"> that usually produces it. Anything
@@ -70,8 +81,8 @@ export async function saveAgentAction(
 
   // Where an agent runs decides where its instructions are copied to and who
   // reaches its tools from outside the hub, so changing it is admin-only even
-  // if agent:manage is one day granted more widely.
-  const existing = id ? await getAgent(id) : null;
+  // if agent:manage is one day granted more widely. `existing` is the lookup
+  // the server list above already paid for.
   const placement = input.placement ?? existing?.placement ?? "hub";
   if (!isPlacement(placement)) return { error: "Unknown placement." };
   if (placement !== (existing?.placement ?? "hub") && !(await sessionCan("admin:manage"))) {

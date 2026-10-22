@@ -4,61 +4,127 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /* ------------------------------------------------------------------ *
- *  "Console" — a command-center design system.
- *  Calm, dense, functional. Flat hairline-bordered panels, restrained
- *  accent, tabular data. The accent (Iris indigo→cyan) is used to mark
- *  state and key numbers, not to decorate. Light/dark are real token sets.
+ *  Teqneo design system — product UI.
+ *
+ *  Tokens from "Teqneo Design System" (Editorial Design System, October
+ *  2026), sections 03–05 and the product-UI rules in 01: paper, black, red,
+ *  blue; Helvetica Neue; corner radius 0 everywhere (2px on text inputs
+ *  only); hairlines, not frames; soft warm shadows, no glass or blur; hover
+ *  is a hard colour swap (black → red); focus is AI blue; motion is fast,
+ *  mechanical and intentional. Red is structural, blue is the AI layer — it
+ *  marks what the agent did, never equal to the human's black.
+ *
+ *  The --tk-* names are the system's own. The shorter aliases below them
+ *  (--bg, --panel, --text, --muted, --brand …) are what the pages were
+ *  already written against, so the restyle is the token layer, not a rewrite
+ *  of every screen.
  * ------------------------------------------------------------------ */
+
+:root {
+  /* Brand palette — theme-independent. Hierarchy: black → paper → red → blue. */
+  --tk-red: #e21b16;
+  --tk-red-tint: #f6c9c2;
+  --tk-red-deep: #b8130f;
+  --tk-blue: #2e7ebb;
+  --tk-blue-tint: #cfdfeb;
+  --tk-blue-deep: #22629a;
+  --tk-black: #0b0b0b;
+  --tk-ink-2: #34312c;
+  --tk-ink-3: #6b655b;
+  --tk-ink-4: #a39c8e;
+  --tk-paper: #f1ebdd;
+  --tk-paper-2: #e7dfcd;
+  --tk-paper-3: #d9cfb9;
+  --tk-white: #ffffff;
+
+  /* Motion — "print coming alive". */
+  --ease-snap: cubic-bezier(0.7, 0, 0.2, 1);
+  --dur-fast: 120ms;
+  --dur-base: 200ms;
+  --dur-slow: 360ms;
+
+  /* Square by default; text inputs are the one exception. */
+  --radius-ui: 2px;
+}
 
 :root,
 .light {
   color-scheme: light;
-  --bg: #eff2f8;
-  --bg-2: #e7ebf4;
-  --panel: #ffffff;
-  --panel-2: #f5f7fb;
-  --panel-inset: #f0f3f9;
-  --text: #0c1226;
-  --text-soft: #363e58;
-  --muted: #697187;
-  --brand: #5850ec;
-  --brand-2: #0c94b4;
-  --brand-ink: #4b44d6;
-  --brand-soft: rgba(88, 80, 236, 0.09);
-  --positive: #0a9d63;
-  --warning: #b5730a;
-  --danger: #d92d4e;
-  --border: rgba(12, 18, 45, 0.10);
-  --border-strong: rgba(12, 18, 45, 0.17);
-  --ring: rgba(88, 80, 236, 0.35);
-  --shadow: 0 1px 2px rgba(12, 18, 45, 0.05), 0 14px 34px -22px rgba(12, 18, 45, 0.28);
-  --glow: rgba(88, 80, 236, 0.12);
-  --grid-line: rgba(12, 18, 45, 0.04);
+  --bg: var(--tk-paper);
+  --bg-2: var(--tk-paper-2);
+  --panel: var(--tk-white);
+  --panel-2: var(--tk-paper-2);
+  --panel-inset: var(--tk-paper);
+  --text: var(--tk-black);
+  --text-soft: var(--tk-ink-2);
+  --muted: var(--tk-ink-3);
+  --faint: var(--tk-ink-4);
+  --brand: var(--tk-red);
+  --brand-2: var(--tk-blue);
+  --brand-ink: var(--tk-red-deep);
+  --brand-soft: var(--tk-red-tint);
+  --ai: var(--tk-blue);
+  --ai-soft: var(--tk-blue-tint);
+  /* The palette has no green. Status is a small square node: blue = agent /
+     online, red = error / action, black = neutral. */
+  --positive: var(--tk-blue);
+  --warning: var(--tk-red-deep);
+  --danger: var(--tk-red);
+  --border: rgba(11, 11, 11, 0.08);
+  --border-strong: rgba(11, 11, 11, 0.12);
+  --border-control: var(--tk-ink-3);
+  --ring: var(--tk-blue-tint);
+  --shadow-soft: 0 1px 0 rgba(11, 11, 11, 0.06), 0 6px 16px -10px rgba(11, 11, 11, 0.18);
+  --shadow-print: 0 1px 0 rgba(11, 11, 11, 0.12), 0 14px 36px -12px rgba(11, 11, 11, 0.18);
+  --shadow-popover: 0 1px 0 rgba(11, 11, 11, 0.1), 0 10px 24px -8px rgba(11, 11, 11, 0.22);
+  --shadow: var(--shadow-soft);
+  --scrim: rgba(11, 11, 11, 0.55);
+  /* Context map: one colour per kind of context, validated as a set for
+     colour-vision deficiency on the panel surface. Memory is the AI blue. */
+  --c-mem: var(--tk-blue);
+  --c-skill: #d95926;
+  --c-src: #199e70;
+  --c-person: #b4378a;
+  --c-rules: var(--tk-black);
 }
 
+/* The inverse surface: the system's black, with paper as the ink. Used for
+   section breaks in print; here it is the dark theme. Red and blue stay
+   themselves — they are the brand, not a theme. */
 .dark {
   color-scheme: dark;
-  --bg: #080910;
-  --bg-2: #05060c;
-  --panel: rgba(255, 255, 255, 0.028);
-  --panel-2: rgba(255, 255, 255, 0.02);
-  --panel-inset: rgba(255, 255, 255, 0.03);
-  --text: #e9ecf8;
-  --text-soft: #b6bdd4;
-  --muted: #7982a0;
-  --brand: #8b7cff;
-  --brand-2: #37d1e6;
-  --brand-ink: #a99cff;
-  --brand-soft: rgba(139, 124, 255, 0.13);
-  --positive: #34d399;
-  --warning: #fbbf24;
-  --danger: #fb7185;
-  --border: rgba(255, 255, 255, 0.08);
-  --border-strong: rgba(255, 255, 255, 0.16);
-  --ring: rgba(139, 124, 255, 0.4);
-  --shadow: 0 20px 44px -26px rgba(0, 0, 0, 0.75);
-  --glow: rgba(139, 124, 255, 0.14);
-  --grid-line: rgba(255, 255, 255, 0.035);
+  --bg: var(--tk-black);
+  --bg-2: #121110;
+  --panel: #171614;
+  --panel-2: #121110;
+  --panel-inset: #1d1b18;
+  --text: var(--tk-paper);
+  --text-soft: var(--tk-paper-2);
+  --muted: var(--tk-ink-4);
+  --faint: #7a7367;
+  --brand: var(--tk-red);
+  --brand-2: #5f9fd3;
+  --brand-ink: #f0574f;
+  --brand-soft: rgba(226, 27, 22, 0.18);
+  --ai: #5f9fd3;
+  --ai-soft: rgba(46, 126, 187, 0.22);
+  --positive: #5f9fd3;
+  --warning: #f0574f;
+  --danger: #f0574f;
+  --border: rgba(241, 235, 221, 0.1);
+  --border-strong: rgba(241, 235, 221, 0.16);
+  --border-control: var(--tk-ink-4);
+  --ring: rgba(46, 126, 187, 0.35);
+  --shadow-soft: 0 1px 0 rgba(0, 0, 0, 0.3), 0 6px 16px -10px rgba(0, 0, 0, 0.6);
+  --shadow-print: 0 1px 0 rgba(0, 0, 0, 0.4), 0 14px 36px -12px rgba(0, 0, 0, 0.7);
+  --shadow-popover: 0 1px 0 rgba(0, 0, 0, 0.4), 0 10px 24px -8px rgba(0, 0, 0, 0.7);
+  --shadow: var(--shadow-soft);
+  --scrim: rgba(0, 0, 0, 0.65);
+  --c-mem: #3987e5;
+  --c-skill: #d95926;
+  --c-src: #199e70;
+  --c-person: #c45bc0;
+  --c-rules: var(--tk-paper);
 }
 
 @theme inline {
@@ -70,16 +136,19 @@
   --color-brand: var(--brand);
   --color-brand-2: var(--brand-2);
   --color-brand-ink: var(--brand-ink);
+  --color-ai: var(--ai);
   --color-positive: var(--positive);
   --color-warning: var(--warning);
   --color-danger: var(--danger);
   --color-border: var(--border);
 
-  --font-sans: var(--font-inter), ui-sans-serif, system-ui, sans-serif;
-  --font-display: var(--font-display), var(--font-inter), sans-serif;
+  /* Helvetica Neue is the system face — not shipped, used from the install,
+     falling back to Helvetica → Arial. One family; headlines are its Bold. */
+  --font-sans: "Helvetica Neue", Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Helvetica Neue", Helvetica, Arial, ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
 
-  --radius-panel: 0.7rem;
+  --radius-panel: 0;
 }
 
 @layer base {
@@ -96,56 +165,107 @@
     color: var(--text);
     font-family: var(--font-sans);
     font-size: 0.9rem;
+    line-height: 1.42;
     min-height: 100vh;
-    letter-spacing: -0.006em;
   }
+  /* Headlines: Bold, sentence case, tight — the display rules scaled to UI. */
   h1,
   h2,
   h3 {
     font-family: var(--font-display);
+    font-weight: 700;
     letter-spacing: -0.02em;
+    line-height: 1.05;
+  }
+  h1 {
+    letter-spacing: -0.035em;
+    line-height: 1;
   }
   ::selection {
-    background: color-mix(in oklab, var(--brand) 30%, transparent);
+    background: var(--tk-red-tint);
+    color: var(--tk-black);
+  }
+  .dark ::selection {
+    background: var(--tk-red-deep);
+    color: var(--tk-paper);
+  }
+  /* Keyboard focus anywhere is a 2px AI-blue outline, offset 2px; fields
+     get their own treatment below. */
+  :focus-visible {
+    outline: 2px solid var(--ai);
+    outline-offset: 2px;
   }
   * {
     scrollbar-width: thin;
     scrollbar-color: var(--border-strong) transparent;
   }
+  code {
+    font-family: var(--font-mono);
+    font-size: 0.92em;
+  }
 }
 
 @layer components {
-  /* Flat, functional panel — the workhorse surface. */
+  /* Micro label — uppercase, very wide tracking. Metadata, eyebrows, badges,
+     tabs and buttons are the only uppercase in the product. */
+  .eyebrow {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.3em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  /* The workhorse surface: white + hairline in the product UI. Square. Boxes
+     separate by fill and a soft shadow on interaction, never by a frame. */
   .panel {
     background: var(--panel);
     border: 1px solid var(--border);
-    border-radius: var(--radius-panel);
-    box-shadow: var(--shadow);
-  }
-  .dark .panel {
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
+    border-radius: 0;
   }
   .panel-2 {
     background: var(--panel-2);
     border: 1px solid var(--border);
-    border-radius: 0.6rem;
+    border-radius: 0;
   }
   .panel-hover {
-    transition: border-color 0.18s ease, background 0.18s ease, transform 0.18s ease;
+    transition:
+      transform var(--dur-fast) var(--ease-snap),
+      box-shadow var(--dur-fast) var(--ease-snap),
+      border-color var(--dur-fast) var(--ease-snap);
   }
   .panel-hover:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-soft);
     border-color: var(--border-strong);
-    transform: translateY(-1px);
   }
   .inset {
     background: var(--panel-inset);
     border: 1px solid var(--border);
-    border-radius: 0.55rem;
+    border-radius: 0;
+  }
+
+  /* Notices: a tinted field, never a coloured left-border accent (the system
+     forbids those on cards). Red for what needs action, blue for what the
+     agent or the hub did. */
+  .notice-danger,
+  .notice-warning {
+    background: var(--brand-soft);
+    border: 1px solid var(--brand);
+    border-radius: 0;
+  }
+  .notice-info {
+    background: var(--ai-soft);
+    border: 1px solid var(--ai);
+    border-radius: 0;
   }
 
   .hairline {
     border-top: 1px solid var(--border);
+  }
+  /* Heavy 6px rule — editorial section openers only. */
+  .rule-heavy {
+    border-top: 6px solid var(--text);
   }
 
   .metric {
@@ -157,161 +277,182 @@
     font-variant-numeric: tabular-nums;
   }
 
+  /* The resolution goes in red. Kept under its old name so every place that
+     used to paint a gradient now paints the one accent the brand allows. */
   .text-gradient {
-    background: linear-gradient(100deg, var(--brand), var(--brand-2));
-    -webkit-background-clip: text;
-    background-clip: text;
-    color: transparent;
+    color: var(--brand);
   }
   .brand-gradient {
-    background: linear-gradient(120deg, var(--brand), var(--brand-2));
+    background: var(--text);
+    color: var(--bg);
   }
 
-  /* Status dot */
+  /* Status node — a small square. Blue = agent, red = error / action, black =
+     neutral. No halo. */
   .dot {
     width: 0.5rem;
     height: 0.5rem;
-    border-radius: 999px;
-    box-shadow: 0 0 0 3px color-mix(in oklab, currentColor 22%, transparent);
+    border-radius: 0;
   }
 
   .chip {
     display: inline-flex;
     align-items: center;
     gap: 0.4rem;
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-strong);
     background: var(--panel);
-    border-radius: 0.5rem;
+    border-radius: 0;
     padding: 0.28rem 0.6rem;
     font-size: 0.78rem;
     color: var(--text-soft);
-    transition: border-color 0.18s ease, color 0.18s ease, background 0.18s ease;
+    transition:
+      color var(--dur-fast) var(--ease-snap),
+      border-color var(--dur-fast) var(--ease-snap);
   }
   a.chip:hover,
   button.chip:hover {
-    border-color: var(--border-strong);
-    color: var(--text);
+    color: var(--brand);
+    border-color: var(--brand);
   }
 
+  /* Secondary button: hairline, black text; hover swaps black → red. Press is
+     ink pressing into paper (1px,1px), never a scale. */
   .btn {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.45rem;
-    border-radius: 0.55rem;
+    border-radius: 0;
     padding: 0.5rem 0.85rem;
     font-size: 0.85rem;
-    font-weight: 550;
-    border: 1px solid var(--border);
-    background: var(--panel);
+    font-weight: 500;
+    border: 1px solid var(--border-control);
+    background: transparent;
     color: var(--text);
-    transition: border-color 0.18s ease, background 0.18s ease, transform 0.12s ease;
+    transition:
+      color var(--dur-fast) var(--ease-snap),
+      border-color var(--dur-fast) var(--ease-snap),
+      background var(--dur-fast) var(--ease-snap);
   }
   .btn:hover {
-    border-color: var(--border-strong);
+    color: var(--brand);
+    border-color: var(--brand);
   }
   .btn:active {
-    transform: translateY(0.5px);
+    transform: translate(1px, 1px);
   }
+  /* Primary: black on paper; hover swaps to red. */
   .btn-brand {
     display: inline-flex;
     align-items: center;
     justify-content: center;
     gap: 0.45rem;
-    border-radius: 0.55rem;
+    border-radius: 0;
     padding: 0.5rem 0.9rem;
     font-size: 0.85rem;
-    font-weight: 600;
-    color: white;
-    background: linear-gradient(120deg, var(--brand), var(--brand-2));
-    border: 1px solid transparent;
-    box-shadow: 0 6px 18px -10px var(--glow);
-    transition: filter 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
+    font-weight: 500;
+    color: var(--bg);
+    background: var(--text);
+    border: 1px solid var(--text);
+    transition:
+      background var(--dur-fast) var(--ease-snap),
+      border-color var(--dur-fast) var(--ease-snap);
   }
   .btn-brand:hover {
-    filter: brightness(1.07);
-    box-shadow: 0 10px 26px -12px var(--glow);
+    background: var(--brand);
+    border-color: var(--brand);
+    color: var(--tk-paper);
   }
   .btn-brand:active {
-    transform: translateY(0.5px);
+    transform: translate(1px, 1px);
   }
   .btn:disabled,
   .btn-brand:disabled {
     opacity: 0.45;
     cursor: not-allowed;
-    filter: none;
     transform: none;
   }
 
+  /* Text input: the one place pure white and a 2px radius are allowed. Focus
+     is a blue border plus a 3px blue-tint halo. */
   .field {
     width: 100%;
-    border-radius: 0.55rem;
-    border: 1px solid var(--border);
-    background: var(--panel-inset);
+    border-radius: var(--radius-ui);
+    border: 1px solid var(--border-strong);
+    background: var(--panel);
     padding: 0.5rem 0.7rem;
     font-size: 0.875rem;
     color: var(--text);
     outline: none;
-    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+    transition:
+      border-color var(--dur-fast) var(--ease-snap),
+      box-shadow var(--dur-fast) var(--ease-snap);
   }
   .field::placeholder {
-    color: var(--muted);
+    color: var(--faint);
   }
   .field:focus {
-    border-color: color-mix(in oklab, var(--brand) 55%, var(--border));
+    border-color: var(--ai);
     box-shadow: 0 0 0 3px var(--ring);
   }
 
-  /* Sidebar nav item */
+  /* Rail item. Hover is the hard swap to red; the active item is inverse. */
   .nav-item {
     display: flex;
     align-items: center;
     gap: 0.65rem;
     padding: 0.5rem 0.65rem;
-    border-radius: 0.55rem;
+    border-radius: 0;
     font-size: 0.875rem;
-    color: var(--muted);
-    border: 1px solid transparent;
-    transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
+    color: var(--text-soft);
+    transition:
+      color var(--dur-fast) var(--ease-snap),
+      background var(--dur-fast) var(--ease-snap);
   }
   .nav-item:hover {
-    color: var(--text);
-    background: var(--panel-2);
+    color: var(--brand);
   }
   .nav-item[data-active="true"] {
+    color: var(--bg);
+    background: var(--text);
+  }
+  .nav-item[data-active="true"]:hover {
+    color: var(--bg);
+    background: var(--brand);
+  }
+
+  /* The wordmark: TEQNEO, Medium, 0.42em tracking, optional trailing rule.
+     The mark itself is a supplied asset (assets/logo/mark-red.svg) that is
+     never redrawn; until it ships, the wordmark stands alone. */
+  .wordmark {
+    font-weight: 500;
+    font-size: 0.8rem;
+    letter-spacing: 0.42em;
+    text-transform: uppercase;
     color: var(--text);
-    background: var(--brand-soft);
-    border-color: color-mix(in oklab, var(--brand) 35%, transparent);
+  }
+  .wordmark-rule {
+    display: inline-block;
+    width: 40px;
+    height: 1px;
+    background: var(--text);
+    vertical-align: middle;
   }
 }
 
-/* ------------------------------------------------------------------ *
- *  Calm static backdrop — a single soft glow + faint grid. No motion.
- * ------------------------------------------------------------------ */
+/* The page is paper, flat. Nothing glows and nothing is a gradient. */
 .backdrop {
   position: fixed;
   inset: 0;
   z-index: -1;
-  background:
-    radial-gradient(60% 45% at 78% -5%, var(--glow), transparent 60%),
-    radial-gradient(50% 40% at 0% 0%, color-mix(in oklab, var(--brand-2) 12%, transparent), transparent 55%),
-    var(--bg);
-}
-.backdrop::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(var(--grid-line) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px);
-  background-size: 48px 48px;
-  mask-image: radial-gradient(ellipse 100% 70% at 50% 0%, #000 30%, transparent 90%);
+  background: var(--bg);
 }
 
-@keyframes fade-in {
+/* Entrance: blocks snap into place. No fades for their own sake. */
+@keyframes snap-in {
   from {
     opacity: 0;
-    transform: translateY(6px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -319,11 +460,83 @@
   }
 }
 .fade-in {
-  animation: fade-in 0.4s ease both;
+  animation: snap-in var(--dur-base) var(--ease-snap) both;
 }
 
 @media (prefers-reduced-motion: reduce) {
   .fade-in {
     animation: none !important;
+  }
+  .panel-hover:hover {
+    transform: none;
+  }
+}
+
+/* Context map: neuron cascades. Each loaded memory, skill and live source fires
+   a chain of neurons that ends at the agent; a 7s cycle, ~0.5s a hop. Only the
+   cascades, the core beat and the live marker move — the ink stays still so
+   the page stays smooth. */
+.ctx-sig {
+  stroke-dasharray: 0.24 2;
+  stroke-dashoffset: 0.24;
+  animation: ctx-sig 7s linear infinite;
+}
+.ctx-spike,
+.ctx-halo,
+.ctx-burst,
+.ctx-core {
+  transform-box: fill-box;
+  transform-origin: center;
+  opacity: 0;
+}
+.ctx-spike {
+  animation: ctx-spike 7s ease-out infinite;
+}
+.ctx-halo {
+  animation: ctx-halo 7s ease-out infinite;
+}
+.ctx-burst {
+  animation: ctx-burst 7s cubic-bezier(0.2, 0.6, 0.2, 1) infinite;
+}
+.ctx-core {
+  animation: ctx-ping 3.5s cubic-bezier(0.2, 0.6, 0.2, 1) infinite;
+}
+.ctx-blink {
+  animation: ctx-blink 1.2s steps(2, jump-none) infinite;
+}
+@keyframes ctx-sig {
+  0% { stroke-dashoffset: 0.24; }
+  7%, 100% { stroke-dashoffset: -1; }
+}
+@keyframes ctx-spike {
+  0% { opacity: 1; transform: scale(2.6); }
+  5% { opacity: 0.75; transform: scale(1.4); }
+  14%, 100% { opacity: 0; transform: scale(1); }
+}
+@keyframes ctx-halo {
+  0% { opacity: 0.22; transform: scale(1.3); }
+  10% { opacity: 0.08; transform: scale(1); }
+  18%, 100% { opacity: 0; transform: scale(0.8); }
+}
+@keyframes ctx-burst {
+  0% { opacity: 0.85; transform: scale(1); }
+  12%, 100% { opacity: 0; transform: scale(4.5); }
+}
+@keyframes ctx-ping {
+  0% { opacity: 0.75; transform: scale(1); }
+  80%, 100% { opacity: 0; transform: scale(3.4); }
+}
+@keyframes ctx-blink {
+  0% { opacity: 1; }
+  100% { opacity: 0.25; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ctx-sig,
+  .ctx-spike,
+  .ctx-halo,
+  .ctx-burst,
+  .ctx-core,
+  .ctx-blink {
+    animation: none;
   }
 }

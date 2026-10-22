@@ -119,6 +119,9 @@ create index if not exists agent_memories_agent_idx
 -- from; inactive ones (finished, paused, background) are kept and searchable
 -- but not loaded by default. Defaults to true so existing memories keep loading.
 alter table agent_memories add column if not exists active boolean not null default true;
+-- Where a memory sits on the Context page's map: projects | people | rules |
+-- routines. Null means untagged; the page places those around the agent.
+alter table agent_memories add column if not exists region text;
 
 -- ---------------------------------------------------------------------------
 -- Identity and credentials (increment 01: OAuth 2.1 with WorkOS as the

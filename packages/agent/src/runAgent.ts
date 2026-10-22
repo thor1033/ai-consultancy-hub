@@ -37,25 +37,33 @@ export const DEFAULT_MAX_ITERATIONS = 10;
 export const MAX_ITERATIONS_CEILING = 100;
 
 /**
+ * Default output budget per model turn, covering the thinking AND the answer.
+ *
+ * It was 16000, and that was tight in both directions: the secretary's first
+ * real change set was cut off mid-JSON at 16,040 tokens, and on `effort: high`
+ * a run over a large tool result could spend the whole budget inside one
+ * adaptive-thinking block and write nothing at all.
+ *
+ * It could not simply be raised: the SDK refuses a NON-streaming request whose
+ * max_tokens implies more than ten minutes of generation (above ~21,333 it
+ * throws "Streaming is required for operations that may take longer than 10
+ * minutes" before the request leaves the process — total failure, on every
+ * agent). So the model call below streams, and `finalMessage()` reassembles
+ * the same Message the non-streaming call used to return. Nothing downstream
+ * had to change; only the transport did. `npm run verify:loop` checks both
+ * halves: that the request is a streamed one, and that this default is above
+ * the old non-streaming ceiling.
+ */
+export const DEFAULT_MAX_TOKENS = 32000;
+
+/**
  * Runs one agent turn (a full tool-use loop) against Claude and returns the
  * final text plus the ROI substrate (usage, cost, latency). Every model call
  * is traced to Langfuse when configured.
  */
 export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   const model: ModelId = input.model ?? DEFAULT_MODEL;
-  // Do NOT raise this without switching to streaming. The budget has to cover
-  // the thinking AND the answer, so 16000 is genuinely tight for an agent on
-  // `effort: high` over a large tool result — it can spend the lot inside one
-  // adaptive-thinking block and be truncated before writing a character (the
-  // empty-output guard at the end of this function is what surfaces that).
-  //
-  // But the SDK refuses a NON-streaming request whose max_tokens implies more
-  // than ten minutes of generation: raising this to 32000 made every call throw
-  // `Streaming is required for operations that may take longer than 10 minutes`
-  // before it left the process. That is a worse failure than the one it fixes —
-  // total, and on every agent rather than the slow ones. Caught by
-  // `npm run verify:loop`. Fixing this properly means streaming the response.
-  const maxTokens = input.maxTokens ?? 16000;
+  const maxTokens = input.maxTokens ?? DEFAULT_MAX_TOKENS;
   const useThinking = input.thinking ?? true;
   const maxIterations = Math.min(
     Math.max(Math.trunc(input.maxIterations ?? DEFAULT_MAX_ITERATIONS), 1),
@@ -119,7 +127,15 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       input: messages,
     });
 
-    const response = await client.messages.create({
+    // Streamed, then reassembled: `finalMessage()` folds the event stream back
+    // into one Message — text deltas joined, tool_use inputs parsed from their
+    // partial-JSON deltas, thinking blocks and their signatures kept, usage
+    // summed from message_start and message_delta — so the rest of this loop
+    // reads it exactly as it read the non-streaming response. The point is not
+    // the streaming itself but what it unlocks: the SDK only permits an output
+    // budget above the ten-minute line on a streamed request (see
+    // DEFAULT_MAX_TOKENS).
+    const stream = client.messages.stream({
       model,
       max_tokens: maxTokens,
       system,
@@ -128,6 +144,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       messages,
       ...(tools.length ? { tools } : {}),
     });
+    const response = await stream.finalMessage();
 
     const turnUsage: TokenUsage = {
       inputTokens: response.usage.input_tokens ?? 0,

@@ -1,14 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from"react";
 import {
   loadRegistryAction,
   setMcpEnabledAction,
   deleteMcpServerAction,
-} from "./actions";
-import type { AdminMcp, Registry } from "./types";
+} from"./actions";
+import type { AdminMcp, Registry } from"./types";
 
-const TOKEN_KEY = "hub-admin-token";
+const TOKEN_KEY ="hub-admin-token";
 
 export function AdminConsole() {
   const [token, setToken] = useState("");
@@ -51,8 +51,8 @@ export function AdminConsole() {
 
   async function removeMcp(m: AdminMcp) {
     const warning = m.declared
-      ? `"${m.name}" is declared in HUB_REMOTE_MCP_SERVERS, so it will be registered again on the next read. To stop using it, disable it or remove it from that variable.\n\nDelete the row anyway?`
-      : `Delete "${m.name}" from the registry? Agents will no longer be offered its tools.`;
+      ?`"${m.name}" is declared in HUB_REMOTE_MCP_SERVERS, so it will be registered again on the next read. To stop using it, disable it or remove it from that variable.\n\nDelete the row anyway?`
+      :`Delete"${m.name}" from the registry? Agents will no longer be offered its tools.`;
     if (!confirm(warning)) return;
     setPending(`mcp:${m.name}`);
     setError(null);
@@ -81,13 +81,13 @@ export function AdminConsole() {
             type="password"
             value={token}
             onChange={(e) => setToken(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && token.trim() && load(token.trim())}
+            onKeyDown={(e) => e.key ==="Enter" && token.trim() && load(token.trim())}
             placeholder="Bearer token with the admin role"
             className="field"
           />
         </label>
         {error && (
-          <div className="mt-3 rounded-lg border border-[var(--border)] border-l-2 border-l-[var(--danger)] p-3 text-sm text-[var(--danger)]">
+          <div className="mt-3 border border-[var(--border)] notice-danger p-3 text-sm text-[var(--danger)]">
             {error}
           </div>
         )}
@@ -96,10 +96,10 @@ export function AdminConsole() {
           disabled={loading || !token.trim()}
           className="btn-brand mt-4"
         >
-          {loading ? "Verifying…" : "Unlock control plane"}
+          {loading ?"Verifying…" :"Unlock control plane"}
         </button>
         <p className="mt-3 text-xs text-[var(--muted)]">
-          Tokens are configured in <code>HUB_API_TOKENS</code>; only the{" "}
+          Tokens are configured in <code>HUB_API_TOKENS</code>; only the{""}
           <code>admin</code> role may manage the control plane.
         </p>
       </div>
@@ -118,7 +118,7 @@ export function AdminConsole() {
       </div>
 
       {error && (
-        <div className="panel border-l-2 border-l-[var(--danger)] p-3 text-sm text-[var(--danger)]">
+        <div className="panel notice-danger p-3 text-sm text-[var(--danger)]">
           {error}
         </div>
       )}
@@ -134,15 +134,15 @@ export function AdminConsole() {
               key={m.name}
               title={m.label || m.name}
               enabled={m.enabled}
-              busy={pending === `mcp:${m.name}`}
+              busy={pending ===`mcp:${m.name}`}
               onToggle={() => toggleMcp(m)}
               onDelete={() => removeMcp(m)}
             >
               <p className="text-sm text-[var(--text-soft)]">{m.description}</p>
               <div className="mono mt-1 text-xs text-[var(--muted)]">
                 {m.name}
-                {" · "}
-                {m.declared ? "declared in env" : "registry only"}
+                {" ·"}
+                {m.declared ?"declared in env" :"registry only"}
               </div>
             </Row>
           ))}
@@ -179,18 +179,18 @@ function Row({
   children: React.ReactNode;
 }) {
   return (
-    <div className={`panel flex items-start justify-between gap-4 p-4 ${enabled ? "" : "opacity-65"}`}>
+    <div className={`panel flex items-start justify-between gap-4 p-4 ${enabled ?"" :"opacity-65"}`}>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <h3 className="font-medium text-[var(--text)]">{title}</h3>
           <span
-            className={`rounded px-2 py-0.5 text-[10px] uppercase tracking-wide ${
+            className={`px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] ${
               enabled
-                ? "bg-[var(--brand-soft)] text-[var(--positive)]"
-                : "border border-[var(--border)] text-[var(--muted)]"
+                ?"bg-[var(--brand-soft)] text-[var(--positive)]"
+                :"border border-[var(--border)] text-[var(--muted)]"
             }`}
           >
-            {enabled ? "Enabled" : "Disabled"}
+            {enabled ?"Enabled" :"Disabled"}
           </span>
         </div>
         <div className="mt-1">{children}</div>
@@ -226,13 +226,13 @@ function Toggle({
       aria-checked={enabled}
       disabled={busy}
       onClick={onToggle}
-      className={`relative h-6 w-11 shrink-0 rounded-full border transition disabled:opacity-50 ${
-        enabled ? "brand-gradient border-transparent" : "border-[var(--border)] bg-[var(--panel-inset)]"
+      className={`relative h-6 w-11 shrink-0 border transition disabled:opacity-50 ${
+        enabled ?"bg-[var(--text)] border-transparent" :"border-[var(--border)] bg-[var(--panel-inset)]"
       }`}
     >
       <span
-        className={`absolute top-0.5 h-5 w-5 rounded-full shadow transition-transform ${
-          enabled ? "translate-x-5 bg-white" : "translate-x-0.5 bg-[var(--muted)]"
+        className={`absolute top-0.5 h-5 w-5 transition-transform ${
+          enabled ?"translate-x-5 bg-white" :"translate-x-0.5 bg-[var(--muted)]"
         }`}
       />
     </button>

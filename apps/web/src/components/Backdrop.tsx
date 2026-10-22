@@ -1,5 +1,5 @@
-// Calm, static command-center backdrop: a soft brand glow + faint grid. No
-// motion — it should recede, not perform.
+// The page is paper, flat. Nothing glows and nothing moves — the system's
+// negative space is the confidence.
 export function Backdrop() {
   return <div className="backdrop" aria-hidden />;
 }

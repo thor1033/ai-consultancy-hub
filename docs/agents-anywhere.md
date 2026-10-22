@@ -66,6 +66,44 @@ everyone makes — a `{{placeholder}}` with no argument behind it — because th
 failure it causes is a literal `{{client}}` in something a client reads, which
 surfaces a long way from its cause.
 
+## Large arguments
+
+A tool call is written out by the *calling* model, token by token, inside one
+of its turns. That is a limit no hub-side setting can lift: a 45-minute Teams
+transcript is ~90KB, and the orchestrating model cannot reliably emit that as a
+single argument — the call errors, or the transcript arrives with its tail
+missing and nobody notices until the last decision of the meeting is not in the
+change set.
+
+So there is one rule, the same for every string argument of every tool, and the
+server states it in its instructions and on each skill:
+
+> Any string argument longer than 20,000 characters is split into **equal
+> parts of at most 20,000 characters — however many that takes** — each sent
+> with `hub_put_text` under one handle, and the handle passed in place of the
+> value.
+
+```
+hub_put_text({ part: 1, parts: 5, text: "<chars 1–20000>" })
+  → { handle: "P4_klX8", received: 1, parts: 5, complete: false, next: "Send parts 2, 3, 4, 5 …" }
+hub_put_text({ handle: "P4_klX8", part: 2, parts: 5, text: "…" })      // any order
+…
+  → { handle: "P4_klX8", received: 5, parts: 5, complete: true, chars: 91322, use: "@text:P4_klX8" }
+
+hub_skill_meeting_to_pm({ transcript: "@text:P4_klX8", meetingDate: "2026-10-03" })
+```
+
+The hub substitutes the whole text before the skill's template is filled, so a
+skill is written exactly as if the value had arrived inline. Equal parts rather
+than "split in two" is deliberate: halving only moves the failure to the next
+longer input, while a fixed part size never fails on length again.
+
+What the hub refuses, rather than quietly accepting: a part over the limit (it
+is not trimmed), a handle with a part missing (the error names the part), and a
+handle that belongs to someone else — a handle is a bearer of its text, scoped
+to the principal like a run id. Uploads are kept for an hour, in the hub
+process; the hub runs as one Fly machine, which is what makes that enough.
+
 ## Runs take minutes; tool calls do not
 
 An agent doing real multi-turn work runs for minutes. Every MCP client's
