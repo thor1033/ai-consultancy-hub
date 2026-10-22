@@ -7,6 +7,7 @@ import {
   recordAuthEvent,
 } from "@ai-hub/db";
 import { isHubToken, tokenPrefix, hashToken, hashesEqual } from "./token";
+import { userDirectory } from "./directory";
 import { narrowRoles } from "./policy";
 import { verifyAccessToken, describeTokenFailure, looksLikeJwt } from "./oauth";
 
@@ -188,31 +189,47 @@ async function resolveOAuth(token: string): Promise<Principal | null> {
   // permission. An email that nobody has granted anything gets nothing — and
   // says so in the audit trail, because "a real person signed in and bounced" is
   // exactly the event an operator needs to see in order to act on it.
-  let row = await findPrincipalByIdentity({
-    workosUserId: identity.workosUserId,
-    email: identity.email,
-  });
+  //
+  // By the bound WorkOS id first. That is every sign-in after the first, and
+  // it costs one query and no call to WorkOS.
+  let row = await findPrincipalByIdentity({ workosUserId: identity.workosUserId });
+  let email = identity.email;
+  let name = "";
 
-  // A first sign-in from an auto-provisioned domain makes the row the admin
-  // would otherwise have had to make — as an analyst, under the email as its
-  // id, and on the audit trail so it is a visible event rather than a quiet one.
-  if (!row && autoProvisionable(identity.email)) {
-    row = await upsertPrincipal({
-      id: identity.email!,
-      email: identity.email,
-      roles: AUTO_PROVISION_ROLES,
-    });
-    await recordAuthEvent({
-      event: "principal.provisioned",
-      source: "oauth",
-      principalId: row.id,
-      detail: {
-        email: identity.email,
-        workosUserId: identity.workosUserId,
+  if (!row) {
+    // A first sign-in. The token has no email claim (see directory.ts), so the
+    // person has to be named before they can be matched to a row an admin made
+    // by email, or provisioned under one. A JWT template that does put an email
+    // in the token is honoured and saves the round trip.
+    if (!email) {
+      const who = await userDirectory().lookup(identity.workosUserId);
+      email = who?.email ?? null;
+      name = who?.name ?? "";
+    }
+    if (email) row = await findPrincipalByIdentity({ email });
+
+    // A first sign-in from an auto-provisioned domain makes the row the admin
+    // would otherwise have had to make — as an analyst, under the email as its
+    // id, and on the audit trail so it is a visible event rather than a quiet one.
+    if (!row && autoProvisionable(email)) {
+      row = await upsertPrincipal({
+        id: email!,
+        email,
+        displayName: name,
         roles: AUTO_PROVISION_ROLES,
-        rule: "HUB_AUTO_PROVISION_DOMAINS",
-      },
-    });
+      });
+      await recordAuthEvent({
+        event: "principal.provisioned",
+        source: "oauth",
+        principalId: row.id,
+        detail: {
+          email,
+          workosUserId: identity.workosUserId,
+          roles: AUTO_PROVISION_ROLES,
+          rule: "HUB_AUTO_PROVISION_DOMAINS",
+        },
+      });
+    }
   }
 
   if (!row || !row.enabled) {
@@ -220,8 +237,11 @@ async function resolveOAuth(token: string): Promise<Principal | null> {
       event: "auth.denied",
       source: "oauth",
       detail: {
-        reason: row ? "principal_disabled" : "no_principal",
-        email: identity.email,
+        // no_email: WorkOS could not name the person (no API key, unknown id),
+        // so the hub could neither match nor provision them. Distinct from
+        // no_principal so an operator knows which of the two to fix.
+        reason: row ? "principal_disabled" : email ? "no_principal" : "no_email",
+        email,
         workosUserId: identity.workosUserId,
       },
     });
@@ -239,7 +259,7 @@ async function resolveOAuth(token: string): Promise<Principal | null> {
     roles: row.roles,
     ...(row.agentId ? { agentId: row.agentId } : {}),
     source: "oauth",
-    ...(identity.email ?? row.email ? { email: identity.email ?? row.email! } : {}),
+    ...(email ?? row.email ? { email: (email ?? row.email)! } : {}),
     accessToken: token,
   };
 }

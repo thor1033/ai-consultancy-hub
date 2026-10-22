@@ -80,6 +80,10 @@ HUB_MCP_RESOURCE=https://hub.teqneo.co/api/mcp
 HUB_AUTO_PROVISION_DOMAINS=<company email domain>
 ```
 
+and `"forwardIdentity": true` on the PM-tool entries in `HUB_REMOTE_MCP_SERVERS`,
+or a signed-in person sees no PM-tool tools on the hub. `WORKOS_API_KEY` (already
+set for the web sign-in) is what lets a first sign-in be matched to an email.
+
 The WorkOS side (resource indicator, dynamic client registration, callback) is
 shared with the PM-tool and already in place. For the PM-tool to accept a
 person arriving through the hub, set `MCP_TRUSTED_AUDIENCES=https://hub.teqneo.co/api/mcp`
