@@ -188,6 +188,7 @@ up to half an hour to apply.
    M365_CLIENT_SECRET=…
    M365_MAILBOX=secretary@yourdomain.com      # the default; an agent may name its own
    M365_TIMEZONE=Europe/Copenhagen
+   HUB_TIMEZONE=Europe/Copenhagen             # what "today" means to every agent
    ```
 
    Missing any of the four and the server exits 1 naming what is missing, so the
