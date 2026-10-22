@@ -1,4 +1,4 @@
-export { authenticate, legacyTokenCount } from "./principal";
+export { authenticate, legacyTokenCount, autoProvisionable, AUTO_PROVISION_ROLES } from "./principal";
 export type { Principal, PrincipalSource } from "./principal";
 export { authorize, rolesForAction, narrowRoles, actionsForRoles, ALL_ACTIONS } from "./policy";
 export type { Action, PolicyEngine } from "./policy";

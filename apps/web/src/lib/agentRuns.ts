@@ -135,6 +135,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     servers,
     agentId: agent.id,
     principalId: input.principal.id,
+    remoteBearer: input.principal.accessToken,
     runId,
   })
     .then((out) => ({ ok: true as const, out }))

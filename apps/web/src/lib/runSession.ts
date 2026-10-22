@@ -33,10 +33,14 @@ export function isKnownServer(name: string): boolean {
  * name alone — memory is scoped to one agent, and that scope must come from the
  * caller, never from something the model can say.
  */
-export function resolveServer(name: string, agentId?: string): McpServerConfig | null {
+export function resolveServer(
+  name: string,
+  agentId?: string,
+  remoteBearer?: string,
+): McpServerConfig | null {
   if (name === "sample") return sampleMcpConfig();
   if (name === "memory") return agentId ? memoryServerConfig(agentId) : null;
-  return builtinServerConfig(name) ?? remoteServerConfig(name);
+  return builtinServerConfig(name) ?? remoteServerConfig(name, { bearer: remoteBearer });
 }
 
 export interface RunSessionInput {
@@ -58,6 +62,12 @@ export interface RunSessionInput {
   servers?: string[];
   /** Who asked, recorded on the session so a run has an owner. */
   principalId?: string;
+  /**
+   * The asker's own access token, when they arrived by OAuth. Remote servers
+   * are dialled with it instead of the hub's token, so what the agent does in
+   * the PM-tool is done as this person. Absent for schedules and credentials.
+   */
+  remoteBearer?: string;
   /**
    * An already-started run row to complete, instead of inserting a finished
    * one. The asynchronous path creates the row first so the caller has an id to
@@ -88,7 +98,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
   let mcp: ConnectedMcp | undefined;
   try {
     const configs = servers
-      .map((name) => resolveServer(name, input.agentId))
+      .map((name) => resolveServer(name, input.agentId, input.remoteBearer))
       .filter((c): c is McpServerConfig => c !== null);
     if (configs.length > 0) mcp = await connectMcpServers(configs);
 

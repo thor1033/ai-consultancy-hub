@@ -11,7 +11,8 @@
     "verify:agent-tools": "node --experimental-transform-types --env-file=.env.local verify-agent-tools.mjs",
     "verify:scheduler": "node --experimental-transform-types --env-file=.env.local verify-scheduler.mjs",
     "verify:large-args": "node --experimental-transform-types verify-large-args.mjs",
-    "verify:local-agents": "node --experimental-transform-types --env-file=.env.local verify-local-agents.mjs"
+    "verify:local-agents": "node --experimental-transform-types --env-file=.env.local verify-local-agents.mjs",
+    "verify:identity": "node --experimental-transform-types --env-file=.env.local verify-identity.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",

@@ -25,6 +25,19 @@ export interface RemoteServerInfo {
   url: string;
   /** False when the server is declared but its credential is missing. */
   configured: boolean;
+  /** This entry is meant to read only — see remoteServerReadOnly(). */
+  readOnly: boolean;
+}
+
+/**
+ * How to dial a remote server for one call.
+ *
+ * `bearer` replaces the entry's own token: the signed-in person's access token,
+ * so the remote system sees them rather than the hub. The entry's token stays
+ * the default for everything with no person behind it (schedules, credentials).
+ */
+export interface RemoteDialOptions {
+  bearer?: string;
 }
 
 interface RemoteEntry {
@@ -37,6 +50,15 @@ interface RemoteEntry {
   tokenEnv?: string;
   /** Extra headers merged after the Authorization header. */
   headers?: Record<string, string>;
+  /**
+   * The entry exists to read, never to change anything. With the entry's own
+   * token that is already enforced upstream (a read-scoped token is offered
+   * no write tools); with a person's token forwarded instead, the upstream
+   * offers whatever the person may do, and this is what tells the hub to
+   * drop the write tools itself. Defaults to true for a name ending in
+   * `-read`, so the existing pm-tool / pm-tool-read pair needs no change.
+   */
+  readOnly?: boolean;
 }
 
 // Parsed per call rather than cached: the map is tiny, and a cached parse makes
@@ -77,16 +99,23 @@ export function isRemoteServer(name: string): boolean {
  * the hub's own API). Phase 2 mints a short-lived per-run JWT carrying the
  * principal + org + scope here instead — callers don't change.
  */
-export function remoteServerConfig(name: string): McpHttpConfig | null {
+export function remoteServerConfig(name: string, options: RemoteDialOptions = {}): McpHttpConfig | null {
   const entry = loadEntries()[name];
   if (!entry?.url) return null;
 
-  const token = bearerToken(entry);
+  const token = options.bearer ?? bearerToken(entry);
   const headers: Record<string, string> = {
     ...(token ? { authorization: `Bearer ${token}` } : {}),
     ...(entry.headers ?? {}),
   };
   return { name, url: entry.url, headers };
+}
+
+/** Whether an entry is meant to read only; see RemoteEntry.readOnly. */
+export function remoteServerReadOnly(name: string): boolean {
+  const entry = loadEntries()[name];
+  if (!entry) return false;
+  return entry.readOnly ?? /-read$/.test(name);
 }
 
 /** Declared remote servers, for the admin/registry view. */
@@ -97,5 +126,6 @@ export function remoteServerInfo(): RemoteServerInfo[] {
     description: entry.description ?? "",
     url: entry.url!,
     configured: Boolean(bearerToken(entry)) || Boolean(entry.headers),
+    readOnly: remoteServerReadOnly(name),
   }));
 }

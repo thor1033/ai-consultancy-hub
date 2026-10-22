@@ -10,8 +10,17 @@ import {
   LARGE_ARG_RULE,
   HANDLE_PREFIX,
 } from "@/lib/mcp/largeArgs";
-import { getAgent, listAgents, listRunnableSkills, getRunStatus, runsOnHub } from "@ai-hub/db";
+import {
+  getAgent,
+  listAgents,
+  listRunnableSkills,
+  getRunStatus,
+  runsOnHub,
+  disabledMcpServerNames,
+} from "@ai-hub/db";
+import { remoteServerConfig, remoteServerInfo } from "@ai-hub/mcp";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
+import { registerProxiedTools } from "@/lib/mcp/proxyTools";
 import {
   retrieveChunks,
   listCollections,
@@ -68,6 +77,24 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
   // who is offered no skill has no argument to split.
   const canRunAgents = await may("agent:run");
 
+  // The remote systems this person can reach through the hub — one per URL,
+  // because pm-tool and pm-tool-read are the same endpoint behind two of the
+  // hub's tokens, and with the person's token forwarded that distinction is
+  // theirs to make, not the hub's. The least restrictive entry for a URL wins.
+  // Only for a person: a credential or a schedule has no identity to forward,
+  // and the hub's shared token is not something to hand out as a tool.
+  const reachable = new Map<string, { name: string; readOnly: boolean }>();
+  if (principal.accessToken) {
+    const disabled = await disabledMcpServerNames();
+    for (const info of remoteServerInfo()) {
+      if (disabled.has(info.name)) continue;
+      const prev = reachable.get(info.url);
+      if (!prev || (prev.readOnly && !info.readOnly)) {
+        reachable.set(info.url, { name: info.name, readOnly: info.readOnly });
+      }
+    }
+  }
+
   const server = new McpServer(
     { name: "ai-hub", version: "0.1.0" },
     {
@@ -79,6 +106,12 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         "this repository. Prefer it over guessing, and cite the document titles " +
         "it returns." +
         (canRunAgents ? ` ${LARGE_ARG_RULE}` : "") +
+        (reachable.size
+          ? " The organisation's own systems are also served here" +
+            ` (${[...reachable.values()].map((r) => r.name).join(", ")}), under your own ` +
+            "identity: what you do with their tools is done as you, and shows as you in " +
+            "their audit trail."
+          : "") +
         (boundAgent
           ? ` This token also carries the memory of the agent "${boundAgent.name}". ` +
             "Call hub_memory_list at the start of a conversation: it returns the " +
@@ -472,6 +505,26 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         });
       },
     );
+  }
+
+  // --- The person's own systems, through the one door ----------------------
+  //
+  // Dialled with the person's access token, never the hub's: a PM-tool write
+  // made from Claude Code through the hub reads as theirs in the PM-tool's
+  // audit trail, and the PM-tool offers exactly what they may do there. A
+  // read-only entry still drops writes on the hub side (proxyTools.ts).
+  if (principal.accessToken) {
+    const taken = new Set<string>();
+    for (const { name, readOnly } of reachable.values()) {
+      const config = remoteServerConfig(name, { bearer: principal.accessToken });
+      if (!config) continue;
+      await registerProxiedTools(server, {
+        config,
+        dropWrites: readOnly,
+        taken,
+        onUnavailable: (err) => console.warn(`[hub-mcp] "${name}" unavailable:`, err),
+      });
+    }
   }
 
   return server;
