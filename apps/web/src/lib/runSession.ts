@@ -2,7 +2,6 @@ import { runAgent, type ModelId, type RunAgentResult } from "@ai-hub/agent";
 import type { McpEntry } from "@ai-hub/db";
 import {
   connectMcpServers,
-  sampleMcpConfig,
   builtinServerConfig,
   builtinOptionsFrom,
   memoryServerConfig,
@@ -14,8 +13,8 @@ import {
 } from "@ai-hub/mcp";
 import { recordSession, finishRun, disabledMcpServerNames } from "@ai-hub/db";
 
-// The code-owned servers: the sample server plus the investment-firm demo servers.
-const LOCAL_SERVERS = ["sample", ...BUILTIN_SERVER_NAMES] as const;
+// The code-owned servers the hub starts itself.
+const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
 
 /**
  * The selectable MCP servers for a workbench session — the code-owned ones plus
@@ -46,7 +45,6 @@ export function resolveServer(
   /** The agent's own entry for this server, for per-agent settings such as a mailbox. */
   entry?: McpEntry,
 ): McpServerConfig | null {
-  if (name === "sample") return sampleMcpConfig();
   if (name === "memory") return agentId ? memoryServerConfig(agentId) : null;
   return builtinServerConfig(name, builtinOptionsFrom(entry)) ?? remoteServerConfig(name, { bearer: remoteBearer });
 }

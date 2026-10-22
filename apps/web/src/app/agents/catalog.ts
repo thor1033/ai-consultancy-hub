@@ -13,7 +13,6 @@ export interface ToolOption {
 }
 
 const LOCAL_DESCRIPTIONS: Record<string, string> = {
-  sample: "A demo server with a few harmless tools, for trying the tool loop.",
   microsoft365: "Read-only Outlook mail and calendar through Microsoft Graph.",
 };
 

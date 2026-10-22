@@ -6,7 +6,6 @@ export type {
   ConnectedMcp,
   McpToolInfo,
 } from "./manager";
-export { sampleMcpConfig } from "./sample";
 export {
   builtinServerConfig,
   builtinOptionsFrom,

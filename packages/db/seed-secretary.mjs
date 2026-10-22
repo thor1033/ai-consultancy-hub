@@ -178,7 +178,7 @@ if (!process.env.DATABASE_URL) {
 // a laptop whose HUB_REMOTE_MCP_SERVERS is not the one Fly holds, so the
 // absence of a server here proves nothing about the deployment.
 const { remoteServerNames, BUILTIN_SERVER_NAMES } = await import("@ai-hub/mcp");
-const declared = new Set([...BUILTIN_SERVER_NAMES, ...remoteServerNames(), "sample", "memory"]);
+const declared = new Set([...BUILTIN_SERVER_NAMES, ...remoteServerNames(), "memory"]);
 
 // microsoft365 fails the OTHER way. An undeclared remote server is skipped
 // silently; a bundled server whose credentials are missing refuses to START,

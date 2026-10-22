@@ -28,12 +28,10 @@ export interface DirectoryEntry {
 }
 
 const LOCAL_DESCRIPTIONS: Record<string, string> = {
-  sample: "A demo server with a few harmless tools, for trying the tool loop.",
   microsoft365: "Read-only Outlook mail and calendar through Microsoft Graph.",
 };
 
 const LOCAL_LABELS: Record<string, string> = {
-  sample: "Sample tools",
   microsoft365: "Microsoft 365",
 };
 

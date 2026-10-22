@@ -61,7 +61,7 @@ try {
     description: "Temporary.",
     instructions: "Be brief.",
     model: "claude-opus-4-8",
-    mcpServers: [{ name: "sample" }],
+    mcpServers: [{ name: "pm-tool" }],
     // Untrimmed and repeated on purpose: names are matched exactly against
     // documents.collection, so the store must clean them.
     knowledgeCollections: ["verify-collection", " verify-playbook ", "verify-collection"],
@@ -74,7 +74,7 @@ try {
     agent.model === "claude-opus-4-8" &&
     JSON.stringify(agent.knowledgeCollections) === JSON.stringify(["verify-collection", "verify-playbook"]) &&
     agent.knowledgeAll === false &&
-    Array.isArray(agent.mcpServers) && agent.mcpServers[0]?.name === "sample" &&
+    Array.isArray(agent.mcpServers) && agent.mcpServers[0]?.name === "pm-tool" &&
     agent.maxIterations === 25,
     JSON.stringify(agent.mcpServers),
   );
