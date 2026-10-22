@@ -10,7 +10,7 @@ export {
   listServerRuns,
 } from "./mcpServers";
 export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun } from "./mcpServers";
-export { recordSession, listSessions, getSession, startRun, finishRun, failRun, getRunStatus } from "./sessions";
+export { recordSession, listSessions, getSession, startRun, finishRun, failRun, getRunStatus, listBriefs } from "./sessions";
 export type {
   SessionSummary,
   SessionDetail,
@@ -18,6 +18,7 @@ export type {
   StartRunInput,
   FinishRunInput,
   RunStatus,
+  Brief,
 } from "./sessions";
 export {
   listAgents,
@@ -116,7 +117,8 @@ export {
   updateSkill,
   deleteSkill,
 } from "./skills";
-export type { Skill, SkillWithAgent, SkillInput, SkillParameter, ParameterType } from "./skills";
+export type { Skill, SkillWithAgent, SkillInput, SkillParameter, ParameterType, SkillKind } from "./skills";
+export { SKILL_KINDS, isSkillKind } from "./skills";
 export {
   isDue,
   isValidTimezone,

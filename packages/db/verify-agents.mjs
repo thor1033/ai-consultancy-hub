@@ -49,6 +49,8 @@ const { contextSnapshot } = await import("./src/context.ts");
 const { agentRoster, listAgentRuns, hubActivity, listRecentRuns, knowledgeScope, retrievalScope } = await import("./src/agents.ts");
 const { serverUsage, toolCallCounts, listServerRuns } = await import("./src/mcpServers.ts");
 const { getSql } = await import("./src/client.ts");
+const { createSkill } = await import("./src/skills.ts");
+const { startRun, finishRun, failRun, listBriefs } = await import("./src/sessions.ts");
 
 const slug = `verify-agents-${Date.now()}`;
 let agent;
@@ -232,6 +234,24 @@ try {
   check("listAgentRuns is newest first and limited",
     runs.length === 2 && runs[0].prompt === "verify run ok" && runs[1].status === "failed");
   check("run cost comes back as a number", typeof runs[0].costUsd === "number");
+  // ── briefs: runs of a brief skill, as the Briefs page lists them ─────────
+  const briefSkill = await createSkill({ agentId: agent.id, slug: `verify-brief-${Date.now()}`, name: "Verify brief", kind: "brief", promptTemplate: "x" });
+  const taskSkill = await createSkill({ agentId: agent.id, slug: `verify-task-${Date.now()}`, name: "Verify task", promptTemplate: "x" });
+  check("a skill is a task unless said otherwise", taskSkill.kind === "task" && briefSkill.kind === "brief");
+  const briefRun = await startRun({ prompt: "brief", agentId: agent.id, skillId: briefSkill.id });
+  const taskRun = await startRun({ prompt: "task", agentId: agent.id, skillId: taskSkill.id });
+  const failedBrief = await startRun({ prompt: "brief", agentId: agent.id, skillId: briefSkill.id });
+  await finishRun(briefRun, { output: "## Thursday\nNothing on." });
+  await finishRun(taskRun, { output: "an answer" });
+  await failRun(failedBrief, "the calendar was unreachable");
+  const briefs = await listBriefs(50);
+  const ids = briefs.map((b) => b.id);
+  check("listBriefs returns runs of brief skills with their output", ids.includes(briefRun) && briefs.find((b) => b.id === briefRun)?.output === "## Thursday\nNothing on.");
+  check("and a failed brief with its reason", briefs.find((b) => b.id === failedBrief)?.status === "failed" && /unreachable/.test(briefs.find((b) => b.id === failedBrief)?.error ?? ""));
+  check("but never a run of an ordinary task", !ids.includes(taskRun));
+  check("each names its agent and skill", briefs.find((b) => b.id === briefRun)?.agentSlug === agent.slug && briefs.find((b) => b.id === briefRun)?.skillSlug === briefSkill.slug);
+  await getSql()`delete from agent_sessions where id in (${briefRun}, ${taskRun}, ${failedBrief})`;
+
   const days = await hubActivity(14);
   const today = days[days.length - 1];
   check("hubActivity fills every day, oldest first",

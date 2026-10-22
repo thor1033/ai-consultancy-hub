@@ -273,7 +273,8 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           <div className="eyebrow">Schedules</div>
           {schedules.length === 0 ? (
             <p className="mt-3 text-sm text-[var(--muted)]">
-              None. A schedule runs a fixed prompt on a timer, as the person who set it up.
+              None. A schedule runs a skill or a fixed prompt on a timer, as the person who set it up. A brief&apos;s
+              morning schedule is set up from the Briefs page.
             </p>
           ) : (
             <ul className="mt-3 flex flex-col">
@@ -286,6 +287,12 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
                   <p className="mt-0.5 text-sm text-[var(--text-soft)]">
                     {cadence(s)}
                     {s.kind === "daily" && <span className="text-[var(--muted)]"> · {s.timezone}</span>}
+                    {s.agentSkillId && (
+                      <span className="text-[var(--muted)]">
+                        {" "}
+                        · runs the skill <span className="mono">{skills.find((k) => k.id === s.agentSkillId)?.slug ?? "?"}</span>
+                      </span>
+                    )}
                   </p>
                   <p className="mt-0.5 text-xs text-[var(--muted)]">
                     Last ran {rel(s.lastRunAt, now).toLowerCase()} · as <span className="mono">{s.ownerPrincipalId}</span>

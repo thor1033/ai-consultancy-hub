@@ -5,7 +5,7 @@ import {
   type TickOutcome,
 } from "@ai-hub/db";
 import type { Principal } from "@ai-hub/authz";
-import { runAgentForPrincipal } from "./agentRuns";
+import { runAgentForPrincipal, runSkillForPrincipal } from "./agentRuns";
 
 /*
  * The ticker.
@@ -61,12 +61,22 @@ export async function tick(now: Date = new Date()): Promise<TickOutcome> {
     const principal = await ownerPrincipal(schedule);
     if ("error" in principal) return { error: principal.error };
 
-    const outcome = await runAgentForPrincipal({
-      agentRef: schedule.agentId,
-      prompt: schedule.prompt,
-      principal,
-      deadlineMs: SCHEDULED_RUN_DEADLINE_MS,
-    });
+    // A skill schedule fills the skill's template at fire time, so the 07:00
+    // brief and one asked for by hand at 09:00 are the same prompt from the
+    // same place, and editing the skill edits the schedule.
+    const outcome = schedule.agentSkillId
+      ? await runSkillForPrincipal({
+          skillRef: schedule.agentSkillId,
+          args: schedule.skillArgs ?? {},
+          principal,
+          deadlineMs: SCHEDULED_RUN_DEADLINE_MS,
+        })
+      : await runAgentForPrincipal({
+          agentRef: schedule.agentId,
+          prompt: schedule.prompt,
+          principal,
+          deadlineMs: SCHEDULED_RUN_DEADLINE_MS,
+        });
 
     // `running` is the expected outcome, not a failure: the deadline above is
     // short, and the run owns finishing its own row either way.

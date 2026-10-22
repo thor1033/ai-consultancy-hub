@@ -204,6 +204,13 @@ up to half an hour to apply.
    > When someone asks you to reply, accept or reschedule, write the draft in
    > full and say plainly that it still has to be sent by hand.
 
+## The morning brief
+
+`meeting-prep` is the Secretary's second skill: a brief, published on `/briefs`,
+that prepares whoever is walking into the meetings on the Secretary's calendar.
+Invite `secretary@teqneo.co` to a meeting and it is prepared for. Details, and
+how to put it on a morning clock, in [briefs.md](briefs.md).
+
 ## The tools
 
 | Tool | Answers |

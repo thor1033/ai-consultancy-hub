@@ -109,6 +109,13 @@ and `retrievalScope()` in `packages/db/src/agents.ts` turn the two columns into
 retrieval options, and every run path goes through them so the three scopes
 mean the same thing in the console, on a schedule and from Claude Code.
 
+### Skills that publish
+
+A skill's `kind` is `task` (the default: an answer to whoever asked) or `brief`
+(a standing document on `/briefs`, which can also be put on a morning schedule).
+Same run, same row; the kind only decides where the output is shown. See
+[briefs.md](briefs.md).
+
 ### Tool-use rounds
 
 A run is a loop: the model asks for tools, the hub runs them, the model asks

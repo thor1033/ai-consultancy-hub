@@ -21,7 +21,7 @@ import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
 import { MAX_ITERATIONS_CEILING, type ModelId } from "@ai-hub/agent";
 import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
-import { listSkills, createSkill, updateSkill, deleteSkill, type SkillParameter } from "@ai-hub/db";
+import { listSkills, createSkill, updateSkill, deleteSkill, isSkillKind, type SkillParameter, type SkillKind } from "@ai-hub/db";
 import { undeclaredPlaceholders } from "@/lib/skillPrompt";
 import { MAILBOX_SERVERS } from "./models";
 import { isUniqueViolation } from "@/lib/apiError";
@@ -334,9 +334,13 @@ export async function saveSkillAction(input: {
   description: string;
   promptTemplate: string;
   parameters: SkillParameter[];
+  kind?: SkillKind;
 }) {
   if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
 
+  // Validated rather than trusted: a server action is a public endpoint, and
+  // the column has a check constraint whose error nobody could act on.
+  const kind: SkillKind = isSkillKind(input.kind) ? input.kind : "task";
   const slug = input.slug.trim().toLowerCase();
   // The slug becomes an MCP tool name, so it has to survive that translation
   // legibly rather than being mangled into something nobody recognises.
@@ -374,6 +378,7 @@ export async function saveSkillAction(input: {
           description: input.description.trim(),
           promptTemplate: input.promptTemplate,
           parameters,
+          kind,
         })
       : await createSkill({
           agentId: input.agentId,
@@ -382,6 +387,7 @@ export async function saveSkillAction(input: {
           description: input.description.trim(),
           promptTemplate: input.promptTemplate,
           parameters,
+          kind,
         });
     if (!saved) return { error: "That skill no longer exists." };
     return { skills: await listSkills(input.agentId) };

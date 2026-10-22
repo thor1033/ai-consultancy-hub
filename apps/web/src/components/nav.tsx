@@ -57,6 +57,18 @@ export const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/briefs",
+    label: "Briefs",
+    icon: (
+      // A page with a rule across the top: a standing document, read each morning.
+      <svg {...s}>
+        <rect x="5" y="3" width="14" height="18" />
+        <path d="M5 8h14" />
+        <path d="M8 12h8M8 15h8M8 18h5" />
+      </svg>
+    ),
+  },
+  {
     href: "/context",
     label: "Context",
     icon: (

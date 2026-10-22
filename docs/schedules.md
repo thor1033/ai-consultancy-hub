@@ -5,10 +5,10 @@
 Until this existed, every agent run in the hub began with a person: a chat turn,
 an API call, a tool call from Claude Code. That makes an agent a window you open,
 not a worker. A **schedule** is a standing instruction to run one agent, with one
-prompt, on a clock.
+prompt or one skill, on a clock.
 
 ```
-agent_schedules                       agent, prompt, when, owner
+agent_schedules                       agent, prompt or skill + args, when, owner
   └── runDueSchedules()               @ai-hub/db — which are due, who claims one
         └── tick()                    apps/web/lib/scheduler.ts — runs it
               └── runAgentForPrincipal(… as the OWNER …)
@@ -93,9 +93,12 @@ reach the live PM-tool; both need `DATABASE_URL` and clean up after themselves.
 
 ## What this deliberately does not do yet
 
-- **No UI.** Schedules are created through `@ai-hub/db` (or SQL); there is no
-  panel on `/agents/[slug]` yet. Nothing about the shape below the UI changes
-  when one arrives.
+- **One UI, for one case.** The Briefs page creates a person's morning schedule
+  for a brief skill ([briefs.md](briefs.md)); a free-text prompt schedule is
+  still created through `@ai-hub/db` (or SQL). A schedule may name a skill
+  (`agent_skill_id`, `skill_args`): the tick fills the skill's template at fire
+  time, so editing the skill edits the schedule, and the skill's deletion ends
+  its clock.
 - **Nothing to gate.** The natural next step for a secretary is *drafting* a
   reply, and that is the point where an approval step has to exist. Right now
   there is nothing to approve: the Microsoft 365 server has no tool that writes

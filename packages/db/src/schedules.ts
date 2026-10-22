@@ -27,8 +27,11 @@ export interface Schedule {
   id: string;
   agentId: string;
   name: string;
-  /** What to ask the agent, every time it fires. */
+  /** What to ask the agent, every time it fires. For a skill schedule, the readable line. */
   prompt: string;
+  /** Run this skill (its template filled from skillArgs) instead of the prompt. */
+  agentSkillId: string | null;
+  skillArgs: Record<string, unknown>;
   kind: ScheduleKind;
   /** kind `every`: minutes between runs. */
   intervalMinutes: number | null;
@@ -50,7 +53,10 @@ export interface Schedule {
 export interface ScheduleInput {
   agentId: string;
   name: string;
-  prompt: string;
+  /** Required for a prompt schedule; for a skill schedule it defaults to the name. */
+  prompt?: string;
+  agentSkillId?: string | null;
+  skillArgs?: Record<string, unknown>;
   kind: ScheduleKind;
   intervalMinutes?: number | null;
   atMinute?: number | null;
@@ -169,6 +175,7 @@ export function isDue(schedule: Schedule, now: Date): boolean {
 // schedulesToConsider. Keep them in step.
 const columnList = (p = "") => `
   ${p}id, ${p}agent_id as "agentId", ${p}name, ${p}prompt, ${p}kind,
+  ${p}agent_skill_id as "agentSkillId", ${p}skill_args as "skillArgs",
   ${p}interval_minutes as "intervalMinutes", ${p}at_minute as "atMinute",
   ${p}weekdays, ${p}timezone,
   ${p}owner_principal_id as "ownerPrincipalId", ${p}enabled,
@@ -183,7 +190,9 @@ const S_COLUMNS = columnList("s.");
 /** Rejects a schedule that could never fire, rather than storing a dead row. */
 function validate(input: ScheduleInput): string | null {
   if (!input.name?.trim()) return "A schedule needs a name.";
-  if (!input.prompt?.trim()) return "A schedule needs a prompt — it is what the agent is asked.";
+  if (!input.agentSkillId && !input.prompt?.trim()) {
+    return "A schedule needs a prompt — it is what the agent is asked.";
+  }
   if (input.kind === "every") {
     const m = input.intervalMinutes;
     if (!Number.isInteger(m) || (m as number) < 1) {
@@ -212,9 +221,12 @@ export async function createSchedule(input: ScheduleInput): Promise<Schedule | {
   const sql = getSql();
   const rows = await sql<Schedule[]>`
     insert into agent_schedules
-      (agent_id, name, prompt, kind, interval_minutes, at_minute, weekdays,
+      (agent_id, name, prompt, agent_skill_id, skill_args, kind, interval_minutes, at_minute, weekdays,
        timezone, owner_principal_id, enabled)
-    values (${input.agentId}, ${input.name.trim()}, ${input.prompt.trim()}, ${input.kind},
+    values (${input.agentId}, ${input.name.trim()}, ${(input.prompt ?? "").trim() || input.name.trim()},
+            ${input.agentSkillId ?? null},
+            ${sql.json((input.skillArgs ?? {}) as Parameters<typeof sql.json>[0])},
+            ${input.kind},
             ${input.kind === "every" ? input.intervalMinutes! : null},
             ${input.kind === "daily" ? input.atMinute! : null},
             ${sql.json((input.weekdays ?? []) as Parameters<typeof sql.json>[0])},
