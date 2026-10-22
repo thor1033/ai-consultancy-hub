@@ -146,6 +146,26 @@ try {
     "curation and permission are ANDed, so `collection` cannot widen access",
   );
 
+  // --- 4b. a set of collections (an agent's drawers) ----------------------
+  const setForLead = await retrieveChunks("handbook salary", hrLead, 20, { collection: [OPEN, HR] });
+  check(
+    "a set of collections retrieves from each of them",
+    hit(setForLead, "Staff handbook") && hit(setForLead, "Salary review"),
+    `${setForLead.length} chunks`,
+  );
+  check("and from nothing outside the set", !hit(setForLead, "Aurora engagement") && !hit(setForLead, "Loose note"));
+  const setForAnalyst = await retrieveChunks("handbook salary", analyst, 20, { collection: [OPEN, HR] });
+  check(
+    "the set is still ANDed with access: the analyst gets only the open drawer",
+    hit(setForAnalyst, "Staff handbook") && !hit(setForAnalyst, "Salary review"),
+    `${setForAnalyst.length} chunks`,
+  );
+  check(
+    "an empty set matches nothing rather than everything",
+    (await retrieveChunks("handbook", admin, 20, { collection: [] })).length === 0,
+    "scoped to no drawer is not the same as unscoped",
+  );
+
   // --- 5. listCollections -------------------------------------------------
   const analystCollections = await listCollections(analyst);
   check(

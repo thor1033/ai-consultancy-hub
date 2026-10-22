@@ -98,17 +98,24 @@ Before it can do real work, mint the read-scoped token in PM-tool's
 audit trail is attributed to the label, and a secretary's reads should not
 appear as someone's.
 
-## The mailbox and calendar — built, verified, not wired up
+## The mailbox and calendar
 
-The `microsoft365` MCP server gives one agent **read-only** access to one
+The `microsoft365` MCP server gives an agent **read-only** access to one
 Microsoft 365 mailbox and its calendar: what is coming up and what has arrived,
 on demand, from the hub UI or from Claude Code.
 
-It is built and verified but **not in the secretary's server list**. Wiring it
-in needs an Entra app registration, admin consent and an Exchange access policy
-from whoever runs the tenant, and none of that is needed for the work the agent
-does today. Add `microsoft365` to `mcpServers` in the seed definition once the
-four `M365_*` variables are set, and re-run the seed.
+The secretary's entry names its mailbox: `{"name":"microsoft365","mailbox":
+"secretary@teqneo.co"}` (`SECRETARY_MAILBOX` in the seed). The credentials are
+the deployment's — one app registration — and **which mailbox** an agent reads
+is its own setting (Settings → What it may use → Mailbox this agent reads), so a
+second agent gets a second shared mailbox without a second registration. The
+mailbox has to be inside the access policy's group below, or Graph refuses it.
+
+**Order matters.** A bundled server whose credentials are missing refuses to
+start, and `connectMcpServers` then fails the whole run — so an agent that
+names `microsoft365` cannot run at all, not even for PM-tool work, until the
+deployment holds the `M365_*` secrets. The seed warns about this; set the
+secrets first, then provision or tick the box.
 
 It cannot send, reply, accept, decline, create or delete anything. That is a
 property of `packages/mcp/servers/microsoft365/server.mjs` — there is no tool
@@ -139,42 +146,58 @@ organisation, not just the secretary's. `M365_MAILBOX` narrows what this server
 Online:
 
 ```powershell
+# The scope must be a MAIL-ENABLED SECURITY GROUP, not a mailbox: put every
+# agent mailbox in one group and point the policy at it. Adding an agent later
+# is then a group membership, not a new policy.
 New-ApplicationAccessPolicy -AppId <client-id> `
-  -PolicyScopeGroupId secretary@yourdomain.com -AccessRight RestrictAccess
-Test-ApplicationAccessPolicy -Identity someone-else@yourdomain.com -AppId <client-id>
+  -PolicyScopeGroupId aihub-mailboxes@yourdomain.com -AccessRight RestrictAccess
+Test-ApplicationAccessPolicy -Identity secretary@yourdomain.com -AppId <client-id>     # Granted
+Test-ApplicationAccessPolicy -Identity someone-else@yourdomain.com -AppId <client-id>  # Denied
 ```
 
-The `Test-` line is the one that matters: it should come back `Denied` for a
-mailbox that is not the secretary's. Until it does, the secret in
-`M365_CLIENT_SECRET` is a key to the whole organisation's mail.
+The second `Test-` line is the one that matters: it should come back `Denied`
+for a mailbox outside the group. Until it does, the secret in
+`M365_CLIENT_SECRET` is a key to the whole organisation's mail. Policies take
+up to half an hour to apply.
 
 ## Setup
 
+0. **The mailbox.** A **shared mailbox** (Microsoft 365 admin centre → Teams &
+   groups → Shared mailboxes → Add): `secretary@yourdomain.com`. It needs no
+   licence — the tenant just has to have a plan that includes Exchange — and it
+   has a calendar. One per agent; never a person's inbox.
 1. **Entra ID → App registrations → New registration.** Single tenant. No
    redirect URI — this flow never uses one.
 2. **Certificates & secrets → New client secret.** Copy the *Value*. It is shown
    once.
 3. **API permissions → Microsoft Graph → Application permissions.** Add
    `Mail.Read` and `Calendars.Read`. Nothing else: the server asks for no other
-   scope, and `m365_whoami` deliberately avoids `mailboxSettings` so it does not
-   need `MailboxSettings.Read`.
+   scope: `m365_whoami` probes the inbox folder rather than the user object or
+   `mailboxSettings`, so it needs neither `User.Read.All` nor
+   `MailboxSettings.Read`. (Add the permissions under **Application**, not
+   Delegated: a delegated grant is for a signed-in person and this server has
+   none, so Graph answers `403 Authorization_RequestDenied`.)
 4. **Grant admin consent.** The grant is inert until this is clicked.
-5. **Apply the Application Access Policy** above.
-6. **Fill in `apps/web/.env.local`:**
+5. **Apply the Application Access Policy** above, with the agent mailboxes in
+   a mail-enabled security group.
+6. **Fill in `apps/web/.env.local`** (in production, Fly secrets):
 
    ```
    M365_TENANT_ID=…
    M365_CLIENT_ID=…
    M365_CLIENT_SECRET=…
-   M365_MAILBOX=secretary@yourdomain.com
+   M365_MAILBOX=secretary@yourdomain.com      # the default; an agent may name its own
    M365_TIMEZONE=Europe/Copenhagen
+   HUB_TIMEZONE=Europe/Copenhagen             # what "today" means to every agent
    ```
 
    Missing any of the four and the server exits 1 naming what is missing, so the
    agent run fails loudly instead of reporting an empty inbox.
 
-7. **Create the agent** at `/agents` → New. Tick `microsoft365` under MCP
-   servers; `memory` attaches itself. Suggested instructions:
+7. **Give an agent the mailbox** at `/agents` → the agent → Settings → What it
+   may use: tick `microsoft365` and fill in **Mailbox this agent reads**;
+   `memory` attaches itself. The secretary gets it from the seed. Suggested
+   instructions for a new one:
 
    > You are the secretary. You read one mailbox and one calendar, and you
    > cannot send or change anything. Lead with what needs a decision today.
@@ -217,16 +240,17 @@ with itself. 32 checks, including that no tool name can write, that the token is
 fetched once and reused, and that a wrong secret surfaces its AADSTS code.
 
 Against the real tenant, the smoke test is `m365_whoami` — if it returns the
-mailbox, consent and the access policy are both right.
+mailbox with its inbox counts, consent and the access policy are both right.
 
 ## What this increment deliberately does not do
 
 - **Nothing triggers it.** There is no cron and no webhook anywhere in the hub;
   an agent runs when someone calls it. A secretary that acts on its own needs an
   inbound route and a clock, and that is the next increment.
-- **One mailbox per deployment.** `M365_MAILBOX` is environment, not an agent
-  field, so two agents cannot watch two mailboxes. Per-agent credentials are the
-  same build as per-user OAuth, and both should wait for a paying reason.
+- **One set of credentials per deployment.** Each agent names its own mailbox,
+  but they all read through the same app registration, inside the same access
+  policy. Per-agent credentials are the same build as per-user OAuth, and both
+  should wait for a paying reason.
 - **Triage depth is a setting now, not a constant.** A run's rounds of tool use
   are capped by `agents.max_iterations` (**Settings → Tool-use rounds per run**),
   null meaning the default of 10. Listing an inbox and opening five messages

@@ -37,8 +37,32 @@ export {
   listAgentRuns,
   forgetMemory,
   searchMemories,
+  isPlacement,
+  runsOnHub,
+  runsLocally,
+  PLACEMENTS,
+  recordLocalCall,
+  localActivity,
+  knowledgeScope,
+  retrievalScope,
+  knowledgeLabel,
 } from "./agents";
-export type { AgentSummary, Agent, AgentMemory, AgentInput, MemoryRegion, AgentRosterRow, AgentRun, HubDay, HubRun } from "./agents";
+export type {
+  McpEntry,
+  KnowledgeScope,
+  AgentSummary,
+  Agent,
+  AgentMemory,
+  AgentInput,
+  Placement,
+  LocalCallInput,
+  LocalActivity,
+  MemoryRegion,
+  AgentRosterRow,
+  AgentRun,
+  HubDay,
+  HubRun,
+} from "./agents";
 export { contextSnapshot } from "./context";
 export type {
   ContextSnapshot,

@@ -18,16 +18,47 @@ import type { McpStdioConfig } from "./manager";
 // here.
 export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365"];
 
+/** Bundled servers that read one mailbox, and so take a per-agent `mailbox`. */
+export const MAILBOX_SERVER_NAMES: readonly string[] = ["microsoft365"];
+
 const BUILTIN = new Set<string>(BUILTIN_SERVER_NAMES);
+
+/**
+ * What an agent's own entry for a bundled server may vary.
+ *
+ * `mailbox` is the only one so far. The credentials (tenant, client, secret)
+ * stay in the deployment's environment — one app registration, fenced by one
+ * Exchange access policy — and the agent's entry says WHICH mailbox inside that
+ * fence it reads: `{"name":"microsoft365","mailbox":"secretary@…"}`. Omitted,
+ * the deployment's M365_MAILBOX is the default, so a single-mailbox deployment
+ * configures nothing new.
+ */
+export interface BuiltinServerOptions {
+  mailbox?: string;
+}
+
+/** The options an agent's stored entry carries, ignoring anything else in it. */
+export function builtinOptionsFrom(entry: unknown): BuiltinServerOptions {
+  if (!entry || typeof entry !== "object") return {};
+  const mailbox = (entry as { mailbox?: unknown }).mailbox;
+  return typeof mailbox === "string" && mailbox.trim() ? { mailbox: mailbox.trim() } : {};
+}
 
 function serverEntry(name: string): string {
   const here = dirname(fileURLToPath(import.meta.url));
   return join(here, "..", "servers", name, "server.mjs");
 }
 
-export function builtinServerConfig(name: string): McpStdioConfig | null {
+export function builtinServerConfig(
+  name: string,
+  options: BuiltinServerOptions = {},
+): McpStdioConfig | null {
   if (!BUILTIN.has(name)) return null;
-  return { name, command: process.execPath, args: [serverEntry(name)] };
+  const config: McpStdioConfig = { name, command: process.execPath, args: [serverEntry(name)] };
+  // The child inherits the process environment and this overlays it, so the
+  // agent's mailbox wins over M365_MAILBOX for this run and nothing else moves.
+  if (name === "microsoft365" && options.mailbox) config.env = { M365_MAILBOX: options.mailbox };
+  return config;
 }
 
 /**

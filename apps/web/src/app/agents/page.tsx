@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { agentRoster, listMcpServers, type AgentRosterRow } from "@ai-hub/db";
+import { agentRoster, listMcpServers, knowledgeLabel, knowledgeScope, type AgentRosterRow } from "@ai-hub/db";
 import { money, rel } from "@/lib/format";
 
 export const dynamic = "force-dynamic";
@@ -113,6 +113,10 @@ function AgentRow({
   const servers = serverList(a);
   const health: { text: string; color: string }[] = [];
   if (!a.enabled) health.push({ text: "Switched off", color: "var(--faint)" });
+  // Where it runs is worth a glance on the roster: a local agent is absent from
+  // the hub's tool list and its schedules, which otherwise looks like a fault.
+  if (a.placement === "local") health.push({ text: "Runs in Claude Code only", color: "var(--c-src)" });
+  if (a.placement === "both") health.push({ text: "Hub and Claude Code", color: "var(--c-src)" });
   if (a.failed7d) health.push({ text: `${a.failed7d} failed run${a.failed7d === 1 ? "" : "s"} this week`, color: "var(--brand)" });
   if (a.scheduleError) health.push({ text: "A schedule errored", color: "var(--brand)" });
   if (!a.lastRunAt && a.enabled) health.push({ text: "Never run", color: "var(--text)" });
@@ -160,7 +164,13 @@ function AgentRow({
             {servers.length ? servers.map((n) => labels.get(n) ?? n).join(", ") : <span className="text-[var(--muted)]">Memory only</span>}
           </Equip>
           <Equip label="Knowledge">
-            {a.knowledgeCollection ? <span className="mono text-xs">{a.knowledgeCollection}</span> : <span className="text-[var(--muted)]">None</span>}
+            {knowledgeScope(a).kind === "collections" ? (
+              <span className="mono text-xs">{knowledgeLabel(a)}</span>
+            ) : knowledgeScope(a).kind === "all" ? (
+              <span className="text-xs">Everything</span>
+            ) : (
+              <span className="text-[var(--muted)]">None</span>
+            )}
           </Equip>
         </dl>
 

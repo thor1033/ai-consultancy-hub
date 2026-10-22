@@ -11,12 +11,31 @@ import { getSql } from "./client";
  */
 export type McpEntry = Record<string, unknown>;
 
+/**
+ * Where an agent runs: on the hub's runtime, in a Claude Code session as a
+ * synced sub-agent, or both. See docs/local-agents.md.
+ */
+export type Placement = "hub" | "local" | "both";
+
+export const PLACEMENTS: readonly Placement[] = ["hub", "local", "both"];
+
+export function isPlacement(value: unknown): value is Placement {
+  return value === "hub" || value === "local" || value === "both";
+}
+
+/** Whether the hub itself may run this agent (chat, MCP tools, schedules). */
+export const runsOnHub = (p: Placement) => p !== "local";
+
+/** Whether this agent is synced into Claude Code as a sub-agent. */
+export const runsLocally = (p: Placement) => p !== "hub";
+
 export interface AgentSummary {
   id: string;
   slug: string;
   name: string;
   description: string;
   enabled: boolean;
+  placement: Placement;
   memoryCount: number;
   createdAt: string;
   updatedAt: string;
@@ -27,9 +46,48 @@ export interface Agent extends AgentSummary {
   model: string | null;
   effort: string | null;
   mcpServers: McpEntry[];
-  knowledgeCollection: string | null;
+  /** Collections this agent retrieves from. Ignored when knowledgeAll is set. */
+  knowledgeCollections: string[];
+  /** Retrieve from everything the caller may read, rather than a curated set. */
+  knowledgeAll: boolean;
   /** Rounds of tool use one run may take. Null ⇒ the runtime default. */
   maxIterations: number | null;
+}
+
+/**
+ * What an agent reads, as one value the run paths can switch on. Curation
+ * only: whichever kind it is, retrieval is still filtered by the caller's
+ * access (docs/knowledge-access.md).
+ */
+export type KnowledgeScope =
+  | { kind: "none" }
+  | { kind: "all" }
+  | { kind: "collections"; names: string[] };
+
+export function knowledgeScope(agent: Pick<Agent, "knowledgeAll" | "knowledgeCollections">): KnowledgeScope {
+  if (agent.knowledgeAll) return { kind: "all" };
+  const names = (agent.knowledgeCollections ?? []).filter((n) => typeof n === "string" && n.trim());
+  return names.length ? { kind: "collections", names } : { kind: "none" };
+}
+
+/**
+ * The retrieval options for a scope, or null when the agent reads nothing.
+ * Every path that retrieves for an agent goes through this, so "no knowledge"
+ * means the same thing in the console, on a schedule and at the per-agent
+ * endpoint.
+ */
+export function retrievalScope(scope: KnowledgeScope): { collection?: string[] } | null {
+  if (scope.kind === "none") return null;
+  if (scope.kind === "all") return {};
+  return { collection: scope.names };
+}
+
+/** "Everything", "None", or the collection names — for rosters and previews. */
+export function knowledgeLabel(agent: Pick<Agent, "knowledgeAll" | "knowledgeCollections">): string {
+  const scope = knowledgeScope(agent);
+  if (scope.kind === "all") return "Everything";
+  if (scope.kind === "none") return "None";
+  return scope.names.join(", ");
 }
 
 export interface AgentMemory {
@@ -49,18 +107,20 @@ export interface AgentInput {
   model?: string | null;
   effort?: string | null;
   mcpServers?: McpEntry[];
-  knowledgeCollection?: string | null;
+  knowledgeCollections?: string[];
+  knowledgeAll?: boolean;
   maxIterations?: number | null;
   enabled?: boolean;
+  placement?: Placement;
 }
 
 // Unqualified on purpose: this list is reused in a RETURNING clause, where
 // there is no table alias to qualify against.
 const AGENT_COLUMNS = `
   id, slug, name, description, instructions, model, effort,
-  mcp_servers as "mcpServers", knowledge_collection as "knowledgeCollection",
-  max_iterations as "maxIterations",
-  enabled, created_at as "createdAt", updated_at as "updatedAt"
+  mcp_servers as "mcpServers", knowledge_collections as "knowledgeCollections",
+  knowledge_all as "knowledgeAll", max_iterations as "maxIterations",
+  enabled, placement, created_at as "createdAt", updated_at as "updatedAt"
 `;
 
 export async function listAgents(): Promise<AgentSummary[]> {
@@ -68,7 +128,7 @@ export async function listAgents(): Promise<AgentSummary[]> {
   // The memory count is what tells a reader an agent has actually been used,
   // so it belongs in the list rather than one level down.
   return sql<AgentSummary[]>`
-    select a.id, a.slug, a.name, a.description, a.enabled,
+    select a.id, a.slug, a.name, a.description, a.enabled, a.placement,
            count(m.id)::int as "memoryCount",
            a.created_at as "createdAt", a.updated_at as "updatedAt"
     from agents a
@@ -97,15 +157,22 @@ export async function createAgent(input: AgentInput): Promise<Agent> {
   const sql = getSql();
   const rows = await sql<Agent[]>`
     insert into agents (slug, name, description, instructions, model, effort,
-                        mcp_servers, knowledge_collection, max_iterations, enabled)
+                        mcp_servers, knowledge_collections, knowledge_all, max_iterations,
+                        enabled, placement)
     values (${input.slug}, ${input.name}, ${input.description ?? ""},
             ${input.instructions ?? ""}, ${input.model ?? null}, ${input.effort ?? null},
             ${sql.json((input.mcpServers ?? []) as Parameters<typeof sql.json>[0])},
-            ${input.knowledgeCollection ?? null}, ${input.maxIterations ?? null},
-            ${input.enabled ?? true})
+            ${cleanNames(input.knowledgeCollections)}::text[], ${input.knowledgeAll ?? false},
+            ${input.maxIterations ?? null}, ${input.enabled ?? true}, ${input.placement ?? "hub"})
     returning ${sql.unsafe(AGENT_COLUMNS)}, 0 as "memoryCount"
   `;
   return rows[0];
+}
+
+// Trimmed, de-duplicated, blanks dropped: a name is matched exactly against
+// documents.collection, so a trailing space would scope an agent to nothing.
+function cleanNames(names: readonly string[] | undefined): string[] {
+  return [...new Set((names ?? []).map((n) => (typeof n === "string" ? n.trim() : "")).filter(Boolean))];
 }
 
 export async function updateAgent(
@@ -130,9 +197,11 @@ export async function updateAgent(
       model = ${next.model ?? null},
       effort = ${next.effort ?? null},
       mcp_servers = ${sql.json((next.mcpServers ?? []) as Parameters<typeof sql.json>[0])},
-      knowledge_collection = ${next.knowledgeCollection ?? null},
+      knowledge_collections = ${cleanNames(next.knowledgeCollections)}::text[],
+      knowledge_all = ${next.knowledgeAll ?? false},
       max_iterations = ${next.maxIterations ?? null},
       enabled = ${next.enabled ?? true},
+      placement = ${next.placement ?? "hub"},
       updated_at = now()
     where id = ${id}
     returning ${sql.unsafe(AGENT_COLUMNS)},
@@ -207,8 +276,10 @@ export interface AgentRosterRow {
   name: string;
   description: string;
   enabled: boolean;
+  placement: Placement;
   model: string | null;
-  knowledgeCollection: string | null;
+  knowledgeCollections: string[];
+  knowledgeAll: boolean;
   mcpServers: McpEntry[];
   memoriesLoaded: number;
   memoriesAside: number;
@@ -232,8 +303,9 @@ export interface AgentRosterRow {
 export async function agentRoster(): Promise<AgentRosterRow[]> {
   const sql = getSql();
   return sql<AgentRosterRow[]>`
-    select a.id, a.slug, a.name, a.description, a.enabled, a.model,
-           a.knowledge_collection as "knowledgeCollection", a.mcp_servers as "mcpServers",
+    select a.id, a.slug, a.name, a.description, a.enabled, a.placement, a.model,
+           a.knowledge_collections as "knowledgeCollections", a.knowledge_all as "knowledgeAll",
+           a.mcp_servers as "mcpServers",
            (select count(*)::int from agent_memories m where m.agent_id = a.id and m.active) as "memoriesLoaded",
            (select count(*)::int from agent_memories m where m.agent_id = a.id and not m.active) as "memoriesAside",
            (select count(*)::int from agent_skills k where k.agent_id = a.id) as skills,
@@ -345,14 +417,18 @@ export async function listRecentRuns(limit = 8): Promise<HubRun[]> {
   `;
 }
 
-/** Which agents retrieve from which knowledge collection — for the Knowledge page. */
+/**
+ * Which agents retrieve from which knowledge collection — one row per pair,
+ * for the Knowledge page. Agents reading "everything" name no collection and
+ * so do not appear: the page asks who works out of this drawer, not who could.
+ */
 export async function listAgentKnowledgeScopes(): Promise<{ name: string; slug: string; collection: string }[]> {
   const sql = getSql();
   return sql<{ name: string; slug: string; collection: string }[]>`
-    select name, slug, knowledge_collection as collection
-      from agents
-     where knowledge_collection is not null and knowledge_collection <> ''
-     order by name
+    select a.name, a.slug, c.collection
+      from agents a, unnest(a.knowledge_collections) as c(collection)
+     where not a.knowledge_all
+     order by a.name, c.collection
   `;
 }
 
@@ -407,4 +483,47 @@ export async function searchMemories(
     order by updated_at desc
     limit ${limit}
   `;
+}
+
+// ── local activity ──────────────────────────────────────────────────────────
+// One row per tool call a local agent made through the hub. See schema.sql for
+// why this is not agent_sessions.
+
+export interface LocalCallInput {
+  agentId: string;
+  principalId: string | null;
+  tool: string;
+  ok: boolean;
+  latencyMs: number;
+}
+
+export async function recordLocalCall(input: LocalCallInput): Promise<void> {
+  const sql = getSql();
+  await sql`
+    insert into agent_local_calls (agent_id, principal_id, tool, ok, latency_ms)
+    values (${input.agentId}, ${input.principalId}, ${input.tool}, ${input.ok},
+            ${Math.round(input.latencyMs)})
+  `;
+}
+
+export interface LocalActivity {
+  calls: number;
+  failed: number;
+  people: number;
+  lastAt: string | null;
+}
+
+/** What a local agent did through the hub in the last `days` days. */
+export async function localActivity(agentId: string, days = 30): Promise<LocalActivity> {
+  const sql = getSql();
+  const [row] = await sql<LocalActivity[]>`
+    select count(*)::int                          as calls,
+           count(*) filter (where not ok)::int    as failed,
+           count(distinct principal_id)::int      as people,
+           max(at)                                as "lastAt"
+      from agent_local_calls
+     where agent_id = ${agentId}
+       and at > now() - make_interval(days => ${days})
+  `;
+  return row ?? { calls: 0, failed: 0, people: 0, lastAt: null };
 }

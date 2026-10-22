@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { sendAgentMessageAction, type AgentChatMessage, type AgentTurnMeta } from "../actions";
+import { Markdown } from "@/components/Markdown";
 
 // Talking to the agent. Each answer carries what it cost and what it reached
 // for, so a person can see the agent working rather than take it on trust.
@@ -87,14 +88,13 @@ export function AgentChat({ slug, name, enabled }: { slug: string; name: string;
               <div className="whitespace-pre-wrap">{t.content}</div>
             </div>
           ) : (
-            <div key={i} className="max-w-[92%]">
+            <div key={i} className="group max-w-[92%]">
               <div className="mb-1.5 flex items-center gap-2 text-xs text-[var(--muted)]">
                 <span aria-hidden className="inline-block h-2 w-2 bg-[var(--ai)]" />
                 <span className="font-medium text-[var(--text)]">{name}</span>
+                <CopyButton text={t.content} />
               </div>
-              <div className="whitespace-pre-wrap border-l-2 border-[var(--ai)] pl-4 text-sm leading-relaxed">
-                {t.content}
-              </div>
+              <Markdown className="border-l-2 border-[var(--ai)] pl-4">{t.content}</Markdown>
               {t.meta && <MetaLine meta={t.meta} />}
             </div>
           ),
@@ -152,6 +152,26 @@ export function AgentChat({ slug, name, enabled }: { slug: string; name: string;
         </div>
       )}
     </div>
+  );
+}
+
+/** The answer as the agent wrote it, for pasting into a ticket or a mail. */
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      type="button"
+      className="ml-auto text-xs text-[var(--muted)] opacity-0 underline-offset-2 transition-opacity hover:text-[var(--brand)] hover:underline focus-visible:opacity-100 group-hover:opacity-100"
+      onClick={() => {
+        navigator.clipboard?.writeText(text).then(() => {
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        });
+      }}
+      aria-label="Copy this answer as Markdown"
+    >
+      {copied ? "Copied" : "Copy"}
+    </button>
   );
 }
 

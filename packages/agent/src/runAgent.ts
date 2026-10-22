@@ -12,6 +12,38 @@ import {
 } from "./models";
 import type { RunAgentInput, RunAgentResult } from "./types";
 
+/**
+ * "Today is Thursday 22 October 2026, 21:40 (Europe/Copenhagen)." in the
+ * deployment's timezone — HUB_TIMEZONE, else the process's own, which on a
+ * server is UTC. An unknown zone name falls back to UTC rather than throwing
+ * inside every run.
+ */
+export function clockLine(now: Date, timeZone = process.env.HUB_TIMEZONE): string {
+  const zone = timeZone?.trim() || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  const fmt = (tz: string) =>
+    new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    }).format(now);
+  let stamp: string;
+  let used = zone;
+  try {
+    stamp = fmt(zone);
+  } catch {
+    used = "UTC";
+    stamp = fmt(used);
+  }
+  // en-GB gives "Thursday 22 October 2026 at 21:40" (older ICU: "Thursday, 22 October 2026, 21:40").
+  const text = stamp.replace(/,?\s+at\s+/, ", ").replace(/^(\w+),\s/, "$1 ");
+  return `Today is ${text} (${used}). Use this, not your training data, for anything relative to now: "this week", "tomorrow", "overdue".`;
+}
+
 const DEFAULT_SYSTEM =
   "You are the AI Hub agent. You run an organization's workflows and Skills " +
   "accurately and concisely, using the tools available to you. Prefer verified " +
@@ -83,6 +115,11 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       cache_control: { type: "ephemeral" },
     },
   ];
+  // The model has no clock. Without this, "this week" is whatever week its
+  // training data last saw, and a calendar lookup is silently asked for the
+  // wrong dates. Placed after the cache breakpoint: it changes every minute
+  // and must not invalidate the cached persona above it.
+  system.push({ type: "text", text: clockLine(new Date()) });
   // Retrieved context goes after the cached persona block (volatile, uncached).
   if (input.context) {
     system.push({

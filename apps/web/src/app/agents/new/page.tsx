@@ -11,12 +11,13 @@ export const dynamic = "force-dynamic";
 // agent:manage can save it — saveAgentAction checks again, so the notice below
 // is a courtesy, not the control.
 export default async function NewAgentPage() {
-  const [canManage, tools, collections] = await Promise.all([
+  const [canManage, tools, collections, admin] = await Promise.all([
     sessionCan("agent:manage"),
     toolCatalog(),
     sessionKnowledgeAccess()
       .then((access) => listCollections(access))
       .catch(() => [] as string[]),
+    sessionCan("admin:manage"),
   ]);
 
   return (
@@ -48,15 +49,20 @@ export default async function NewAgentPage() {
             description: "",
             instructions: "",
             model: "",
-            knowledgeCollection: "",
+            knowledge: "none",
+            knowledgeCollections: [],
             maxIterations: "",
             servers: [],
             enabled: true,
+            placement: "hub",
+            mailboxes: {},
           }}
           tools={tools}
           collections={collections}
           defaultMaxIterations={DEFAULT_MAX_ITERATIONS}
           maxIterationsCeiling={MAX_ITERATIONS_CEILING}
+          canSetPlacement={Boolean(admin)}
+          localFiles={[]}
         />
       </div>
     </main>

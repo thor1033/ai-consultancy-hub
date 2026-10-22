@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import type { Placement } from "@ai-hub/db";
 import { saveAgentAction, deleteAgentAction } from "./actions";
-import { MODELS, agentToolName } from "./models";
+import { MAILBOX_SERVERS, MODELS, agentToolName } from "./models";
 import type { ToolOption } from "./catalog";
 
 // One form for hiring an agent and for changing one, in the order a person
@@ -18,11 +19,53 @@ export interface AgentFormValues {
   description: string;
   instructions: string;
   model: string;
-  knowledgeCollection: string;
+  /** What it reads: nothing, everything the asker may read, or a curated set. */
+  knowledge: KnowledgeMode;
+  knowledgeCollections: string[];
   maxIterations: string;
   servers: string[];
   enabled: boolean;
+  placement: Placement;
+  /** Per-server mailbox, for the servers in MAILBOX_SERVERS. Blank = the deployment default. */
+  mailboxes: Record<string, string>;
 }
+
+export type KnowledgeMode = "none" | "all" | "selected";
+
+// What an agent reads. All three are curation: whichever is picked, retrieval
+// is still narrowed to what the person asking may read.
+const KNOWLEDGE_MODES: { id: KnowledgeMode; label: string; help: string }[] = [
+  { id: "none", label: "Nothing", help: "Memory and tools only. No passages are retrieved for it." },
+  { id: "all", label: "Everything", help: "Searches the whole knowledge base, narrowed to what the asker may read." },
+  { id: "selected", label: "These collections", help: "Works out of the drawers ticked below, and only those." },
+];
+
+// Where an agent runs. "local" moves the model into a Claude Code session; its
+// tools, memory and knowledge stay behind the hub's per-agent endpoint, so the
+// choice changes where the thinking happens, never what it may reach.
+const PLACEMENTS: { id: Placement; label: string; help: string }[] = [
+  {
+    id: "hub",
+    label: "Hub",
+    help: "Runs on the hub: this console, its tools in connected clients, and schedules.",
+  },
+  {
+    id: "local",
+    label: "Local",
+    help: "Synced into Claude Code as a sub-agent with its skills. The hub no longer runs it, and its schedules pause.",
+  },
+  {
+    id: "both",
+    label: "Both",
+    help: "Runs on the hub as today and is also synced into Claude Code.",
+  },
+];
+
+const PLACEMENT_LABEL: Record<Placement, string> = {
+  hub: "On the hub",
+  local: "In Claude Code",
+  both: "Hub and Claude Code",
+};
 
 const slugify = (s: string) =>
   s
@@ -38,12 +81,18 @@ export function AgentForm({
   collections,
   defaultMaxIterations,
   maxIterationsCeiling,
+  canSetPlacement,
+  localFiles,
 }: {
   initial: AgentFormValues;
   tools: ToolOption[];
   collections: string[];
   defaultMaxIterations: number;
   maxIterationsCeiling: number;
+  /** Only an admin may move an agent between the hub and Claude Code. */
+  canSetPlacement: boolean;
+  /** What a sync writes for the SAVED agent, if it is placed local or both. */
+  localFiles: { path: string; content: string }[];
 }) {
   const router = useRouter();
   const creating = initial.id === null;
@@ -58,6 +107,9 @@ export function AgentForm({
 
   const slug = creating ? slugify(v.name) : v.slug;
   const toolName = agentToolName(slug || "your-agent");
+  // What the checklist offers: every collection this deployment has, plus any
+  // the agent already names that is not (yet, or any more) among them.
+  const knowledgeChoices = [...new Set([...collections, ...v.knowledgeCollections])];
   const picked = tools.filter((t) => v.servers.includes(t.name));
   const words = v.instructions.trim() ? v.instructions.trim().split(/\s+/).length : 0;
 
@@ -70,10 +122,15 @@ export function AgentForm({
         description: v.description,
         instructions: v.instructions,
         model: v.model || null,
-        knowledgeCollection: v.knowledgeCollection || null,
+        knowledgeAll: v.knowledge === "all",
+        knowledgeCollections: v.knowledge === "selected" ? v.knowledgeCollections : [],
         maxIterations: v.maxIterations.trim() === "" ? null : Number(v.maxIterations),
-        mcpServers: v.servers.map((name) => ({ name })),
+        mcpServers: v.servers.map((name) => {
+          const mailbox = v.mailboxes[name]?.trim();
+          return mailbox && MAILBOX_SERVERS.has(name) ? { name, mailbox } : { name };
+        }),
         enabled: v.enabled,
+        placement: v.placement,
       });
       if ("error" in res) {
         setMessage({ text: res.error, error: true });
@@ -160,9 +217,12 @@ export function AgentForm({
             {tools.map((t) => {
               const on = v.servers.includes(t.name);
               return (
-                <li key={t.name}>
+                // A column, so a per-server field (the mailbox) sits under the
+                // card instead of being pushed out of it: the card grows to fill
+                // whatever the row leaves, the field keeps its own height.
+                <li key={t.name} className="flex flex-col">
                   <label
-                    className={`flex min-h-full cursor-pointer items-start gap-3 border p-3.5 transition-colors ${
+                    className={`flex flex-1 cursor-pointer items-start gap-3 border p-3.5 transition-colors ${
                       on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"
                     }`}
                   >
@@ -184,6 +244,22 @@ export function AgentForm({
                       )}
                     </span>
                   </label>
+                  {on && MAILBOX_SERVERS.has(t.name) && (
+                    <label className="mt-2 block">
+                      <span className="mb-1 block text-xs text-[var(--muted)]">Mailbox this agent reads</span>
+                      <input
+                        className="field mono"
+                        type="email"
+                        value={v.mailboxes[t.name] ?? ""}
+                        onChange={(e) => set("mailboxes", { ...v.mailboxes, [t.name]: e.target.value })}
+                        placeholder="deployment default (M365_MAILBOX)"
+                      />
+                      <span className="mt-1 block text-xs text-[var(--muted)]">
+                        One shared mailbox per agent, e.g. <span className="mono">secretary@teqneo.co</span>. It must be
+                        inside the access policy&apos;s group, or Graph refuses it. Read-only either way.
+                      </span>
+                    </label>
+                  )}
                 </li>
               );
             })}
@@ -193,20 +269,84 @@ export function AgentForm({
         <Section
           n="04"
           title="What it may read"
-          hint="Scope its knowledge to one collection. It still only reads what the person asking may read."
+          hint="Which drawers of the knowledge base it works out of. Whatever is picked, it only reads what the person asking may read."
         >
-          <select className="field max-w-md" value={v.knowledgeCollection} onChange={(e) => set("knowledgeCollection", e.target.value)}>
-            <option value="">No knowledge — memory and tools only</option>
-            {collections.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-          {collections.length === 0 && (
-            <p className="mt-2 text-xs text-[var(--muted)]">
-              No collections yet — file documents into one on the Knowledge page.
-            </p>
+          <fieldset>
+            <legend className="sr-only">What it may read</legend>
+            <ul className="grid gap-2 sm:grid-cols-3">
+              {KNOWLEDGE_MODES.map((m) => {
+                const on = v.knowledge === m.id;
+                return (
+                  <li key={m.id}>
+                    <label
+                      className={`flex min-h-full cursor-pointer items-start gap-3 border p-3.5 transition-colors ${
+                        on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"
+                      }`}
+                    >
+                      <input
+                        type="radio"
+                        name="knowledge"
+                        className="mt-0.5 h-4 w-4 accent-[var(--text)]"
+                        value={m.id}
+                        checked={on}
+                        onChange={() => set("knowledge", m.id)}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{m.label}</span>
+                        <span className="mt-0.5 block text-xs text-[var(--muted)]">{m.help}</span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </fieldset>
+          {v.knowledge === "selected" && (
+            <div className="mt-3">
+              {knowledgeChoices.length === 0 ? (
+                <p className="text-xs text-[var(--muted)]">
+                  No collections yet — file documents into one on the Knowledge page, then tick it here.
+                </p>
+              ) : (
+                <ul className="grid gap-1.5 sm:grid-cols-2">
+                  {knowledgeChoices.map((c) => {
+                    const on = v.knowledgeCollections.includes(c);
+                    const known = collections.includes(c);
+                    return (
+                      <li key={c}>
+                        <label
+                          className={`flex cursor-pointer items-center gap-3 border px-3 py-2 transition-colors ${
+                            on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"
+                          }`}
+                        >
+                          <input
+                            type="checkbox"
+                            className="h-4 w-4 accent-[var(--text)]"
+                            checked={on}
+                            onChange={() =>
+                              set(
+                                "knowledgeCollections",
+                                on ? v.knowledgeCollections.filter((n) => n !== c) : [...v.knowledgeCollections, c],
+                              )
+                            }
+                          />
+                          <span className="mono min-w-0 truncate text-sm">{c}</span>
+                          {!known && (
+                            // Kept on the agent even though this deployment no longer
+                            // lists it: unticking should be a choice, not a side effect
+                            // of opening the form.
+                            <span className="ml-auto text-xs text-[var(--muted)]">no documents</span>
+                          )}
+                        </label>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+              {v.knowledge === "selected" && v.knowledgeCollections.length === 0 && knowledgeChoices.length > 0 && (
+                <p className="mt-2 text-xs text-[var(--warning)]">Nothing ticked yet: saved like this, it reads nothing.</p>
+              )}
+            </div>
           )}
         </Section>
 
@@ -238,6 +378,79 @@ export function AgentForm({
               </span>
             </label>
           </div>
+        </Section>
+
+        <Section
+          n="06"
+          title="Where it runs"
+          hint="On the hub, inside a Claude Code session, or both. Wherever it runs, its tools, memory and knowledge come through the hub, which checks every call."
+        >
+          <fieldset disabled={!canSetPlacement}>
+            <legend className="sr-only">Where it runs</legend>
+            <ul className="grid gap-2 sm:grid-cols-3">
+              {PLACEMENTS.map((p) => {
+                const on = v.placement === p.id;
+                return (
+                  <li key={p.id}>
+                    <label
+                      className={`flex min-h-full items-start gap-3 border p-3.5 transition-colors ${
+                        canSetPlacement ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+                      } ${on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"}`}
+                    >
+                      <input
+                        type="radio"
+                        name="placement"
+                        className="mt-0.5 h-4 w-4 accent-[var(--text)]"
+                        value={p.id}
+                        checked={on}
+                        onChange={() => set("placement", p.id)}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{p.label}</span>
+                        <span className="mt-0.5 block text-xs text-[var(--muted)]">{p.help}</span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </fieldset>
+          {!canSetPlacement && (
+            <p className="mt-2 text-xs text-[var(--muted)]">Only an admin can change where an agent runs.</p>
+          )}
+          {v.placement !== "hub" && (
+            <details className="mt-4 border border-[var(--border-strong)] p-3.5">
+              <summary className="cursor-pointer text-sm">
+                What Claude Code receives
+                {localFiles.length > 0 && (
+                  <span className="text-[var(--muted)]">
+                    {" "}
+                    — {localFiles.length} {localFiles.length === 1 ? "file" : "files"} under <span className="mono">.claude/</span>
+                  </span>
+                )}
+              </summary>
+              {localFiles.length === 0 ? (
+                <p className="mt-3 text-xs text-[var(--muted)]">
+                  {creating ? "Create the agent first — the files are rendered from what is saved." : "Save first — the preview shows the saved agent."}
+                </p>
+              ) : (
+                <div className="mt-3 flex flex-col gap-3">
+                  {localFiles.map((f) => (
+                    <div key={f.path}>
+                      <div className="mono text-xs text-[var(--brand-ink)]">{f.path}</div>
+                      <pre className="inset mono mt-1 max-h-72 overflow-auto whitespace-pre-wrap p-3 text-xs">{f.content}</pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="mt-3 text-xs text-[var(--muted)]">
+                Written by <span className="mono">scripts/sync-hub-agents.mjs</span> when a Claude Code session starts. The
+                files hold no credential: tools, memory and knowledge are reached through{" "}
+                <span className="mono">/api/mcp/agents/{v.slug || slug || "<slug>"}</span>, which the hub checks on every call.
+                {v.placement !== initial.placement && " Save to apply the new placement before syncing."}
+              </p>
+            </details>
+          )}
         </Section>
 
         {!creating && (
@@ -277,12 +490,23 @@ export function AgentForm({
           </div>
           <p className="mt-1 text-sm text-[var(--text-soft)]">{v.description || "No description yet."}</p>
           <dl className="mt-4 flex flex-col text-sm">
-            <Row k="Tool">
-              <span className="mono break-all text-xs">{toolName}</span>
+            <Row k="Runs">{PLACEMENT_LABEL[v.placement]}</Row>
+            <Row k={v.placement === "local" ? "Sub-agent" : "Tool"}>
+              <span className="mono break-all text-xs">{v.placement === "local" ? `hub-${slug || "your-agent"}` : toolName}</span>
             </Row>
             <Row k="Brief">{words ? `${words} words` : "None"}</Row>
-            <Row k="Tools">{picked.length ? picked.map((t) => t.label).join(", ") : "Memory only"}</Row>
-            <Row k="Knowledge">{v.knowledgeCollection || "None"}</Row>
+            <Row k="Tools">
+              {picked.length
+                ? picked.map((t) => (v.mailboxes[t.name]?.trim() ? `${t.label} (${v.mailboxes[t.name].trim()})` : t.label)).join(", ")
+                : "Memory only"}
+            </Row>
+            <Row k="Knowledge">
+              {v.knowledge === "all"
+                ? "Everything"
+                : v.knowledge === "selected" && v.knowledgeCollections.length
+                  ? v.knowledgeCollections.join(", ")
+                  : "None"}
+            </Row>
             <Row k="Model">{MODELS.find((m) => m.id === v.model)?.label ?? v.model}</Row>
           </dl>
           <button type="submit" disabled={pending || !v.name.trim()} className="btn-brand mt-5 min-h-11 w-full">

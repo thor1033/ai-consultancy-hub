@@ -40,6 +40,13 @@ import type { SkillInput } from "../skills";
  */
 export const PM_TOOL_READ_SERVER = "pm-tool-read";
 
+// The secretary reads ONE shared mailbox — its own, never a person's. The
+// credentials behind it are the deployment's (M365_*), fenced to a group of
+// agent mailboxes by an Exchange access policy; this names which mailbox in
+// that group is this agent's. See docs/secretary-agent.md.
+export const MAILBOX_SERVER = "microsoft365";
+export const SECRETARY_MAILBOX = "secretary@teqneo.co";
+
 /** The one project this deployment tracks. */
 export const PROJECT_ID = "ca4749f1-624f-437c-9552-6031da90c5f9";
 
@@ -187,8 +194,9 @@ fetch it.`,
   // Careful work here comes from the evidence rules below, not from buying more
   // reasoning the budget cannot pay for.
   effort: "medium",
-  mcpServers: [{ name: PM_TOOL_READ_SERVER }],
-  knowledgeCollection: null,
+  mcpServers: [{ name: PM_TOOL_READ_SERVER }, { name: MAILBOX_SERVER, mailbox: SECRETARY_MAILBOX }],
+  knowledgeCollections: [],
+  knowledgeAll: false,
   // Ten rounds suits an agent that looks one thing up. This one reads its
   // memory, grounds against a ~114-task project, and may open several tasks
   // before it can call anything a diff.
