@@ -26,11 +26,22 @@ export function isHttpConfig(cfg: McpServerConfig): cfg is McpHttpConfig {
   return typeof (cfg as McpHttpConfig).url === "string";
 }
 
+/** One upstream tool as the server described it, annotations included. */
+export interface McpToolInfo {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+  /** MCP tool annotations (readOnlyHint, destructiveHint, …), when the server sets them. */
+  annotations?: Record<string, unknown>;
+}
+
 // The result of connecting: Anthropic-shaped tool defs + an executor that
 // proxies a tool call back to the owning MCP server, plus a close() to tear
-// down the child processes.
+// down the child processes. `details` keeps what the Anthropic shape drops —
+// the annotations a proxy needs to know which tools write.
 export interface ConnectedMcp {
   tools: Anthropic.Tool[];
+  details: McpToolInfo[];
   execute(name: string, input: unknown): Promise<string>;
   close(): Promise<void>;
 }
@@ -54,6 +65,7 @@ export async function connectMcpServers(
   const clients: Client[] = [];
   const toolToClient = new Map<string, Client>();
   const tools: Anthropic.Tool[] = [];
+  const details: McpToolInfo[] = [];
 
   for (const cfg of configs) {
     const transport = isHttpConfig(cfg)
@@ -91,11 +103,18 @@ export async function connectMcpServers(
         description: t.description ?? "",
         input_schema: t.inputSchema as Anthropic.Tool.InputSchema,
       });
+      details.push({
+        name: t.name,
+        description: t.description ?? "",
+        inputSchema: t.inputSchema as Record<string, unknown>,
+        ...(t.annotations ? { annotations: t.annotations as Record<string, unknown> } : {}),
+      });
     }
   }
 
   return {
     tools,
+    details,
     async execute(name, input) {
       const client = toolToClient.get(name);
       if (!client) return `Unknown tool: ${name}`;

@@ -8,10 +8,11 @@ import {
   disabledMcpServerNames,
   type Agent,
 } from "@ai-hub/db";
-import { connectMcpServers, type McpServerConfig } from "@ai-hub/mcp";
+import { isRemoteServer, remoteServerReadOnly } from "@ai-hub/mcp";
 import { retrieveChunks, getDocument, embedderStatus } from "@ai-hub/rag";
 import { isKnownServer, resolveServer } from "@/lib/runSession";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
+import { registerProxiedTools } from "@/lib/mcp/proxyTools";
 
 /*
  * One agent, served to the Claude Code session it was synced into.
@@ -21,9 +22,11 @@ import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
  * credential, so what an agent may reach is decided by this server on every
  * call rather than by a file anyone can edit:
  *
- *   tools      the agent's configured MCP servers, dialled by the hub with the
- *              hub's credential — "the secretary cannot write" is still a
- *              property of the PM-tool token it holds, not of a prompt
+ *   tools      the agent's configured MCP servers, dialled by the hub. With
+ *              the hub's own credential when the caller is a credential or a
+ *              schedule; with the PERSON's token when they signed in, so what
+ *              the agent does in the PM-tool is done as them. A read-only
+ *              entry stays read-only either way (proxyTools.ts)
  *   memory     this agent's, and only this agent's (memoryTools.ts)
  *   knowledge  retrieved as the CALLER, narrowed to the agent's collection
  *
@@ -51,54 +54,6 @@ export async function resolveLocalAgent(principal: Principal, slug: string): Pro
     return { status: 403, message: `This credential is bound to another agent.` };
   }
   return { agent };
-}
-
-// ── upstream tool lists ─────────────────────────────────────────────────────
-// The server is rebuilt per request (the endpoint is stateless), and Claude
-// Code lists tools on every connect. Dialling the PM-tool just to learn its tool
-// names each time would put a remote round trip in front of every call, so the
-// LIST is cached briefly. Calls are never cached: each one dials fresh with the
-// hub's credential.
-
-interface UpstreamTool {
-  name: string;
-  description: string;
-  inputSchema: Record<string, unknown>;
-}
-
-const LIST_TTL_MS = 5 * 60_000;
-const listCache = new Map<string, { at: number; tools: UpstreamTool[] }>();
-
-async function upstreamTools(config: McpServerConfig): Promise<UpstreamTool[]> {
-  const hit = listCache.get(config.name);
-  if (hit && Date.now() - hit.at < LIST_TTL_MS) return hit.tools;
-  const mcp = await connectMcpServers([config]);
-  try {
-    const tools = mcp.tools.map((t) => ({
-      name: t.name,
-      description: t.description ?? "",
-      inputSchema: t.input_schema as Record<string, unknown>,
-    }));
-    listCache.set(config.name, { at: Date.now(), tools });
-    return tools;
-  } finally {
-    await mcp.close();
-  }
-}
-
-/**
- * An upstream tool's JSON Schema as the zod schema McpServer wants.
- *
- * The client sees it re-serialised, so it has to round-trip; a schema zod cannot
- * read becomes a loose object, which still lists the tool and still forwards the
- * arguments — the upstream server validates them either way.
- */
-function schemaFrom(json: Record<string, unknown>): z.ZodType {
-  try {
-    return z.fromJSONSchema(json as Parameters<typeof z.fromJSONSchema>[0]);
-  } catch {
-    return z.looseObject({});
-  }
 }
 
 export async function buildAgentMcpServer(principal: Principal, agent: Agent): Promise<McpServer> {
@@ -212,35 +167,21 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
     .map((e) => (typeof e === "string" ? e : String((e as { name?: unknown }).name ?? "")))
     .filter((n) => n && n !== "memory" && isKnownServer(n) && !disabled.has(n));
 
+  const bearer = principal.accessToken;
   const taken = new Set(["hub_search_knowledge", "hub_get_document"]);
   for (const name of names) {
-    const config = resolveServer(name, agent.id);
+    const config = resolveServer(name, agent.id, bearer);
     if (!config) continue;
-    let tools: UpstreamTool[];
-    try {
-      tools = await upstreamTools(config);
-    } catch (err) {
+    await registerProxiedTools(server, {
+      config,
+      // Forwarding a person's token through a read-only entry: the upstream
+      // would offer their writes, so the hub keeps the read-only tools alone.
+      dropWrites: Boolean(bearer) && isRemoteServer(name) && remoteServerReadOnly(name),
+      taken,
+      wrap: (tool, fn) => track(tool, fn),
       // One unreachable server must not take the agent's memory down with it.
-      console.warn(`[agent-mcp] ${agent.slug}: "${name}" unavailable:`, err);
-      continue;
-    }
-    for (const tool of tools) {
-      if (taken.has(tool.name) || tool.name.startsWith("hub_")) continue;
-      taken.add(tool.name);
-      server.registerTool(
-        tool.name,
-        { description: tool.description, inputSchema: schemaFrom(tool.inputSchema) as never },
-        track(tool.name, async (args: unknown) => {
-          const mcp = await connectMcpServers([config]);
-          try {
-            const out = await mcp.execute(tool.name, args ?? {});
-            return { ...text(out), isError: out.startsWith("Tool error:") };
-          } finally {
-            await mcp.close();
-          }
-        }) as never,
-      );
-    }
+      onUnavailable: (err) => console.warn(`[agent-mcp] ${agent.slug}: "${name}" unavailable:`, err),
+    });
   }
 
   return server;

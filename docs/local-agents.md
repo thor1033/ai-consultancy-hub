@@ -44,6 +44,14 @@ credential **bound** to an agent (`agentId` on a `hub_sk_…` credential, or on
 the person) reaches that agent only, both in the export and at the endpoint, so a
 token handed to one sub-agent is not a key to the others. A viewer gets nothing.
 
+**Whose identity a local agent acts with.** When the connection to
+`/api/mcp/agents/<slug>` carries a person's OAuth token, the agent's PM-tool
+calls are made as that person, with writes kept out through a read-only entry
+([auth.md](auth.md), "Signing in once"). The files the sync writes today
+connect with `HUB_TOKEN`, a credential, so synced sub-agents act as the hub's
+machine identity until the sub-agents share the session's own signed-in hub
+connection.
+
 ## Syncing into Claude Code
 
 `.claude/settings.json` runs `scripts/sync-hub-agents.mjs` on `SessionStart`. It:

@@ -148,14 +148,23 @@ org, or a database error during resolution. Scopes gate writes, and a read-only
 token is not offered the write tools at all — they are never registered on its
 server instance, so they cannot be called either.
 
-**The tenancy limit.** The token *is* the org selector. The hub's own principal
-and per-user authorization do not cross the boundary: everything the hub sends
-arrives as one machine identity. So **one token = one client deployment**; do
-not multiplex organizations behind a single token.
+**The tenancy limit, for machine calls.** The token *is* the org selector:
+everything the hub sends with it arrives as one machine identity. So **one
+token = one client deployment**; do not multiplex organizations behind a single
+token.
 
-**Phase 2.** Replace the static token with a short-lived per-run JWT carrying
-the hub principal, org and scope. `remoteServerConfig()` is the seam — it builds
-the headers, and callers do not change.
+**Phase 2, as built: the person's own token.** When a person is behind the
+call — they signed in to the hub by OAuth — the hub forwards *their* access
+token through `remoteServerConfig(name, { bearer })` instead of the machine
+token. The PM-tool accepts it because the hub's resource indicator is in its
+`MCP_TRUSTED_AUDIENCES`, resolves the person to their own tenant exactly as a
+direct sign-in would, offers what they may do there, and audits the call as
+"*name* (via MCP)". No hub-minted JWT and no shared secret are needed: the
+identity is WorkOS's, verified by the PM-tool itself. What the hub adds is one
+judgement — through a read-only entry it keeps only tools the PM-tool
+annotates `readOnlyHint: true`, so a read-only agent stays read-only even
+when the person could write. Schedules, credentials and the browser console
+still use the machine token; see [auth.md](auth.md), "Signing in once".
 
 **RLS is not the boundary.** The PM-tool's RLS policies are dormant on Neon
 (`neondb_owner` carries `BYPASSRLS`), so the explicit `org_id` predicates in

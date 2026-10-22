@@ -1,65 +1,86 @@
 # Setting up Claude Code with the hub
 
-How a colleague gets the same setup: the hub's agents as Claude Code
-sub-agents in every project, the hub's own tools, and (optionally) the PM-tool.
-Two minutes for the admin, one command for the colleague.
+Two ways in. The first is the one to use; the second remains for what cannot
+sign in.
 
-## 1. The admin (once per colleague)
+## 1. Sign in — people
 
-In the hub, open **/admin → Access**:
-
-1. **Add or update a person** — their work email and the `analyst` role. That
-   lets them run agents and search knowledge; `viewer` would only search.
-2. **Issue a credential** — *Belongs to* that person, named after their machine
-   ("Mads — laptop"). Copy the `hub_sk_…` token: it is shown once.
-3. Send them the token privately (not in a shared channel), plus the command
-   below.
-
-To give them a single agent rather than all of them, bind the credential to that
-agent. A bound credential exports and reaches that agent only.
-
-Restricted knowledge collections need a grant per person (**/admin → Knowledge**),
-exactly as in the browser.
-
-## 2. The colleague (once per machine)
-
-Needs Node 20+ and Claude Code. Then:
+One command, then one browser sign-in, in every project on the machine:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/thor1033/ai-consultancy-hub/master/scripts/setup-claude-code.mjs \
-  | node - --token hub_sk_… --with-pm-tool
+claude mcp add --transport http --scope user ai-hub https://hub.teqneo.co/api/mcp
 ```
 
-or, from a clone of this repo, `node scripts/setup-claude-code.mjs --token hub_sk_… --with-pm-tool`.
+Start Claude Code, run `/mcp`, pick **ai-hub** and **Authenticate** (or run
+`claude mcp login ai-hub`). The browser opens the same WorkOS sign-in as the hub
+itself; afterwards the tools appear and the sign-in is remembered.
 
-It sets everything up at user level, so it works in every project:
+What that gives them, under their own identity:
 
-| | Where |
+| | |
 |---|---|
-| `HUB_TOKEN`, `HUB_URL` | `~/.claude/settings.json` → `env` |
-| Agent sync on every session start | `~/.claude/settings.json` → `hooks.SessionStart`, running `~/.claude/hub/sync-hub-agents.mjs --user` |
-| Synced agents and skills | `~/.claude/agents/hub-*.md`, `~/.claude/skills/hub-*/` |
-| The hub's MCP server (`ai-hub`) | user scope (`claude mcp list`) |
-| The PM-tool's MCP server (`pm-tool`), with `--with-pm-tool` | user scope; signs in with their own account on first use |
+| Knowledge | `hub_search_knowledge`, `hub_get_document`, scoped to the collections they may read |
+| Agents and skills | `hub_agent_<slug>`, `hub_skill_<slug>` — hub-run agents, whose PM-tool calls are made as them |
+| The PM-tool | its `pm_*` tools, served through the hub and audited in the PM-tool as "*their name* (via MCP)" |
 
-Then start a new Claude Code session. The agents an admin has set to **Local**
-or **Both** appear as `hub-<name>` sub-agents; `/agents` lists them.
+Their first sign-in from the company domain creates their hub account as an
+`analyst` (`HUB_AUTO_PROVISION_DOMAINS`, [auth.md](auth.md)). No credential is
+issued, nothing is stored on the machine but Claude Code's own sign-in, and
+disabling the person in `/admin` refuses them within minutes (tokens live five).
 
-Re-running the command is safe — it replaces its own entries and keeps
-everything else in `settings.json` (the previous file is kept as
-`settings.json.before-hub`). Run it again with a new token when a credential is
-rotated.
+Direct access to the PM-tool is still available as a second server if wanted —
+`claude mcp add --transport http --scope user pm-tool https://pm.teqneo.co/api/mcp`
+— with a second sign-in to the same account.
 
-## Claude Code on the web
+### Claude Code on the web
 
-Cloud sessions do not read `~/.claude`. In this repository the project's own
-hook (`.claude/settings.json`) does the sync instead; the session's environment
-needs `HUB_TOKEN` set as an environment variable and `hub.teqneo.co` allowed on
-its network, in the environment's settings on claude.ai.
+Cloud sessions use connectors made at claude.ai/customize/connectors rather
+than an in-session sign-in. Add the hub there the same way once its OAuth is
+on; the grant then applies to every cloud session.
+
+## 2. A credential — local agents, scripts, the cloud
+
+The agent sync (`scripts/sync-hub-agents.mjs`) runs outside Claude Code and
+cannot use its sign-in, so an agent placed **Local** or **Both** still reaches
+the machine through a `hub_sk_…` credential:
+
+1. In the hub, **/admin → Access**: **Add or update a person** (if the
+   sign-in above has not already created them), then **Issue a credential**
+   named after their machine. Copy the token; it is shown once.
+2. They run
+
+   ```bash
+   node scripts/setup-claude-code.mjs --token hub_sk_… --with-pm-tool
+   ```
+
+   or, without a clone, pipe the script from
+   `https://raw.githubusercontent.com/thor1033/ai-consultancy-hub/master/scripts/setup-claude-code.mjs`
+   into `node - --token …`. It stores the token and the sync hook in
+   `~/.claude/settings.json`, adds the MCP servers at user scope and runs the
+   first sync. Safe to re-run; the previous settings are kept as
+   `settings.json.before-hub`.
+
+A synced sub-agent connects with that credential, so it acts as the hub's
+machine identity, not the person's — see [local-agents.md](local-agents.md).
 
 ## Revoking
 
-Revoke the credential in **/admin → Access**. Everything stops at once: the
-sync gets a 401 and keeps nothing new, and every sub-agent's calls are refused
-by the hub — the files left on their machine hold instructions, not access.
-Disabling the person does the same for all their credentials.
+Disable the person in **/admin → Access** (or in WorkOS): OAuth sign-ins are
+refused at the next token refresh, and every credential they hold stops at
+once. Revoking a single credential stops that machine's sync and sub-agents
+while leaving their sign-in alone.
+
+## Turning the sign-in on (admin, once)
+
+The hub publishes its OAuth metadata only when configured. In Fly:
+
+```
+WORKOS_AUTHKIT_DOMAIN=https://<your-subdomain>.authkit.app
+HUB_MCP_RESOURCE=https://hub.teqneo.co/api/mcp
+HUB_AUTO_PROVISION_DOMAINS=<company email domain>
+```
+
+The WorkOS side (resource indicator, dynamic client registration, callback) is
+shared with the PM-tool and already in place. For the PM-tool to accept a
+person arriving through the hub, set `MCP_TRUSTED_AUDIENCES=https://hub.teqneo.co/api/mcp`
+on it.

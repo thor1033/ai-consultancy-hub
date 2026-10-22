@@ -1,6 +1,7 @@
 import {
   findPrincipalByIdentity,
   bindWorkosUser,
+  upsertPrincipal,
   verifyCredential,
   touchCredential,
   recordAuthEvent,
@@ -52,7 +53,44 @@ export interface Principal {
   email?: string;
   /** The credential row used, when the source is `credential`. */
   credentialId?: string;
+  /**
+   * The caller's own access token, OAuth principals only.
+   *
+   * Forwarded when the hub dials a remote server on this person's behalf, so a
+   * PM-tool write made through the hub is attributed to them rather than to
+   * the hub's shared machine token (see remote.ts). Never set for a credential
+   * or a schedule: those have no person behind the request to speak as, and
+   * keep using the hub's own token.
+   */
+  accessToken?: string;
 }
+
+// --- auto-provisioning ------------------------------------------------------
+
+/**
+ * Email domains whose people become `analyst` principals on their first OAuth
+ * sign-in, instead of bouncing with `no_principal`.
+ *
+ * Off unless HUB_AUTO_PROVISION_DOMAINS is set: the default is still "nobody
+ * gets in without a row an admin made". With it set to the company's domain,
+ * "sign in once and it works" is true for colleagues without a trip through
+ * /admin — and admin itself stays a manual grant, which is the part that
+ * should never be automatic. Mirrors the PM-tool, which provisions on first
+ * sign-in the same way.
+ */
+function autoProvisionDomains(): string[] {
+  return (process.env.HUB_AUTO_PROVISION_DOMAINS ?? "")
+    .split(",")
+    .map((d) => d.trim().toLowerCase().replace(/^@/, ""))
+    .filter(Boolean);
+}
+
+export function autoProvisionable(email: string | null | undefined): boolean {
+  const domain = email?.toLowerCase().split("@")[1];
+  return Boolean(domain) && autoProvisionDomains().includes(domain!);
+}
+
+export const AUTO_PROVISION_ROLES = ["analyst"];
 
 // --- legacy: HUB_API_TOKENS -------------------------------------------------
 
@@ -150,10 +188,32 @@ async function resolveOAuth(token: string): Promise<Principal | null> {
   // permission. An email that nobody has granted anything gets nothing — and
   // says so in the audit trail, because "a real person signed in and bounced" is
   // exactly the event an operator needs to see in order to act on it.
-  const row = await findPrincipalByIdentity({
+  let row = await findPrincipalByIdentity({
     workosUserId: identity.workosUserId,
     email: identity.email,
   });
+
+  // A first sign-in from an auto-provisioned domain makes the row the admin
+  // would otherwise have had to make — as an analyst, under the email as its
+  // id, and on the audit trail so it is a visible event rather than a quiet one.
+  if (!row && autoProvisionable(identity.email)) {
+    row = await upsertPrincipal({
+      id: identity.email!,
+      email: identity.email,
+      roles: AUTO_PROVISION_ROLES,
+    });
+    await recordAuthEvent({
+      event: "principal.provisioned",
+      source: "oauth",
+      principalId: row.id,
+      detail: {
+        email: identity.email,
+        workosUserId: identity.workosUserId,
+        roles: AUTO_PROVISION_ROLES,
+        rule: "HUB_AUTO_PROVISION_DOMAINS",
+      },
+    });
+  }
 
   if (!row || !row.enabled) {
     await recordAuthEvent({
@@ -180,6 +240,7 @@ async function resolveOAuth(token: string): Promise<Principal | null> {
     ...(row.agentId ? { agentId: row.agentId } : {}),
     source: "oauth",
     ...(identity.email ?? row.email ? { email: identity.email ?? row.email! } : {}),
+    accessToken: token,
   };
 }
 
