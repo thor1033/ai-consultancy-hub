@@ -201,9 +201,12 @@ export function AgentForm({
             {tools.map((t) => {
               const on = v.servers.includes(t.name);
               return (
-                <li key={t.name}>
+                // A column, so a per-server field (the mailbox) sits under the
+                // card instead of being pushed out of it: the card grows to fill
+                // whatever the row leaves, the field keeps its own height.
+                <li key={t.name} className="flex flex-col">
                   <label
-                    className={`flex min-h-full cursor-pointer items-start gap-3 border p-3.5 transition-colors ${
+                    className={`flex flex-1 cursor-pointer items-start gap-3 border p-3.5 transition-colors ${
                       on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"
                     }`}
                   >
