@@ -54,6 +54,7 @@ export default async function NewAgentPage() {
             servers: [],
             enabled: true,
             placement: "hub",
+            mailboxes: {},
           }}
           tools={tools}
           collections={collections}

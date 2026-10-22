@@ -4,7 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { Placement } from "@ai-hub/db";
 import { saveAgentAction, deleteAgentAction } from "./actions";
-import { MODELS, agentToolName } from "./models";
+import { MAILBOX_SERVERS, MODELS, agentToolName } from "./models";
 import type { ToolOption } from "./catalog";
 
 // One form for hiring an agent and for changing one, in the order a person
@@ -24,6 +24,8 @@ export interface AgentFormValues {
   servers: string[];
   enabled: boolean;
   placement: Placement;
+  /** Per-server mailbox, for the servers in MAILBOX_SERVERS. Blank = the deployment default. */
+  mailboxes: Record<string, string>;
 }
 
 // Where an agent runs. "local" moves the model into a Claude Code session; its
@@ -107,7 +109,10 @@ export function AgentForm({
         model: v.model || null,
         knowledgeCollection: v.knowledgeCollection || null,
         maxIterations: v.maxIterations.trim() === "" ? null : Number(v.maxIterations),
-        mcpServers: v.servers.map((name) => ({ name })),
+        mcpServers: v.servers.map((name) => {
+          const mailbox = v.mailboxes[name]?.trim();
+          return mailbox && MAILBOX_SERVERS.has(name) ? { name, mailbox } : { name };
+        }),
         enabled: v.enabled,
         placement: v.placement,
       });
@@ -220,6 +225,22 @@ export function AgentForm({
                       )}
                     </span>
                   </label>
+                  {on && MAILBOX_SERVERS.has(t.name) && (
+                    <label className="mt-2 block">
+                      <span className="mb-1 block text-xs text-[var(--muted)]">Mailbox this agent reads</span>
+                      <input
+                        className="field mono"
+                        type="email"
+                        value={v.mailboxes[t.name] ?? ""}
+                        onChange={(e) => set("mailboxes", { ...v.mailboxes, [t.name]: e.target.value })}
+                        placeholder="deployment default (M365_MAILBOX)"
+                      />
+                      <span className="mt-1 block text-xs text-[var(--muted)]">
+                        One shared mailbox per agent, e.g. <span className="mono">secretary@teqneo.co</span>. It must be
+                        inside the access policy&apos;s group, or Graph refuses it. Read-only either way.
+                      </span>
+                    </label>
+                  )}
                 </li>
               );
             })}
@@ -391,7 +412,11 @@ export function AgentForm({
               <span className="mono break-all text-xs">{v.placement === "local" ? `hub-${slug || "your-agent"}` : toolName}</span>
             </Row>
             <Row k="Brief">{words ? `${words} words` : "None"}</Row>
-            <Row k="Tools">{picked.length ? picked.map((t) => t.label).join(", ") : "Memory only"}</Row>
+            <Row k="Tools">
+              {picked.length
+                ? picked.map((t) => (v.mailboxes[t.name]?.trim() ? `${t.label} (${v.mailboxes[t.name].trim()})` : t.label)).join(", ")
+                : "Memory only"}
+            </Row>
             <Row k="Knowledge">{v.knowledgeCollection || "None"}</Row>
             <Row k="Model">{MODELS.find((m) => m.id === v.model)?.label ?? v.model}</Row>
           </dl>

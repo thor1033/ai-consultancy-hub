@@ -45,6 +45,7 @@ export {
   localActivity,
 } from "./agents";
 export type {
+  McpEntry,
   AgentSummary,
   Agent,
   AgentMemory,

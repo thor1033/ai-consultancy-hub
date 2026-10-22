@@ -108,7 +108,7 @@ and the ROI numbers would count it as one.
 npm run verify:local-agents -w web
 ```
 
-55 checks, no API key, needs `DATABASE_URL`. It drives the real endpoint, the
+57 checks, no API key, needs `DATABASE_URL`. It drives the real endpoint, the
 real export route with real credentials, a real remote MCP server standing in
 for the PM-tool, and the real sync script against a fake hub — covering who is
 refused, that proxied calls carry the hub's credential, memory isolation between

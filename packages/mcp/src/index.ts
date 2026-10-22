@@ -7,7 +7,14 @@ export type {
   McpToolInfo,
 } from "./manager";
 export { sampleMcpConfig } from "./sample";
-export { builtinServerConfig, memoryServerConfig, BUILTIN_SERVER_NAMES } from "./servers";
+export {
+  builtinServerConfig,
+  builtinOptionsFrom,
+  memoryServerConfig,
+  BUILTIN_SERVER_NAMES,
+  MAILBOX_SERVER_NAMES,
+} from "./servers";
+export type { BuiltinServerOptions } from "./servers";
 export {
   remoteServerConfig,
   remoteServerNames,
