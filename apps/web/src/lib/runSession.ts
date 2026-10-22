@@ -1,7 +1,6 @@
 import { runAgent, type ModelId, type RunAgentResult } from "@ai-hub/agent";
 import {
   connectMcpServers,
-  sampleMcpConfig,
   builtinServerConfig,
   memoryServerConfig,
   remoteServerConfig,
@@ -12,8 +11,8 @@ import {
 } from "@ai-hub/mcp";
 import { recordSession, finishRun, disabledMcpServerNames } from "@ai-hub/db";
 
-// The code-owned servers: the sample server plus the investment-firm demo servers.
-const LOCAL_SERVERS = ["sample", ...BUILTIN_SERVER_NAMES] as const;
+// The code-owned servers the hub starts itself.
+const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
 
 /**
  * The selectable MCP servers for a workbench session — the code-owned ones plus
@@ -34,7 +33,6 @@ export function isKnownServer(name: string): boolean {
  * caller, never from something the model can say.
  */
 export function resolveServer(name: string, agentId?: string): McpServerConfig | null {
-  if (name === "sample") return sampleMcpConfig();
   if (name === "memory") return agentId ? memoryServerConfig(agentId) : null;
   return builtinServerConfig(name) ?? remoteServerConfig(name);
 }

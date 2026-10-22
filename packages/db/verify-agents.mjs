@@ -61,7 +61,7 @@ try {
     description: "Temporary.",
     instructions: "Be brief.",
     model: "claude-opus-4-8",
-    mcpServers: [{ name: "sample" }],
+    mcpServers: [{ name: "pm-tool" }],
     knowledgeCollection: "verify-collection",
     maxIterations: 25,
   });
@@ -71,7 +71,7 @@ try {
     agent.instructions === "Be brief." &&
     agent.model === "claude-opus-4-8" &&
     agent.knowledgeCollection === "verify-collection" &&
-    Array.isArray(agent.mcpServers) && agent.mcpServers[0]?.name === "sample" &&
+    Array.isArray(agent.mcpServers) && agent.mcpServers[0]?.name === "pm-tool" &&
     agent.maxIterations === 25,
     JSON.stringify(agent.mcpServers),
   );

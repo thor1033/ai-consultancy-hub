@@ -5,7 +5,6 @@ export type {
   McpServerConfig,
   ConnectedMcp,
 } from "./manager";
-export { sampleMcpConfig } from "./sample";
 export { builtinServerConfig, memoryServerConfig, BUILTIN_SERVER_NAMES } from "./servers";
 export {
   remoteServerConfig,
