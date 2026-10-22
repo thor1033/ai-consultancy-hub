@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import type { Placement } from "@ai-hub/db";
 import { saveAgentAction, deleteAgentAction } from "./actions";
 import { MODELS, agentToolName } from "./models";
 import type { ToolOption } from "./catalog";
@@ -22,7 +23,35 @@ export interface AgentFormValues {
   maxIterations: string;
   servers: string[];
   enabled: boolean;
+  placement: Placement;
 }
+
+// Where an agent runs. "local" moves the model into a Claude Code session; its
+// tools, memory and knowledge stay behind the hub's per-agent endpoint, so the
+// choice changes where the thinking happens, never what it may reach.
+const PLACEMENTS: { id: Placement; label: string; help: string }[] = [
+  {
+    id: "hub",
+    label: "Hub",
+    help: "Runs on the hub: this console, its tools in connected clients, and schedules.",
+  },
+  {
+    id: "local",
+    label: "Local",
+    help: "Synced into Claude Code as a sub-agent with its skills. The hub no longer runs it, and its schedules pause.",
+  },
+  {
+    id: "both",
+    label: "Both",
+    help: "Runs on the hub as today and is also synced into Claude Code.",
+  },
+];
+
+const PLACEMENT_LABEL: Record<Placement, string> = {
+  hub: "On the hub",
+  local: "In Claude Code",
+  both: "Hub and Claude Code",
+};
 
 const slugify = (s: string) =>
   s
@@ -38,12 +67,18 @@ export function AgentForm({
   collections,
   defaultMaxIterations,
   maxIterationsCeiling,
+  canSetPlacement,
+  localFiles,
 }: {
   initial: AgentFormValues;
   tools: ToolOption[];
   collections: string[];
   defaultMaxIterations: number;
   maxIterationsCeiling: number;
+  /** Only an admin may move an agent between the hub and Claude Code. */
+  canSetPlacement: boolean;
+  /** What a sync writes for the SAVED agent, if it is placed local or both. */
+  localFiles: { path: string; content: string }[];
 }) {
   const router = useRouter();
   const creating = initial.id === null;
@@ -74,6 +109,7 @@ export function AgentForm({
         maxIterations: v.maxIterations.trim() === "" ? null : Number(v.maxIterations),
         mcpServers: v.servers.map((name) => ({ name })),
         enabled: v.enabled,
+        placement: v.placement,
       });
       if ("error" in res) {
         setMessage({ text: res.error, error: true });
@@ -240,6 +276,79 @@ export function AgentForm({
           </div>
         </Section>
 
+        <Section
+          n="06"
+          title="Where it runs"
+          hint="On the hub, inside a Claude Code session, or both. Wherever it runs, its tools, memory and knowledge come through the hub, which checks every call."
+        >
+          <fieldset disabled={!canSetPlacement}>
+            <legend className="sr-only">Where it runs</legend>
+            <ul className="grid gap-2 sm:grid-cols-3">
+              {PLACEMENTS.map((p) => {
+                const on = v.placement === p.id;
+                return (
+                  <li key={p.id}>
+                    <label
+                      className={`flex min-h-full items-start gap-3 border p-3.5 transition-colors ${
+                        canSetPlacement ? "cursor-pointer" : "cursor-not-allowed opacity-60"
+                      } ${on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"}`}
+                    >
+                      <input
+                        type="radio"
+                        name="placement"
+                        className="mt-0.5 h-4 w-4 accent-[var(--text)]"
+                        value={p.id}
+                        checked={on}
+                        onChange={() => set("placement", p.id)}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-sm font-medium">{p.label}</span>
+                        <span className="mt-0.5 block text-xs text-[var(--muted)]">{p.help}</span>
+                      </span>
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </fieldset>
+          {!canSetPlacement && (
+            <p className="mt-2 text-xs text-[var(--muted)]">Only an admin can change where an agent runs.</p>
+          )}
+          {v.placement !== "hub" && (
+            <details className="mt-4 border border-[var(--border-strong)] p-3.5">
+              <summary className="cursor-pointer text-sm">
+                What Claude Code receives
+                {localFiles.length > 0 && (
+                  <span className="text-[var(--muted)]">
+                    {" "}
+                    — {localFiles.length} {localFiles.length === 1 ? "file" : "files"} under <span className="mono">.claude/</span>
+                  </span>
+                )}
+              </summary>
+              {localFiles.length === 0 ? (
+                <p className="mt-3 text-xs text-[var(--muted)]">
+                  {creating ? "Create the agent first — the files are rendered from what is saved." : "Save first — the preview shows the saved agent."}
+                </p>
+              ) : (
+                <div className="mt-3 flex flex-col gap-3">
+                  {localFiles.map((f) => (
+                    <div key={f.path}>
+                      <div className="mono text-xs text-[var(--brand-ink)]">{f.path}</div>
+                      <pre className="inset mono mt-1 max-h-72 overflow-auto whitespace-pre-wrap p-3 text-xs">{f.content}</pre>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <p className="mt-3 text-xs text-[var(--muted)]">
+                Written by <span className="mono">scripts/sync-hub-agents.mjs</span> when a Claude Code session starts. The
+                files hold no credential: tools, memory and knowledge are reached through{" "}
+                <span className="mono">/api/mcp/agents/{v.slug || slug || "<slug>"}</span>, which the hub checks on every call.
+                {v.placement !== initial.placement && " Save to apply the new placement before syncing."}
+              </p>
+            </details>
+          )}
+        </Section>
+
         {!creating && (
           <section className="border border-[var(--danger)] p-5" aria-labelledby="danger-title">
             <h3 id="danger-title" className="text-base font-bold text-[var(--danger)]">
@@ -277,8 +386,9 @@ export function AgentForm({
           </div>
           <p className="mt-1 text-sm text-[var(--text-soft)]">{v.description || "No description yet."}</p>
           <dl className="mt-4 flex flex-col text-sm">
-            <Row k="Tool">
-              <span className="mono break-all text-xs">{toolName}</span>
+            <Row k="Runs">{PLACEMENT_LABEL[v.placement]}</Row>
+            <Row k={v.placement === "local" ? "Sub-agent" : "Tool"}>
+              <span className="mono break-all text-xs">{v.placement === "local" ? `hub-${slug || "your-agent"}` : toolName}</span>
             </Row>
             <Row k="Brief">{words ? `${words} words` : "None"}</Row>
             <Row k="Tools">{picked.length ? picked.map((t) => t.label).join(", ") : "Memory only"}</Row>

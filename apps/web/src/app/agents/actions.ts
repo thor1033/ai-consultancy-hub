@@ -10,6 +10,8 @@ import {
   listMemories,
   forgetMemory,
   setMemoryActive,
+  isPlacement,
+  runsOnHub,
   type AgentInput,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
@@ -77,15 +79,38 @@ export async function saveAgentAction(
       ? null
       : Math.min(Math.max(Math.trunc(Number(raw)), 1), MAX_ITERATIONS_CEILING);
 
+  // Where an agent runs decides where its instructions are copied to and who
+  // reaches its tools from outside the hub, so changing it is admin-only even
+  // if agent:manage is one day granted more widely. `existing` is the lookup
+  // the server list above already paid for.
+  const placement = input.placement ?? existing?.placement ?? "hub";
+  if (!isPlacement(placement)) return { error: "Unknown placement." };
+  if (placement !== (existing?.placement ?? "hub") && !(await sessionCan("admin:manage"))) {
+    return { error: "Only an admin can change where an agent runs." };
+  }
+
   try {
     if (id) {
-      const updated = await updateAgent(id, { ...input, name, mcpServers: servers, maxIterations });
+      const updated = await updateAgent(id, {
+        ...input,
+        name,
+        mcpServers: servers,
+        maxIterations,
+        placement,
+      });
       if (!updated) return { error: "That agent no longer exists." };
       revalidatePath("/agents");
       revalidatePath(`/agents/${updated.slug}`);
       return { ok: true, slug: updated.slug };
     }
-    const created = await createAgent({ ...input, name, slug, mcpServers: servers, maxIterations });
+    const created = await createAgent({
+      ...input,
+      name,
+      slug,
+      mcpServers: servers,
+      maxIterations,
+      placement,
+    });
     revalidatePath("/agents");
     return { ok: true, slug: created.slug };
   } catch (e) {
@@ -173,6 +198,9 @@ export async function sendAgentMessageAction(
   const agent = await getAgent(slug);
   if (!agent) return { error: "That agent no longer exists." };
   if (!agent.enabled) return { error: `${agent.name} is disabled.` };
+  if (!runsOnHub(agent.placement)) {
+    return { error: `${agent.name} runs locally, in Claude Code. Switch it to "Hub" or "Both" to talk to it here.` };
+  }
 
   const clean = (messages ?? []).filter(
     (m) =>

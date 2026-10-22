@@ -1,4 +1,4 @@
-import { getAgent, getSkill, startRun, failRun, type Agent, type SkillWithAgent } from "@ai-hub/db";
+import { getAgent, getSkill, startRun, failRun, runsOnHub, type Agent, type SkillWithAgent } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { authorize, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 import { runSession, isKnownServer } from "@/lib/runSession";
@@ -68,6 +68,13 @@ export async function runnableAgent(
   const agent = await getAgent(agentRef);
   if (!agent) return { error: `No agent named "${agentRef}".` };
   if (!agent.enabled) return { error: `"${agent.name}" is disabled.` };
+  // Every hub-side path (MCP tools, skills, schedules) comes through here, so
+  // this one check is what makes "local" mean the hub never runs it.
+  if (!runsOnHub(agent.placement)) {
+    return {
+      error: `"${agent.name}" runs locally, in Claude Code, not on the hub. Use its synced sub-agent, or set it to run on the hub or both.`,
+    };
+  }
   return agent;
 }
 

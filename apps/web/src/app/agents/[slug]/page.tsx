@@ -1,5 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
+import { headers } from "next/headers";
 import {
   agentRoster,
   getAgent,
@@ -7,6 +8,7 @@ import {
   listMemories,
   listSchedules,
   listSkills,
+  localActivity,
   type AgentRun,
   type Schedule,
 } from "@ai-hub/db";
@@ -21,6 +23,8 @@ import { AgentTabs } from "./AgentTabs";
 import { AgentChat } from "./AgentChat";
 import { MemoryPanel } from "./MemoryPanel";
 import { SkillsPanel } from "./SkillsPanel";
+import { appBaseUrl } from "@/lib/baseUrl";
+import { localAgentName, localSkillName, renderAgentFiles } from "@/lib/localAgents";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +40,8 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
   const named = serverNames(agent.mcpServers).filter((n) => n !== "memory");
   // Everything below is display; a failure in one source must not take the
   // page (and with it the only way to fix the agent) down.
-  const [memories, collections, skills, runs, schedules, roster, tools, canManage] = await Promise.all([
+  const [memories, collections, skills, runs, schedules, roster, tools, canManage, activity, admin] =
+    await Promise.all([
     listMemories(agent.id),
     sessionKnowledgeAccess()
       .then((access) => listCollections(access))
@@ -47,7 +52,12 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
     agentRoster().catch(() => []),
     toolCatalog(named),
     sessionCan("agent:manage"),
+    localActivity(agent.id).catch(() => null),
+    // Moving an agent between the hub and Claude Code is admin-only
+    // (actions.ts); the form greys the control out for everyone else.
+    sessionCan("admin:manage"),
   ]);
+  const baseUrl = appBaseUrl(await headers()) ?? "https://hub.example.com";
 
   const stats = roster.find((r) => r.id === agent.id);
   const now = Date.now();
@@ -200,21 +210,53 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
 
         <section className="panel p-5 md:p-6">
           <div className="eyebrow">Reach it from a client</div>
-          <p className="mt-2 text-sm text-[var(--muted)]">
-            Every client connected to the hub — Claude Code, Claude.ai, Cursor — lists these tools.
-          </p>
-          <ul className="mt-3 flex flex-col gap-1.5">
-            <li className="inset mono flex items-center gap-2 break-all px-3 py-2 text-xs">
-              <span aria-hidden className="inline-block h-2 w-2 shrink-0 bg-[var(--ai)]" />
-              {agentToolName(agent.slug)}
-            </li>
-            {liveSkills.map((s) => (
-              <li key={s.id} className="inset mono flex items-center gap-2 break-all px-3 py-2 text-xs">
-                <span aria-hidden className="inline-block h-1.5 w-1.5 shrink-0 rotate-45 bg-[var(--c-skill)]" />
-                {skillToolName(s.slug)}
-              </li>
-            ))}
-          </ul>
+          {agent.placement !== "local" && (
+            <>
+              <p className="mt-2 text-sm text-[var(--muted)]">
+                Every client connected to the hub — Claude Code, Claude.ai, Cursor — lists these tools.
+              </p>
+              <ul className="mt-3 flex flex-col gap-1.5">
+                <li className="inset mono flex items-center gap-2 break-all px-3 py-2 text-xs">
+                  <span aria-hidden className="inline-block h-2 w-2 shrink-0 bg-[var(--ai)]" />
+                  {agentToolName(agent.slug)}
+                </li>
+                {liveSkills.map((s) => (
+                  <li key={s.id} className="inset mono flex items-center gap-2 break-all px-3 py-2 text-xs">
+                    <span aria-hidden className="inline-block h-1.5 w-1.5 shrink-0 rotate-45 bg-[var(--c-skill)]" />
+                    {skillToolName(s.slug)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+          {agent.placement !== "hub" && (
+            <>
+              <p className={`text-sm text-[var(--muted)] ${agent.placement === "local" ? "mt-2" : "mt-4"}`}>
+                In Claude Code it is a sub-agent, synced at session start. Its tools, memory and knowledge still
+                come through the hub.
+              </p>
+              <ul className="mt-3 flex flex-col gap-1.5">
+                <li className="inset mono flex items-center gap-2 break-all px-3 py-2 text-xs">
+                  <span aria-hidden className="inline-block h-2 w-2 shrink-0 border-2" style={{ borderColor: "var(--c-src)" }} />
+                  {localAgentName(agent.slug)}
+                </li>
+                {liveSkills.map((s) => (
+                  <li key={s.id} className="inset mono flex items-center gap-2 break-all px-3 py-2 text-xs">
+                    <span aria-hidden className="inline-block h-1.5 w-1.5 shrink-0 rotate-45 bg-[var(--c-skill)]" />
+                    /{localSkillName(s.slug)}
+                  </li>
+                ))}
+              </ul>
+              {activity && (
+                <p className="mt-3 text-xs text-[var(--muted)]">
+                  Local use, 30 days: {activity.calls} tool {activity.calls === 1 ? "call" : "calls"}
+                  {activity.failed > 0 && <span className="text-[var(--warning)]"> ({activity.failed} refused or failed)</span>}
+                  {" "}by {activity.people} {activity.people === 1 ? "person" : "people"}
+                  {activity.lastAt && <> · last {rel(activity.lastAt, now).toLowerCase()}</>}
+                </p>
+              )}
+            </>
+          )}
           {!agent.enabled && (
             <p className="mt-3 text-xs text-[var(--warning)]">Switched off — clients do not see these right now.</p>
           )}
@@ -271,11 +313,14 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           maxIterations: agent.maxIterations === null ? "" : String(agent.maxIterations),
           servers: named,
           enabled: agent.enabled,
+          placement: agent.placement,
         }}
         tools={tools}
         collections={collections}
         defaultMaxIterations={DEFAULT_MAX_ITERATIONS}
         maxIterationsCeiling={MAX_ITERATIONS_CEILING}
+        canSetPlacement={Boolean(admin)}
+        localFiles={renderAgentFiles(agent, skills, baseUrl)}
       />
     </>
   );
@@ -299,6 +344,9 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
               style={{ background: agent.enabled ? "var(--ai)" : "var(--faint)" }}
             />
             {agent.enabled ? "Agent · On" : "Agent · Switched off"}
+            {agent.placement !== "hub" && (
+              <span>· {agent.placement === "local" ? "Runs in Claude Code" : "Hub and Claude Code"}</span>
+            )}
             <span className="mono normal-case tracking-normal text-[var(--faint)]">{agent.slug}</span>
           </div>
           <h1 className="mt-3 text-3xl md:text-4xl">{agent.name}</h1>
@@ -343,7 +391,19 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           {
             id: "conversation",
             label: "Conversation",
-            content: <AgentChat slug={agent.slug} name={agent.name} enabled={agent.enabled} />,
+            content:
+              agent.placement === "local" ? (
+                <div className="panel p-5 text-sm text-[var(--text-soft)]">
+                  {agent.name} runs in Claude Code, as the <span className="mono">{localAgentName(agent.slug)}</span>{" "}
+                  sub-agent, so the hub does not run it here. Set it to <strong>Hub</strong> or <strong>Both</strong> under{" "}
+                  <a href="#settings" className="underline underline-offset-2">
+                    Settings
+                  </a>{" "}
+                  to talk to it in this console.
+                </div>
+              ) : (
+                <AgentChat slug={agent.slug} name={agent.name} enabled={agent.enabled} />
+              ),
           },
           {
             id: "memory",

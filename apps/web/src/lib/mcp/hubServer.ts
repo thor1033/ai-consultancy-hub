@@ -10,17 +10,8 @@ import {
   LARGE_ARG_RULE,
   HANDLE_PREFIX,
 } from "@/lib/mcp/largeArgs";
-import {
-  getAgent,
-  listAgents,
-  listRunnableSkills,
-  getRunStatus,
-  listMemories,
-  rememberMemory,
-  setMemoryActive,
-  forgetMemory,
-  searchMemories,
-} from "@ai-hub/db";
+import { getAgent, listAgents, listRunnableSkills, getRunStatus, runsOnHub } from "@ai-hub/db";
+import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import {
   retrieveChunks,
   listCollections,
@@ -49,15 +40,6 @@ import {
  * argument is an agent id a model can change, and with several clients on one
  * hub that is a cross-client read, not a demo bug.
  */
-
-const text = (value: unknown) => ({
-  content: [
-    {
-      type: "text" as const,
-      text: typeof value === "string" ? value : JSON.stringify(value, null, 2),
-    },
-  ],
-});
 
 export async function buildHubMcpServer(principal: Principal): Promise<McpServer> {
   const may = async (action: Parameters<typeof authorize>[1]) =>
@@ -252,128 +234,7 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
   // Memory: gated on the token naming an agent that exists, not on a role alone.
   // `boundAgent` is already null unless the principal may agent:run, so a viewer
   // token with a binding gets nothing.
-  if (boundAgent) {
-    const agentId = boundAgent.id;
-
-    const memoryRow = (m: { key: string; content: string; updatedAt: string }) => ({
-      key: m.key,
-      content: m.content,
-      updatedAt: m.updatedAt,
-    });
-
-    server.registerTool(
-      "hub_memory_list",
-      {
-        description:
-          "List your active memories (work in flight), most recently updated " +
-          "first, plus a count of inactive ones. Call this at the start of a " +
-          "conversation.",
-        inputSchema: {
-          include_inactive: z
-            .boolean()
-            .optional()
-            .describe("Also return inactive memories (finished, paused or background work)."),
-        },
-      },
-      async ({ include_inactive }) => {
-        const rows = await listMemories(agentId);
-        if (!rows.length) return text("You have no memories yet.");
-        const active = rows.filter((m) => m.active).map(memoryRow);
-        const inactive = rows.filter((m) => !m.active).map(memoryRow);
-        if (include_inactive) return text({ active, inactive });
-        return text({ active, inactiveCount: inactive.length });
-      },
-    );
-
-    server.registerTool(
-      "hub_memory_search",
-      {
-        description:
-          "Search all your memories, active and inactive, by keyword in the key " +
-          "or the content. Each result says whether it is active.",
-        inputSchema: {
-          query: z.string().min(1).describe("Keyword or phrase to look for."),
-          limit: z
-            .number()
-            .int()
-            .min(1)
-            .max(50)
-            .optional()
-            .describe("How many memories to return (default 20)."),
-        },
-      },
-      async ({ query, limit }) => {
-        const rows = await searchMemories(agentId, query, limit ?? 20);
-        if (!rows.length) return text(`No memories matched "${query}".`);
-        return text(rows.map((m) => ({ ...memoryRow(m), active: m.active })));
-      },
-    );
-
-    server.registerTool(
-      "hub_memory_write",
-      {
-        description:
-          "Record a durable fact under a short key. Writing an existing key " +
-          "replaces it, so correcting yourself does not leave two contradictory " +
-          "memories. New and rewritten memories are active unless you say otherwise.",
-        inputSchema: {
-          key: z
-            .string()
-            .min(1)
-            .describe("A short stable name for this fact, e.g. \"weekly-review-day\"."),
-          content: z.string().min(1).describe("The fact, written so it reads on its own later."),
-          active: z
-            .boolean()
-            .optional()
-            .describe("False to file it straight away as inactive (finished or background work). Default true."),
-        },
-      },
-      async ({ key, content, active }) => {
-        const saved = await rememberMemory(agentId, key, content, active ?? true);
-        return text({
-          saved: saved.key,
-          content: saved.content,
-          active: saved.active,
-          updatedAt: saved.updatedAt,
-        });
-      },
-    );
-
-    server.registerTool(
-      "hub_memory_set_active",
-      {
-        description:
-          "Mark a memory active (work in flight) or inactive (finished, paused or " +
-          "background) without changing what it says.",
-        inputSchema: {
-          key: z.string().min(1).describe("The key to move."),
-          active: z.boolean().describe("True for active work, false to set it aside."),
-        },
-      },
-      async ({ key, active }) => {
-        const moved = await setMemoryActive(agentId, key, active);
-        return text(
-          moved
-            ? `Marked "${key}" ${active ? "active" : "inactive"}.`
-            : `Nothing was stored under "${key}".`,
-        );
-      },
-    );
-
-    server.registerTool(
-      "hub_memory_forget",
-      {
-        description: "Forget the fact stored under a key, when it is wrong or no longer true.",
-        inputSchema: {
-          key: z.string().min(1).describe("The key to forget."),
-        },
-      },
-      async ({ key }) => {
-        const gone = await forgetMemory(agentId, key);
-        return text(gone ? `Forgot "${key}".` : `Nothing was stored under "${key}".`);
-      },
-    );
-  }
+  if (boundAgent) registerMemoryTools(server, boundAgent.id);
 
   // --- Agents as tools ------------------------------------------------------
   //
@@ -389,7 +250,11 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
   // is all it takes. Clients cache tool lists, so a new agent appears on the
   // next reconnect rather than instantly.
   if (canRunAgents) {
-    const agents = (await listAgents().catch(() => [])).filter((a) => a.enabled);
+    // A local-only agent runs in someone's Claude Code session, not here, so it
+    // is offered no hub_agent_* tool — one would only ever answer with a refusal.
+    const agents = (await listAgents().catch(() => [])).filter(
+      (a) => a.enabled && runsOnHub(a.placement),
+    );
 
     for (const summary of agents) {
       server.registerTool(
@@ -510,7 +375,9 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
     // so the work an expert did once becomes something anyone can invoke from
     // their own editor without being told how. That is skillification in the
     // shape that fits a tool list, rather than a saved transcript nobody reruns.
-    const skills = await listRunnableSkills().catch(() => []);
+    const skills = (await listRunnableSkills().catch(() => [])).filter((sk) =>
+      runsOnHub(sk.agentPlacement),
+    );
     for (const skill of skills) {
       server.registerTool(
         toolNameForSkill(skill.slug),

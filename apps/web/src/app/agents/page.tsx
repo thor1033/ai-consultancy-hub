@@ -113,6 +113,10 @@ function AgentRow({
   const servers = serverList(a);
   const health: { text: string; color: string }[] = [];
   if (!a.enabled) health.push({ text: "Switched off", color: "var(--faint)" });
+  // Where it runs is worth a glance on the roster: a local agent is absent from
+  // the hub's tool list and its schedules, which otherwise looks like a fault.
+  if (a.placement === "local") health.push({ text: "Runs in Claude Code only", color: "var(--c-src)" });
+  if (a.placement === "both") health.push({ text: "Hub and Claude Code", color: "var(--c-src)" });
   if (a.failed7d) health.push({ text: `${a.failed7d} failed run${a.failed7d === 1 ? "" : "s"} this week`, color: "var(--brand)" });
   if (a.scheduleError) health.push({ text: "A schedule errored", color: "var(--brand)" });
   if (!a.lastRunAt && a.enabled) health.push({ text: "Never run", color: "var(--text)" });
