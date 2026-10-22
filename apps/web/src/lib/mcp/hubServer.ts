@@ -77,8 +77,9 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
   // who is offered no skill has no argument to split.
   const canRunAgents = await may("agent:run");
 
-  // The remote systems this person can reach through the hub — one per URL,
-  // because pm-tool and pm-tool-read are the same endpoint behind two of the
+  // The remote systems this person can reach through the hub: the entries
+  // that opted in to receiving a person's token (forwardIdentity), one per
+  // URL — pm-tool and pm-tool-read are the same endpoint behind two of the
   // hub's tokens, and with the person's token forwarded that distinction is
   // theirs to make, not the hub's. The least restrictive entry for a URL wins.
   // Only for a person: a credential or a schedule has no identity to forward,
@@ -87,7 +88,7 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
   if (principal.accessToken) {
     const disabled = await disabledMcpServerNames();
     for (const info of remoteServerInfo()) {
-      if (disabled.has(info.name)) continue;
+      if (disabled.has(info.name) || !info.forwardIdentity) continue;
       const prev = reachable.get(info.url);
       if (!prev || (prev.readOnly && !info.readOnly)) {
         reachable.set(info.url, { name: info.name, readOnly: info.readOnly });

@@ -13,6 +13,7 @@ export {
   remoteServerNames,
   remoteServerInfo,
   remoteServerReadOnly,
+  remoteServerForwardsIdentity,
   isRemoteServer,
 } from "./remote";
 export type { RemoteServerInfo, RemoteDialOptions } from "./remote";

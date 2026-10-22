@@ -8,7 +8,7 @@ import {
   disabledMcpServerNames,
   type Agent,
 } from "@ai-hub/db";
-import { isRemoteServer, remoteServerReadOnly } from "@ai-hub/mcp";
+import { isRemoteServer, remoteServerForwardsIdentity, remoteServerReadOnly } from "@ai-hub/mcp";
 import { retrieveChunks, getDocument, embedderStatus } from "@ai-hub/rag";
 import { isKnownServer, resolveServer } from "@/lib/runSession";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
@@ -176,7 +176,13 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
       config,
       // Forwarding a person's token through a read-only entry: the upstream
       // would offer their writes, so the hub keeps the read-only tools alone.
-      dropWrites: Boolean(bearer) && isRemoteServer(name) && remoteServerReadOnly(name),
+      // An entry that does not forward still dials with its own token, and
+      // the upstream's scope on that token does the filtering as before.
+      dropWrites:
+        Boolean(bearer) &&
+        isRemoteServer(name) &&
+        remoteServerForwardsIdentity(name) &&
+        remoteServerReadOnly(name),
       taken,
       wrap: (tool, fn) => track(tool, fn),
       // One unreachable server must not take the agent's memory down with it.

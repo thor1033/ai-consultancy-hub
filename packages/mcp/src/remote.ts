@@ -27,14 +27,17 @@ export interface RemoteServerInfo {
   configured: boolean;
   /** This entry is meant to read only — see remoteServerReadOnly(). */
   readOnly: boolean;
+  /** A signed-in person's token may be forwarded here — see RemoteEntry.forwardIdentity. */
+  forwardIdentity: boolean;
 }
 
 /**
  * How to dial a remote server for one call.
  *
- * `bearer` replaces the entry's own token: the signed-in person's access token,
- * so the remote system sees them rather than the hub. The entry's token stays
- * the default for everything with no person behind it (schedules, credentials).
+ * `bearer` is the signed-in person's access token. It replaces the entry's own
+ * token ONLY for an entry that opts in with `forwardIdentity`; everywhere else
+ * it is ignored and the entry's token is used, so a server nobody vouched for
+ * never receives a token that is valid at the hub itself.
  */
 export interface RemoteDialOptions {
   bearer?: string;
@@ -59,6 +62,16 @@ interface RemoteEntry {
    * `-read`, so the existing pm-tool / pm-tool-read pair needs no change.
    */
   readOnly?: boolean;
+  /**
+   * The hub may hand this server a signed-in person's own access token, so
+   * the server sees the person rather than the hub. OFF unless set, and the
+   * reason is what that token is: it is valid at the hub's own /api/mcp, and
+   * at any system that trusts the hub's audience. A server that receives it
+   * could act as the person at both. So forwarding is a statement of trust in
+   * the server, made per entry by whoever configures the deployment — the
+   * PM-tool, which we run — and never implied by a server merely being listed.
+   */
+  forwardIdentity?: boolean;
 }
 
 // Parsed per call rather than cached: the map is tiny, and a cached parse makes
@@ -103,7 +116,7 @@ export function remoteServerConfig(name: string, options: RemoteDialOptions = {}
   const entry = loadEntries()[name];
   if (!entry?.url) return null;
 
-  const token = options.bearer ?? bearerToken(entry);
+  const token = options.bearer && entry.forwardIdentity === true ? options.bearer : bearerToken(entry);
   const headers: Record<string, string> = {
     ...(token ? { authorization: `Bearer ${token}` } : {}),
     ...(entry.headers ?? {}),
@@ -118,6 +131,11 @@ export function remoteServerReadOnly(name: string): boolean {
   return entry.readOnly ?? /-read$/.test(name);
 }
 
+/** Whether a person's token may be forwarded to this entry; see RemoteEntry.forwardIdentity. */
+export function remoteServerForwardsIdentity(name: string): boolean {
+  return loadEntries()[name]?.forwardIdentity === true;
+}
+
 /** Declared remote servers, for the admin/registry view. */
 export function remoteServerInfo(): RemoteServerInfo[] {
   return Object.entries(loadEntries()).map(([name, entry]) => ({
@@ -127,5 +145,6 @@ export function remoteServerInfo(): RemoteServerInfo[] {
     url: entry.url!,
     configured: Boolean(bearerToken(entry)) || Boolean(entry.headers),
     readOnly: remoteServerReadOnly(name),
+    forwardIdentity: entry.forwardIdentity === true,
   }));
 }

@@ -154,9 +154,9 @@ token = one client deployment**; do not multiplex organizations behind a single
 token.
 
 **Phase 2, as built: the person's own token.** When a person is behind the
-call — they signed in to the hub by OAuth — the hub forwards *their* access
-token through `remoteServerConfig(name, { bearer })` instead of the machine
-token. The PM-tool accepts it because the hub's resource indicator is in its
+call — they signed in to the hub by OAuth — and the entry says
+`"forwardIdentity": true`, the hub forwards *their* access token through
+`remoteServerConfig(name, { bearer })` instead of the machine token. The PM-tool accepts it because the hub's resource indicator is in its
 `MCP_TRUSTED_AUDIENCES`, resolves the person to their own tenant exactly as a
 direct sign-in would, offers what they may do there, and audits the call as
 "*name* (via MCP)". No hub-minted JWT and no shared secret are needed: the
