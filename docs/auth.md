@@ -148,7 +148,7 @@ chat, whose WorkOS session token is for the web app rather than the MCP
 resource.
 
 `npm run verify:identity -w web` covers all of it against tokens the script
-signs itself (34 checks, no WorkOS).
+signs itself (48 checks, no WorkOS).
 
 ## Credentials
 

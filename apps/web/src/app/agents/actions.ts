@@ -13,6 +13,7 @@ import {
   isPlacement,
   runsOnHub,
   type AgentInput,
+  type McpEntry,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
@@ -20,6 +21,7 @@ import { MAX_ITERATIONS_CEILING, type ModelId } from "@ai-hub/agent";
 import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
 import { listSkills, createSkill, updateSkill, deleteSkill, type SkillParameter } from "@ai-hub/db";
 import { undeclaredPlaceholders } from "@/lib/skillPrompt";
+import { MAILBOX_SERVERS } from "./models";
 import { isUniqueViolation } from "@/lib/apiError";
 
 // Server actions for the agents console. Each one checks the signed-in user's
@@ -64,10 +66,25 @@ export async function saveAgentAction(
   const already = new Set(
     (existing?.mcpServers ?? []).map((e) => String((e as { name?: unknown }).name ?? "")),
   );
-  const servers = (input.mcpServers ?? []).filter((e) => {
+  // Rebuilt field by field rather than stored as sent. An entry is read back
+  // at run time and a setting in it lands in a server's environment, so only
+  // the settings a server is known to take get through, each checked.
+  const servers: McpEntry[] = [];
+  for (const e of input.mcpServers ?? []) {
     const name = (e as { name?: unknown }).name;
-    return typeof name === "string" && (isKnownServer(name) || already.has(name));
-  });
+    if (typeof name !== "string" || !(isKnownServer(name) || already.has(name))) continue;
+    const entry: McpEntry = { name };
+    const mailbox = (e as { mailbox?: unknown }).mailbox;
+    if (typeof mailbox === "string" && mailbox.trim()) {
+      if (!MAILBOX_SERVERS.has(name)) return { error: `"${name}" does not take a mailbox.` };
+      const clean = mailbox.trim().toLowerCase();
+      if (clean.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+        return { error: `"${mailbox.trim()}" is not a mailbox address.` };
+      }
+      entry.mailbox = clean;
+    }
+    servers.push(entry);
+  }
 
   // A server action is a public endpoint, so the number is validated here and
   // not only by the <input type="number"> that usually produces it. Anything
@@ -252,6 +269,7 @@ export async function sendAgentMessageAction(
       model: (agent.model as ModelId) ?? undefined,
       effort: effortOf(agent.effort),
       servers,
+      serverEntries: agent.mcpServers,
       agentId: agent.id,
       principalId: principal.id,
     });

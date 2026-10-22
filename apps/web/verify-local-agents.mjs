@@ -86,6 +86,7 @@ await new Promise((resolve, reject) => {
 const { buildHubMcpServer, toolNameForAgent, toolNameForSkill } = await import("./src/lib/mcp/hubServer.ts");
 const { buildAgentMcpServer, resolveLocalAgent } = await import("./src/lib/mcp/agentServer.ts");
 const { runnableAgent } = await import("./src/lib/agentRuns.ts");
+const { resolveServer } = await import("./src/lib/runSession.ts");
 const { renderAgentFiles, agentEndpoint } = await import("./src/lib/localAgents.ts");
 const exportRoute = await import("./src/app/api/agents/export/route.ts");
 const agentRoute = await import("./src/app/api/mcp/agents/[slug]/route.ts");
@@ -144,6 +145,11 @@ try {
     rejected = true;
   }
   check("the database refuses a placement it does not know", rejected);
+
+  // --- per-agent server settings reach the run ---------------------------
+  const withMailbox = resolveServer("microsoft365", undefined, undefined, { name: "microsoft365", mailbox: "secretary@example.test" });
+  check("an agent's mailbox reaches the bundled server's environment", withMailbox?.env?.M365_MAILBOX === "secretary@example.test");
+  check("an agent without one leaves the deployment default alone", resolveServer("microsoft365")?.env === undefined);
 
   const skill = await db.createSkill({
     agentId: local.id,

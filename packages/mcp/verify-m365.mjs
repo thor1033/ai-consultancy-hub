@@ -146,12 +146,15 @@ const http = createServer(async (req, res) => {
     return json(401, { error: { code: "InvalidAuthenticationToken", message: "Access token is empty." } });
   }
 
-  const base = `/users/${encodeURIComponent(MAILBOX)}`;
-  const rest = url.pathname.startsWith(base) ? url.pathname.slice(base.length) : null;
-  if (rest === null) return json(404, { error: { code: "ResourceNotFound", message: "No such mailbox." } });
+  // Any mailbox is served and echoed back, so the per-agent check below can
+  // tell that the server asked Graph for the AGENT's mailbox, not the default.
+  const m = url.pathname.match(/^\/users\/([^/]+)(.*)$/);
+  if (!m) return json(404, { error: { code: "ResourceNotFound", message: "No such mailbox." } });
+  const mailbox = decodeURIComponent(m[1]);
+  const rest = m[2];
 
   if (rest === "") {
-    return json(200, { displayName: "Secretary", mail: MAILBOX, userPrincipalName: MAILBOX });
+    return json(200, { displayName: "Secretary", mail: mailbox, userPrincipalName: mailbox });
   }
   if (rest === "/calendarView") {
     const from = new Date(url.searchParams.get("startDateTime"));
@@ -344,6 +347,41 @@ try {
   } finally {
     await mcp.close();
   }
+
+  // ── one deployment, several mailboxes ──────────────────────────────────────
+  // The credentials are the deployment's; which mailbox an agent reads is on
+  // its own server entry. A second agent must reach a second mailbox without
+  // a second app registration.
+  const { builtinOptionsFrom } = await import("./src/servers.ts");
+  check(
+    "an entry without a mailbox leaves the deployment default alone",
+    builtinServerConfig("microsoft365").env === undefined && Object.keys(builtinOptionsFrom({ name: "microsoft365" })).length === 0,
+  );
+  check(
+    "a junk mailbox value is dropped, never forwarded",
+    Object.keys(builtinOptionsFrom({ name: "microsoft365", mailbox: 42 })).length === 0 &&
+      Object.keys(builtinOptionsFrom({ name: "microsoft365", mailbox: "   " })).length === 0 &&
+      Object.keys(builtinOptionsFrom("microsoft365")).length === 0,
+  );
+  const OTHER = "delivery-lead@example.com";
+  const perAgent = await connectMcpServers([
+    builtinServerConfig("microsoft365", builtinOptionsFrom({ name: "microsoft365", mailbox: ` ${OTHER} ` })),
+  ]);
+  try {
+    const whoElse = parse(await perAgent.execute("m365_whoami", {}));
+    check("an agent's own mailbox overrides the deployment default", whoElse.mailbox === OTHER, whoElse.mailbox);
+    check(
+      "and Graph is asked for that mailbox",
+      lastRequest("/users/")?.path.includes(encodeURIComponent(OTHER)),
+      lastRequest("/users/")?.path,
+    );
+  } finally {
+    await perAgent.close();
+  }
+  check(
+    "the default is untouched for the next run",
+    process.env.M365_MAILBOX === MAILBOX && builtinServerConfig("microsoft365").env === undefined,
+  );
 
   // ── it must refuse to run unconfigured ─────────────────────────────────────
   // Otherwise a deployment missing its secret gets an agent that appears to work

@@ -18,7 +18,7 @@ import { sessionCan, sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 import { DAYS, cadence, money, rel } from "@/lib/format";
 import { AgentForm } from "../AgentForm";
 import { toolCatalog } from "../catalog";
-import { MODELS, agentToolName, serverNames, skillToolName } from "../models";
+import { MODELS, agentToolName, serverMailboxes, serverNames, skillToolName } from "../models";
 import { AgentTabs } from "./AgentTabs";
 import { AgentChat } from "./AgentChat";
 import { MemoryPanel } from "./MemoryPanel";
@@ -38,6 +38,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
   if (!agent) notFound();
 
   const named = serverNames(agent.mcpServers).filter((n) => n !== "memory");
+  const mailboxes = serverMailboxes(agent.mcpServers);
   // Everything below is display; a failure in one source must not take the
   // page (and with it the only way to fix the agent) down.
   const [memories, collections, skills, runs, schedules, roster, tools, canManage, activity, admin] =
@@ -106,6 +107,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
                   {agentTools.map((t) => (
                     <span key={t.name}>
                       {t.label}
+                      {mailboxes[t.name] && <span className="mono text-xs text-[var(--muted)]"> · {mailboxes[t.name]}</span>}
                       {!t.available && <span className="text-xs text-[var(--warning)]"> · not declared here, skipped</span>}
                     </span>
                   ))}
@@ -314,6 +316,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           servers: named,
           enabled: agent.enabled,
           placement: agent.placement,
+          mailboxes,
         }}
         tools={tools}
         collections={collections}

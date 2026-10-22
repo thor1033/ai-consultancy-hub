@@ -117,6 +117,12 @@ check(
   !servers.includes("pm-tool"),
   "write tools must be absent from its tool list, not forbidden in prose",
 );
+const mailboxEntry = (SECRETARY_AGENT.mcpServers ?? []).find((s) => s.name === "microsoft365");
+check(
+  "the agent reads its own shared mailbox, named on its entry",
+  typeof mailboxEntry?.mailbox === "string" && /^secretary@/.test(mailboxEntry.mailbox),
+  mailboxEntry?.mailbox ?? "no mailbox",
+);
 check(
   "the brief says it proposes rather than applies",
   /propose/i.test(SECRETARY_AGENT.instructions ?? ""),
@@ -173,6 +179,19 @@ if (!process.env.DATABASE_URL) {
 // absence of a server here proves nothing about the deployment.
 const { remoteServerNames, BUILTIN_SERVER_NAMES } = await import("@ai-hub/mcp");
 const declared = new Set([...BUILTIN_SERVER_NAMES, ...remoteServerNames(), "sample", "memory"]);
+
+// microsoft365 fails the OTHER way. An undeclared remote server is skipped
+// silently; a bundled server whose credentials are missing refuses to START,
+// and connectMcpServers then fails the whole run. So a secretary provisioned
+// before the deployment holds the M365_* secrets cannot run at all, not even
+// for PM-tool work. Same caveat as above: this environment is not Fly's.
+const m365Missing = ["M365_TENANT_ID", "M365_CLIENT_ID", "M365_CLIENT_SECRET"].filter((k) => !process.env[k]);
+if (mailboxEntry && m365Missing.length) {
+  console.warn(
+    `warning: the agent names microsoft365 but this environment lacks ${m365Missing.join(", ")} — ` +
+      "every run of this agent fails until the deployment it runs on has them.",
+  );
+}
 const missingServers = (SECRETARY_AGENT.mcpServers ?? [])
   .map((s) => s.name)
   .filter((n) => !declared.has(n));

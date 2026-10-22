@@ -136,6 +136,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     agentId: agent.id,
     principalId: input.principal.id,
     remoteBearer: input.principal.accessToken,
+    serverEntries: agent.mcpServers,
     runId,
   })
     .then((out) => ({ ok: true as const, out }))

@@ -1,8 +1,10 @@
 import { runAgent, type ModelId, type RunAgentResult } from "@ai-hub/agent";
+import type { McpEntry } from "@ai-hub/db";
 import {
   connectMcpServers,
   sampleMcpConfig,
   builtinServerConfig,
+  builtinOptionsFrom,
   memoryServerConfig,
   remoteServerConfig,
   remoteServerNames,
@@ -28,6 +30,10 @@ export function isKnownServer(name: string): boolean {
   return knownServers().includes(name);
 }
 
+/** The server an agent's stored entry names — a bare string, or `{ name, … }`. */
+export const entryName = (entry: McpEntry | string): string =>
+  typeof entry === "string" ? entry : String((entry as { name?: unknown }).name ?? "");
+
 /**
  * `agentId` opens the memory server for that agent. It is not resolvable by
  * name alone — memory is scoped to one agent, and that scope must come from the
@@ -37,10 +43,12 @@ export function resolveServer(
   name: string,
   agentId?: string,
   remoteBearer?: string,
+  /** The agent's own entry for this server, for per-agent settings such as a mailbox. */
+  entry?: McpEntry,
 ): McpServerConfig | null {
   if (name === "sample") return sampleMcpConfig();
   if (name === "memory") return agentId ? memoryServerConfig(agentId) : null;
-  return builtinServerConfig(name) ?? remoteServerConfig(name, { bearer: remoteBearer });
+  return builtinServerConfig(name, builtinOptionsFrom(entry)) ?? remoteServerConfig(name, { bearer: remoteBearer });
 }
 
 export interface RunSessionInput {
@@ -68,6 +76,12 @@ export interface RunSessionInput {
    * the PM-tool is done as this person. Absent for schedules and credentials.
    */
   remoteBearer?: string;
+  /**
+   * The agent's stored server entries, as declared. `servers` says which to
+   * connect; this is where a per-agent setting lives (a mailbox, today), so it
+   * reaches the server's environment without becoming a tool argument.
+   */
+  serverEntries?: McpEntry[];
   /**
    * An already-started run row to complete, instead of inserting a finished
    * one. The asynchronous path creates the row first so the caller has an id to
@@ -97,8 +111,9 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
 
   let mcp: ConnectedMcp | undefined;
   try {
+    const entryFor = (name: string) => input.serverEntries?.find((e) => entryName(e) === name);
     const configs = servers
-      .map((name) => resolveServer(name, input.agentId, input.remoteBearer))
+      .map((name) => resolveServer(name, input.agentId, input.remoteBearer, entryFor(name)))
       .filter((c): c is McpServerConfig => c !== null);
     if (configs.length > 0) mcp = await connectMcpServers(configs);
 

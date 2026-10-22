@@ -10,7 +10,7 @@ import {
 } from "@ai-hub/db";
 import { isRemoteServer, remoteServerForwardsIdentity, remoteServerReadOnly } from "@ai-hub/mcp";
 import { retrieveChunks, getDocument, embedderStatus } from "@ai-hub/rag";
-import { isKnownServer, resolveServer } from "@/lib/runSession";
+import { entryName, isKnownServer, resolveServer } from "@/lib/runSession";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
 
@@ -163,14 +163,14 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
   // The agent's own tool servers, dialled by the hub. `memory` is served above,
   // and a server switched off in /mcp is off here too.
   const disabled = await disabledMcpServerNames();
-  const names = (agent.mcpServers ?? [])
-    .map((e) => (typeof e === "string" ? e : String((e as { name?: unknown }).name ?? "")))
-    .filter((n) => n && n !== "memory" && isKnownServer(n) && !disabled.has(n));
+  const entries = (agent.mcpServers ?? [])
+    .map((entry) => ({ entry, name: entryName(entry) }))
+    .filter(({ name }) => name && name !== "memory" && isKnownServer(name) && !disabled.has(name));
 
   const bearer = principal.accessToken;
   const taken = new Set(["hub_search_knowledge", "hub_get_document"]);
-  for (const name of names) {
-    const config = resolveServer(name, agent.id, bearer);
+  for (const { entry, name } of entries) {
+    const config = resolveServer(name, agent.id, bearer, entry);
     if (!config) continue;
     await registerProxiedTools(server, {
       config,
