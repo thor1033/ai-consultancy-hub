@@ -172,8 +172,11 @@ up to half an hour to apply.
    once.
 3. **API permissions → Microsoft Graph → Application permissions.** Add
    `Mail.Read` and `Calendars.Read`. Nothing else: the server asks for no other
-   scope, and `m365_whoami` deliberately avoids `mailboxSettings` so it does not
-   need `MailboxSettings.Read`.
+   scope: `m365_whoami` probes the inbox folder rather than the user object or
+   `mailboxSettings`, so it needs neither `User.Read.All` nor
+   `MailboxSettings.Read`. (Add the permissions under **Application**, not
+   Delegated: a delegated grant is for a signed-in person and this server has
+   none, so Graph answers `403 Authorization_RequestDenied`.)
 4. **Grant admin consent.** The grant is inert until this is clicked.
 5. **Apply the Application Access Policy** above, with the agent mailboxes in
    a mail-enabled security group.
@@ -236,7 +239,7 @@ with itself. 32 checks, including that no tool name can write, that the token is
 fetched once and reused, and that a wrong secret surfaces its AADSTS code.
 
 Against the real tenant, the smoke test is `m365_whoami` — if it returns the
-mailbox, consent and the access policy are both right.
+mailbox with its inbox counts, consent and the access policy are both right.
 
 ## What this increment deliberately does not do
 

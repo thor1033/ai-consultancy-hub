@@ -153,8 +153,13 @@ const http = createServer(async (req, res) => {
   const mailbox = decodeURIComponent(m[1]);
   const rest = m[2];
 
+  // The user object is refused, as it is in a tenant that granted only
+  // Mail.Read and Calendars.Read: a whoami that read it would 403 there.
   if (rest === "") {
-    return json(200, { displayName: "Secretary", mail: mailbox, userPrincipalName: mailbox });
+    return json(403, { error: { code: "Authorization_RequestDenied", message: "Insufficient privileges to complete the operation." } });
+  }
+  if (rest === "/mailFolders/inbox") {
+    return json(200, { id: "inbox", displayName: "Inbox", totalItemCount: MESSAGES.length, unreadItemCount: MESSAGES.filter((m) => !m.isRead).length });
   }
   if (rest === "/calendarView") {
     const from = new Date(url.searchParams.get("startDateTime"));
@@ -227,6 +232,16 @@ try {
     const who = parse(await mcp.execute("m365_whoami", {}));
     check("m365_whoami reports the mailbox it is reading", who.mailbox === MAILBOX, who.mailbox ?? String(who).slice(0, 60));
     check("and reports itself as read-only", who.access === "read-only", who.access);
+    check(
+      "it counts the inbox instead of reading the user object (no User.Read.All needed)",
+      who.inbox?.total === MESSAGES.length && who.inbox?.unread === MESSAGES.filter((m) => !m.isRead).length,
+      JSON.stringify(who.inbox),
+    );
+    check(
+      "and never asks Graph for the user object",
+      !requests.some((r) => /^\/users\/[^/]+$/.test(r.path)),
+      requests.map((r) => r.path).join(" "),
+    );
 
     const auth = lastRequest("/users/")?.headers.authorization;
     check("Graph is called with the token from the client-credentials grant", auth === `Bearer ${ACCESS_TOKEN}`);

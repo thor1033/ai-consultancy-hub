@@ -189,13 +189,16 @@ server.registerTool(
   },
   async () =>
     attempt(async () => {
-      // Only fields Mail.Read + Calendars.Read already cover: asking for
-      // mailboxSettings here would need MailboxSettings.Read and 403 the one
-      // tool whose job is to tell you the connection is fine.
-      const me = await graph("", { $select: "displayName,mail,userPrincipalName" });
+      // Probe the inbox folder, not the user object: GET /users/{mailbox}
+      // needs User.Read.All, a directory permission a mail-reading app has no
+      // business holding, and asking for it 403'd the one tool whose job is
+      // to say the connection is fine. The folder is covered by Mail.Read,
+      // the same grant the mail tools run on, so this probe fails exactly
+      // when they would.
+      const inbox = await graph("/mailFolders/inbox", { $select: "totalItemCount,unreadItemCount" });
       return text({
-        mailbox: me.mail ?? me.userPrincipalName ?? MAILBOX,
-        displayName: me.displayName,
+        mailbox: MAILBOX,
+        inbox: { total: inbox.totalItemCount ?? null, unread: inbox.unreadItemCount ?? null },
         timezone: TIMEZONE,
         access: "read-only",
       });
