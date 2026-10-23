@@ -185,7 +185,7 @@ try {
   // The morning brief: no prompt of its own, the skill's template filled from
   // skill_args at fire time, so the schedule and a by-hand run share one prompt.
   const brief = await createSkill({
-    agentId: agent.id, slug: `verify-brief-${stamp}`, name: "Verify brief", kind: "brief",
+    agentId: agent.id, slug: `verify-brief-${stamp}`, name: "Verify brief",
     promptTemplate: "Prepare {{day}}.", parameters: [{ name: "day", required: true }],
   });
   const onSkill = await createSchedule({

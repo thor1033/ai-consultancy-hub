@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { saveSkillAction, setSkillEnabledAction, deleteSkillAction } from "../actions";
-import type { Skill, SkillKind, SkillParameter } from "@ai-hub/db";
+import type { Skill, SkillParameter } from "@ai-hub/db";
 import { agentToolName, skillToolName } from "../models";
 
 /*
@@ -22,7 +22,6 @@ const EMPTY = {
   description: "",
   promptTemplate: "",
   parameters: [] as SkillParameter[],
-  kind: "task" as SkillKind,
 };
 
 export function SkillsPanel({
@@ -166,7 +165,6 @@ export function SkillsPanel({
                           description: s.description,
                           promptTemplate: s.promptTemplate,
                           parameters: s.parameters ?? [],
-                          kind: s.kind ?? "task",
                         })
                       }
                     >
@@ -268,33 +266,6 @@ function SkillEditor({
         onChange={(parameters) => onChange({ ...draft, parameters })}
       />
 
-      <fieldset className="mt-4">
-        <legend className="mb-1 block text-xs text-[var(--muted)]">What the output is</legend>
-        <div className="grid gap-2 sm:grid-cols-2">
-          {(
-            [
-              { id: "task", label: "An answer", help: "Returned to whoever asked, kept as a run." },
-              { id: "brief", label: "A brief", help: "Published on the Briefs page, where it can also be put on a morning schedule." },
-            ] as { id: SkillKind; label: string; help: string }[]
-          ).map((k) => {
-            const on = draft.kind === k.id;
-            return (
-              <label
-                key={k.id}
-                className={`flex cursor-pointer items-start gap-3 border p-3 transition-colors ${
-                  on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"
-                }`}
-              >
-                <input type="radio" name="skill-kind" className="mt-0.5 h-4 w-4 accent-[var(--text)]" checked={on} onChange={() => onChange({ ...draft, kind: k.id })} />
-                <span className="min-w-0">
-                  <span className="block text-sm font-medium">{k.label}</span>
-                  <span className="mt-0.5 block text-xs text-[var(--muted)]">{k.help}</span>
-                </span>
-              </label>
-            );
-          })}
-        </div>
-      </fieldset>
 
       <div className="mt-5 flex flex-wrap gap-2">
         <button className="btn-brand min-h-11" disabled={busy} onClick={onSave}>

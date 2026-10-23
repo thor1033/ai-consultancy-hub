@@ -79,8 +79,7 @@ for (const s of SECRETARY_SKILLS) {
   );
 }
 
-// The brief is the skill the Briefs page and the morning schedule run.
-check("meeting-prep is a brief, meeting-to-pm a task", prep.kind === "brief" && (skill.kind ?? "task") === "task");
+// The brief is the skill a morning schedule runs with only `day` supplied.
 const prepFilled = fillTemplate(prep.promptTemplate, prep.parameters, { day: "today" });
 check("the brief fills with only the day given", !prepFilled.error && prepFilled.prompt.includes("for: today") && !prepFilled.prompt.includes("{{"), prepFilled.error ?? "");
 check("the brief refuses to run without a day", Boolean(fillTemplate(prep.promptTemplate, prep.parameters, {}).error));

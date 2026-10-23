@@ -204,12 +204,18 @@ up to half an hour to apply.
    > When someone asks you to reply, accept or reschedule, write the draft in
    > full and say plainly that it still has to be sent by hand.
 
-## The morning brief
+## Meeting prep
 
-`meeting-prep` is the Secretary's second skill: a brief, published on `/briefs`,
-that prepares whoever is walking into the meetings on the Secretary's calendar.
-Invite `secretary@teqneo.co` to a meeting and it is prepared for. Details, and
-how to put it on a morning clock, in [briefs.md](briefs.md).
+`meeting-prep` is the Secretary's second skill: for each meeting on the
+Secretary's calendar that day, who is coming, what moved since last time in
+mail and the PM tool (every bullet sourced), what we owe them and the questions
+to settle. Read-only like everything else it does. Invite `secretary@teqneo.co`
+to a meeting and it is prepared for. Arguments: `day` (`today`, `tomorrow` or
+`YYYY-MM-DD`) and an optional `focus`. Run it from the Secretary's page, from
+Claude Code as `hub_skill_meeting_prep`, or every morning from a schedule on the
+Secretary's page ([schedules.md](schedules.md)). Where the brief goes is the
+skill's business, not the hub's: today it is the run's output; a file-upload
+tool, when one exists, turns it into a document wherever the prompt says.
 
 ## The tools
 

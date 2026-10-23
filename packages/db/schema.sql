@@ -336,17 +336,6 @@ create table if not exists agent_skills (
 );
 create index if not exists agent_skills_agent_idx on agent_skills (agent_id, name);
 
--- What a skill's output is.
---
---   task   an answer to whoever asked, kept as a run like any other
---   brief  a standing document people open on the Briefs page — the morning
---          meeting prep. Same run, same row in agent_sessions; the kind decides
---          where its output is shown, nothing about how it runs.
-alter table agent_skills add column if not exists kind text not null default 'task';
-do $$ begin
-  alter table agent_skills add constraint agent_skills_kind_check check (kind in ('task', 'brief'));
-exception when duplicate_object then null; end $$;
-
 -- Which skill produced a run, when one did. Null for a free-form agent call.
 --
 -- Deliberately NOT called `skill_id`: line 28 of this file drops a column by

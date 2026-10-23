@@ -14,11 +14,6 @@ import { getSql } from "./client";
 
 export type ParameterType = "string" | "number" | "boolean";
 
-/** Where a skill's output goes: an answer to the caller, or a standing brief on /briefs. */
-export type SkillKind = "task" | "brief";
-export const SKILL_KINDS: readonly SkillKind[] = ["task", "brief"];
-export const isSkillKind = (v: unknown): v is SkillKind => v === "task" || v === "brief";
-
 export interface SkillParameter {
   /** Identifier, and the `{{name}}` placeholder in the template. */
   name: string;
@@ -37,7 +32,6 @@ export interface Skill {
   description: string;
   promptTemplate: string;
   parameters: SkillParameter[];
-  kind: SkillKind;
   enabled: boolean;
   createdAt: string;
   updatedAt: string;
@@ -56,7 +50,7 @@ const SKILL_COLUMNS = `
   agent_id        as "agentId",
   slug, name, description,
   prompt_template as "promptTemplate",
-  parameters, kind, enabled,
+  parameters, enabled,
   created_at      as "createdAt",
   updated_at      as "updatedAt"
 `;
@@ -85,7 +79,7 @@ export async function listRunnableSkills(): Promise<SkillWithAgent[]> {
            s.agent_id        as "agentId",
            s.slug, s.name, s.description,
            s.prompt_template as "promptTemplate",
-           s.parameters, s.kind, s.enabled,
+           s.parameters, s.enabled,
            s.created_at      as "createdAt",
            s.updated_at      as "updatedAt",
            a.slug            as "agentSlug",
@@ -110,7 +104,7 @@ export async function getSkill(slugOrId: string): Promise<SkillWithAgent | null>
            s.agent_id        as "agentId",
            s.slug, s.name, s.description,
            s.prompt_template as "promptTemplate",
-           s.parameters, s.kind, s.enabled,
+           s.parameters, s.enabled,
            s.created_at      as "createdAt",
            s.updated_at      as "updatedAt",
            a.slug            as "agentSlug",
@@ -133,7 +127,6 @@ export interface SkillInput {
   description?: string;
   promptTemplate?: string;
   parameters?: SkillParameter[];
-  kind?: SkillKind;
   enabled?: boolean;
 }
 
@@ -141,12 +134,12 @@ export async function createSkill(input: SkillInput): Promise<Skill> {
   const sql = getSql();
   const rows = await sql<Skill[]>`
     insert into agent_skills
-      (agent_id, slug, name, description, prompt_template, parameters, kind, enabled)
+      (agent_id, slug, name, description, prompt_template, parameters, enabled)
     values
       (${input.agentId}, ${input.slug}, ${input.name}, ${input.description ?? ""},
        ${input.promptTemplate ?? ""},
        ${sql.json((input.parameters ?? []) as never)},
-       ${input.kind ?? "task"}, ${input.enabled ?? true})
+       ${input.enabled ?? true})
     returning ${sql.unsafe(SKILL_COLUMNS)}
   `;
   return rows[0];
@@ -172,7 +165,6 @@ export async function updateSkill(
       description     = ${next.description ?? ""},
       prompt_template = ${next.promptTemplate ?? ""},
       parameters      = ${sql.json((next.parameters ?? []) as never)},
-      kind            = ${next.kind ?? "task"},
       enabled         = ${next.enabled ?? true},
       updated_at      = now()
     where id = ${id}

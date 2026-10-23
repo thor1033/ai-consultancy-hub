@@ -19,8 +19,8 @@
  *   knowing the people ....... agent_memories, seeded here and grown by use
  *   stamina for a queue ...... agents.max_iterations
  *   named expertise .......... agent_skills — `meeting-to-pm`, `meeting-prep`
- *   a clock .................. agent_schedules — the morning brief, set up
- *                              from /briefs (docs/schedules.md, docs/briefs.md)
+ *   a clock .................. agent_schedules — e.g. meeting-prep every
+ *                              morning, set up on its page (docs/schedules.md)
  */
 import type { AgentInput } from "../agents";
 import type { SkillInput } from "../skills";
@@ -347,7 +347,6 @@ ${PM_TOOL_REFERENCE}`,
     name: "Meeting prep",
     description:
       "Prepare whoever is going into today's (or a named day's) meetings: for each meeting on the Secretary's calendar, who is coming, what has moved since last time in mail and the PM tool, what we still owe them, and the questions to settle. Read-only; it never contacts anyone.",
-    kind: "brief",
     parameters: [
       {
         name: "day",
