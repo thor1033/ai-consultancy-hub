@@ -14,6 +14,7 @@ export interface ToolOption {
 
 const LOCAL_DESCRIPTIONS: Record<string, string> = {
   microsoft365: "Read-only Outlook mail and calendar through Microsoft Graph.",
+  teams: "Read-only Teams meeting transcripts and the team's SharePoint files.",
 };
 
 export async function toolCatalog(alsoNamed: string[] = []): Promise<ToolOption[]> {

@@ -29,10 +29,12 @@ export interface DirectoryEntry {
 
 const LOCAL_DESCRIPTIONS: Record<string, string> = {
   microsoft365: "Read-only Outlook mail and calendar through Microsoft Graph.",
+  teams: "Read-only Teams meeting transcripts and the team's SharePoint files.",
 };
 
 const LOCAL_LABELS: Record<string, string> = {
   microsoft365: "Microsoft 365",
+  teams: "Microsoft Teams",
 };
 
 const namesOf = (entries: unknown): string[] =>
