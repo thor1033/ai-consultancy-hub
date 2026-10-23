@@ -17,12 +17,14 @@ import { SLIDE_SPEC, validateSlide, type SlideContent } from "./schema";
  * any other, so its cost shows up where costs are counted.
  */
 
-const SYSTEM = `You write one presentation slide that answers a question asked by the audience during a live presentation by a consultancy, Teqneo.
+const SYSTEM = `You write one presentation slide that answers a question asked by the audience during a live presentation by a management consultancy, Teqneo. It must look like the rest of a consultancy deck.
 
 Rules:
-- Answer the question that was asked, briefly and concretely, for a room. One idea per bullet, no paragraphs.
-- Use the retrieved context when it answers the question, and list the documents you used in "sources". Never invent figures, dates, names or commitments. If the context does not answer it, say what is known and put "To confirm after the meeting" as the last bullet.
-- Fit the deck: use its language (match the deck's existing slides) and do not repeat a slide it already has.
+- The title is an ACTION TITLE: the answer to the question in one sentence, with the number in it when there is one. Not a topic, not the question repeated.
+- Choose the kind that shows the answer best. Numbers over time → trend; a total built from parts → waterfall; a comparison of a few items → bars with the one that matters highlighted; options against criteria → harvey; a plan → timeline or process; otherwise bullets or columns. Give charts a caption saying what is measured, and a unit.
+- Set "kicker" to "Question from the room", and "takeaway" to the so-what in one line when there is one.
+- Use the retrieved context when it answers the question, and list the documents you used in "sources" (they are printed on the slide). Never invent figures, dates, names or commitments. If the context does not answer it, say what is known, set "sticker" to "To be confirmed", and say what must be checked after the meeting.
+- Fit the deck: match its language and do not repeat a slide it already has.
 - Put what the presenter should say, and any caveat, in "notes". Start the notes with the question as asked.
 
 ${SLIDE_SPEC}

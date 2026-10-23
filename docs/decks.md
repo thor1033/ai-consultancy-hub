@@ -16,17 +16,54 @@ hub_deck_* (MCP)            the same deck from Claude Code or any agent client
 
 ## A slide is data, not markup
 
-Each slide is a `kind` plus fields (`lib/decks/schema.ts`): `title`, `section`,
-`bullets`, `columns`, `table`, `stats`, `bars`, `quote`, each with optional
-`kicker`, `notes` and `sources`. The hub renders them (`components/slides/Slide.tsx`),
-so every slide is on brand however it was made, a new slide renders the instant
-it arrives, and nothing a model writes can run in the audience's browser: every
-field is text, and the one inline format is `**bold**`.
+Each slide is a `kind` plus fields (`lib/decks/schema.ts`). The hub renders them
+(`components/slides/Slide.tsx`), so every slide is on brand however it was made,
+a new slide renders the instant it arrives, and nothing a model writes can run in
+the audience's browser: every field is text, and the one inline format is
+`**bold**`.
 
-The limits are the slide's: past them text no longer fits a 16:9 slide at a size
-a room can read. A slide that would overflow is refused with the field named, so
-an agent fixes it in one go. Longer content gets a smaller type size
-automatically, within those limits.
+### The consultancy grammar
+
+Decks are written the way a strategy consultancy writes them, and the renderer
+holds every content slide to the same frame, top to bottom:
+
+| Part | Field | |
+|---|---|---|
+| Tracker | `kicker` | Where in the storyline: "Diagnostic", "Recommendation". |
+| Sticker | `sticker` | "Preliminary", "For discussion", "To be confirmed". |
+| Action title | `title` | The takeaway as one sentence, never a topic. |
+| Caption | `caption`, `unit` | What the exhibit measures, and in what. |
+| Exhibit | the kind | A chart, matrix, plan or list. |
+| So what | `takeaway` | One line in a callout. |
+| Fine print | `footnote`, `sources` | Printed: "Source: …". |
+
+White ground, black type, hairlines, and one red for what carries the point;
+greys for everything else.
+
+### Kinds
+
+| Kind | Use it for |
+|---|---|
+| `title` | The cover: title, subtitle, client, date. |
+| `agenda` | The storyline, with the part you are at highlighted. |
+| `summary` | The executive summary: numbered headlines with detail. |
+| `section` | A divider. |
+| `bullets`, `columns` | Text, when no exhibit fits. |
+| `stats` | Up to four headline numbers. |
+| `bars` | Comparing items; highlight the one that matters. |
+| `trend` | A series over time, with a growth annotation. |
+| `waterfall` | How a total is built up and taken down. |
+| `matrix` | A 2×2 with items placed and a focus quadrant. |
+| `process` | Steps as chevrons, with the current one marked. |
+| `timeline` | A Gantt: bars and milestones over periods. |
+| `harvey` | Options against criteria in Harvey balls, one recommended. |
+| `table` | Anything tabular. |
+| `quote`, `quotes` | One quote large, or "what we heard". |
+
+The limits are the slide's: past them text no longer fits at a size a room can
+read. A slide that would overflow is refused with the field named, so an agent
+fixes it in one go. Longer content gets a smaller type size automatically,
+within those limits.
 
 ## Presenting
 
@@ -52,7 +89,7 @@ Type the question as it was asked and press **Draft a slide** (⌘/Ctrl+Enter).
 The hub retrieves from the deck's collection **as the presenter** (so a slide can
 only quote what the person presenting may read), makes one call to the fast
 model with the deck's outline and the slide on screen, and puts the slide in the
-tray with the question and the sources in its notes. Typically 10–20 seconds.
+tray, with the question in its notes and its sources printed on the slide. Typically 10–20 seconds.
 
 A slide in the tray is never on the audience's screen. **Show now** puts it right
 after the current slide and on screen; **Add after current** puts it in the deck
@@ -96,7 +133,7 @@ the presentation included, and never the tray.
 npm run verify:decks -w web
 ```
 
-48 checks, needs `DATABASE_URL`, no API key. The schema's refusals, creating and
+54 checks, needs `DATABASE_URL`, no API key. The schema's refusals (the exhibits' shapes included), creating and
 editing, every presentation rule (tray, no agent edits to live slides, Show now
 placement, discard), six simultaneous writers all landing, who may see a deck
 in every path, the MCP tools, and the parsing of a drafted reply. **Not proven
@@ -106,6 +143,7 @@ parsing is checked on canned replies only.
 ## Not done yet
 
 - **Images.** No image slides; a slide that needs a picture is drawn as text.
+- **Two-axis and stacked charts.** Bars, trends and waterfalls take one series.
 - **A server-side PDF.** Export is the browser's print-to-PDF. Sending the PDF to
   the client's SharePoint folder needs a server-rendered file and a file tool.
 - **The question box uses no tools.** It answers from retrieval, not from the

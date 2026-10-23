@@ -82,7 +82,20 @@ try {
 
   // --- 1. what a slide may contain -----------------------------------------
   console.log("— the slide schema —");
-  check("eight kinds", SLIDE_KINDS.length === 8, SLIDE_KINDS.join(", "));
+  check("seventeen kinds, the consultancy exhibits among them", SLIDE_KINDS.length === 17 && ["summary", "agenda", "waterfall", "matrix", "process", "timeline", "harvey", "trend", "quotes"].every((k) => SLIDE_KINDS.includes(k)), SLIDE_KINDS.join(", "));
+  check(
+    "every kind takes the frame: tracker, sticker, takeaway, footnote, printed sources",
+    "slide" in validateSlide({ kind: "bullets", title: "T", bullets: ["a"], kicker: "Diagnostic", sticker: "Preliminary", takeaway: "So what", footnote: "n=12", sources: ["Pilot data"] }),
+  );
+  const wf = validateSlide({ kind: "waterfall", title: "T", start: { label: "Base", value: 4.6 }, steps: [{ label: "Cost", value: -1.2 }], end: "Net" });
+  check("a waterfall takes negative steps and a computed end", "slide" in wf);
+  const threeQuads = validateSlide({ kind: "matrix", title: "T", x: { label: "X" }, y: { label: "Y" }, quadrants: [{ title: "a" }, { title: "b" }, { title: "c" }] });
+  check("a 2×2 needs exactly four quadrants", "error" in threeQuads && /quadrants/.test(threeQuads.error), threeQuads.error);
+  const badGantt = validateSlide({ kind: "timeline", title: "T", periods: ["Q1", "Q2"], rows: [{ label: "x", from: 1, to: 3 }] });
+  check("a timeline row must sit within its periods", "error" in badGantt && /within the periods/.test(badGantt.error), badGantt.error);
+  const badHarvey = validateSlide({ kind: "harvey", title: "T", options: ["A", "B"], criteria: ["c1", "c2"], scores: [[4, 2]] });
+  check("Harvey balls need one score per option per criterion", "error" in badHarvey && /scores/.test(badHarvey.error), badHarvey.error);
+  check("and a score is 0 to 4", "error" in validateSlide({ kind: "harvey", title: "T", options: ["A", "B"], criteria: ["c"], scores: [[5, 1]] }));
   check("a good bullets slide passes", "slide" in validateSlide({ kind: "bullets", title: "T", bullets: ["a", "b"] }));
   const unknown = validateSlide({ kind: "video", title: "x" });
   check("an unknown kind is refused, naming the kinds", "error" in unknown && /must be one of/.test(unknown.error), unknown.error);
