@@ -67,6 +67,13 @@ export interface GateContext {
   principalId?: string | null;
   /** The agent's server entries, for the per-entry policy. */
   entries?: McpEntry[];
+  /**
+   * Filled in as calls are held: the names of tools whose calls did not
+   * happen. A caller that does something after a tool "was used" (filing
+   * saved notes, say) checks this first, because the model's call is in
+   * toolsUsed whether or not the hub let it through.
+   */
+  held?: Set<string>;
 }
 
 /**
@@ -83,6 +90,7 @@ export function gatedExecutor(mcp: ConnectedMcp, ctx: GateContext): ConnectedMcp
     const tool = byName.get(name);
     if (tool && needsApproval(tool, entryFor(tool.server))) {
       const proposal = await hold(tool, input, ctx);
+      ctx.held?.add(tool.name);
       return heldText(proposal);
     }
     return mcp.execute(name, input);

@@ -28,13 +28,15 @@ export interface DirectoryEntry {
 }
 
 const LOCAL_DESCRIPTIONS: Record<string, string> = {
-  sample: "A demo server with a few harmless tools, for trying the tool loop.",
   microsoft365: "Read-only Outlook mail and calendar through Microsoft Graph.",
+  teams: "Read-only Teams meeting transcripts and the team's SharePoint files.",
+  "teams-notes": "Saves meeting notes as new Markdown files in one Teams folder. Create-only: cannot change or delete anything.",
 };
 
 const LOCAL_LABELS: Record<string, string> = {
-  sample: "Sample tools",
   microsoft365: "Microsoft 365",
+  teams: "Microsoft Teams",
+  "teams-notes": "Teams meeting notes",
 };
 
 const namesOf = (entries: unknown): string[] =>

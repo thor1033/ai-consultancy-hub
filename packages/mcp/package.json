@@ -13,7 +13,8 @@
     "mcp:remote-fixture": "node remote-fixture/server.mjs",
     "verify:remote": "node verify-remote.mjs",
     "verify:memory": "node verify-memory.mjs",
-    "verify:m365": "node verify-m365.mjs"
+    "verify:m365": "node verify-m365.mjs",
+    "verify:teams": "node --experimental-transform-types verify-teams.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",
@@ -22,7 +23,9 @@
   "dependencies": {
     "@anthropic-ai/sdk": "^0.112.3",
     "@modelcontextprotocol/sdk": "^1.29.0",
-    "zod": "^4.4.3",
-    "postgres": "^3.4.9"
+    "fflate": "^0.8.3",
+    "postgres": "^3.4.9",
+    "unpdf": "^1.9.1",
+    "zod": "^4.4.3"
   }
 }

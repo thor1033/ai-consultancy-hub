@@ -222,6 +222,11 @@ try {
   const mcp = await connectMcpServers([cfg]);
   try {
     const names = mcp.tools.map((t) => t.name).sort();
+    check(
+      "every tool declares readOnlyHint: true, so the hub's approval gate waves it through",
+      mcp.details.length === names.length && mcp.details.every((t) => t.annotations?.readOnlyHint === true),
+      mcp.details.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name).join(", ") || "all declared",
+    );
     check("the server connects over stdio and lists its tools", names.length === 5, names.join(", "));
 
     // ── read-only is the whole safety story, so assert it rather than trust it.

@@ -180,7 +180,15 @@ const server = new McpServer(
   },
 );
 
-server.registerTool(
+// Every tool here reads. Saying so on each one (readOnlyHint) is what lets
+// the hub's approval gate wave them through: a tool that does not declare
+// itself read-only is held for a person, so an unannotated server would have
+// its calendar lookups waiting for approval. A write tool, when one comes,
+// registers with readOnlyHint: false and is held — which is the point.
+const readOnly = (name, config, handler) =>
+  server.registerTool(name, { ...config, annotations: { readOnlyHint: true, ...(config.annotations ?? {}) } }, handler);
+
+readOnly(
   "m365_whoami",
   {
     description:
@@ -205,7 +213,7 @@ server.registerTool(
     }),
 );
 
-server.registerTool(
+readOnly(
   "m365_calendar_list",
   {
     description:
@@ -248,7 +256,7 @@ server.registerTool(
     }),
 );
 
-server.registerTool(
+readOnly(
   "m365_calendar_get",
   {
     description:
@@ -270,7 +278,7 @@ server.registerTool(
     }),
 );
 
-server.registerTool(
+readOnly(
   "m365_mail_list",
   {
     description:
@@ -318,7 +326,7 @@ server.registerTool(
     }),
 );
 
-server.registerTool(
+readOnly(
   "m365_mail_get",
   {
     description:

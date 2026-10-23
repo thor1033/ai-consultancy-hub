@@ -23,6 +23,12 @@ A tool call is held when all of these are true:
   not one of the hub's own `hub_*` tools, each of which decides for itself;
 - the agent's entry for that server does not say `"writes": "allow"`.
 
+The bundled servers declare themselves: every `microsoft365` and `teams` tool
+carries `readOnlyHint: true`, `teams_notes_save` carries `false`, and the
+PM-tool annotates its own. A new bundled server has to do the same or every
+one of its tools waits for approval, which is the right default for a server
+nobody has looked at yet.
+
 That last switch is the only way round the gate, and it is **per agent, per
 server**: on the agent's page, under What it may use, each ticked server has
 "Writes need a person's approval", on by default. Only an admin can switch it

@@ -2,7 +2,6 @@ import { runAgent, type ModelId, type RunAgentResult } from "@ai-hub/agent";
 import type { McpEntry } from "@ai-hub/db";
 import {
   connectMcpServers,
-  sampleMcpConfig,
   builtinServerConfig,
   builtinOptionsFrom,
   memoryServerConfig,
@@ -13,10 +12,11 @@ import {
   type McpServerConfig,
 } from "@ai-hub/mcp";
 import { recordSession, finishRun, disabledMcpServerNames } from "@ai-hub/db";
+import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { gatedExecutor } from "@/lib/approvals";
 
-// The code-owned servers: the sample server plus the investment-firm demo servers.
-const LOCAL_SERVERS = ["sample", ...BUILTIN_SERVER_NAMES] as const;
+// The code-owned servers the hub starts itself.
+const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
 
 /**
  * The selectable MCP servers for a workbench session — the code-owned ones plus
@@ -47,7 +47,6 @@ export function resolveServer(
   /** The agent's own entry for this server, for per-agent settings such as a mailbox. */
   entry?: McpEntry,
 ): McpServerConfig | null {
-  if (name === "sample") return sampleMcpConfig();
   if (name === "memory") return agentId ? memoryServerConfig(agentId) : null;
   return builtinServerConfig(name, builtinOptionsFrom(entry)) ?? remoteServerConfig(name, { bearer: remoteBearer });
 }
@@ -97,6 +96,18 @@ export interface RunSessionOutput {
   result: RunAgentResult;
 }
 
+async function fileMeetingNotes(): Promise<string> {
+  try {
+    const r = await syncSource("teams-notes", { collection: TEAMS_NOTES_COLLECTION });
+    return `\n\n_Filed in the knowledge base: ${r.documents} meeting note(s) in the "${TEAMS_NOTES_COLLECTION}" collection._`;
+  } catch (err) {
+    return (
+      `\n\n**The notes were saved to Teams but not filed in the knowledge base:** ` +
+      `${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 // Runs one ad-hoc agent session (the practitioner's workflow) with the chosen MCP
 // servers connected, then persists it so it can be distilled into a Skill.
 export async function runSession(input: RunSessionInput): Promise<RunSessionOutput> {
@@ -111,6 +122,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
   if (input.agentId && !servers.includes("memory")) servers.push("memory");
 
   let mcp: ConnectedMcp | undefined;
+  const held = new Set<string>();
   try {
     const entryFor = (name: string) => input.serverEntries?.find((e) => entryName(e) === name);
     const configs = servers
@@ -134,12 +146,23 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
             runId: input.runId,
             principalId: input.principalId,
             entries: input.serverEntries,
+            held,
           })
         : undefined,
       metadata: input.agentId
         ? { source: "agent", agentId: input.agentId, servers }
         : { source: "workbench", servers },
     });
+
+    // A note saved to Teams is filed in the knowledge base in the same run, so
+    // "write up the meeting" leaves it searchable with no second step. The
+    // outcome goes into the answer itself: a filing that failed quietly would
+    // leave a person believing agents can find a meeting they cannot. Not when
+    // the save was held for approval: nothing was written, so there is nothing
+    // to file; the next sync of the notes source picks it up once approved.
+    if (result.toolsUsed.includes("teams_notes_save") && !held.has("teams_notes_save")) {
+      result.text += await fileMeetingNotes();
+    }
 
     let sessionId: string;
     if (input.runId) {

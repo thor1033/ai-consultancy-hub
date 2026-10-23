@@ -1,6 +1,5 @@
-// A remote (Streamable HTTP) MCP server for local testing — the HTTP sibling of
-// sample-server/server.mjs. It stands in for the PM-tool's future /api/mcp
-// endpoint so the hub's remote path can be exercised without running PM-tool.
+// A remote (Streamable HTTP) MCP server for local testing. It stands in for the
+// PM-tool's future /api/mcp endpoint so the hub's remote path can be exercised without running PM-tool.
 //
 //   npm run mcp:remote-fixture -w @ai-hub/mcp     # listens on :8790
 //

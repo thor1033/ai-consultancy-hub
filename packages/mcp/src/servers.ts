@@ -12,11 +12,21 @@ import type { McpStdioConfig } from "./manager";
 // deployment gets a connection error naming the missing variable instead of a
 // server that silently answers nothing.
 //
+// `teams` is the same shape for Microsoft Teams: meeting transcripts and the
+// team's SharePoint files, read-only, on the same M365_* app registration. Each
+// half is fenced by Microsoft (an access policy for one organiser's meetings,
+// Sites.Selected for one site) and switched on by its own variable.
+//
+// `teams-notes` is the same file started in its other mode: one tool that
+// creates a new meeting-notes file in one folder. It is a separate name so that
+// writing is something an agent is given on purpose — ticking `teams` never
+// brings it along, whatever the deployment has configured.
+//
 // What is NOT here: `memory`, which is deliberately not resolvable by name (see
 // below), and whatever HUB_REMOTE_MCP_SERVERS declares over HTTP. Adding a new
 // bundled server means dropping it in ../servers/<name>/server.mjs and naming it
 // here.
-export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365"];
+export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365", "teams", "teams-notes"];
 
 /** Bundled servers that read one mailbox, and so take a per-agent `mailbox`. */
 export const MAILBOX_SERVER_NAMES: readonly string[] = ["microsoft365"];
@@ -54,10 +64,15 @@ export function builtinServerConfig(
   options: BuiltinServerOptions = {},
 ): McpStdioConfig | null {
   if (!BUILTIN.has(name)) return null;
-  const config: McpStdioConfig = { name, command: process.execPath, args: [serverEntry(name)] };
+  const file = name === "teams-notes" ? "teams" : name;
+  const config: McpStdioConfig = { name, command: process.execPath, args: [serverEntry(file)] };
   // The child inherits the process environment and this overlays it, so the
   // agent's mailbox wins over M365_MAILBOX for this run and nothing else moves.
   if (name === "microsoft365" && options.mailbox) config.env = { M365_MAILBOX: options.mailbox };
+  // Set for both names, never inherited: a HUB_TEAMS_MODE left in the
+  // deployment's environment must not turn the read server into the writer.
+  if (name === "teams") config.env = { HUB_TEAMS_MODE: "read" };
+  if (name === "teams-notes") config.env = { HUB_TEAMS_MODE: "notes" };
   return config;
 }
 
