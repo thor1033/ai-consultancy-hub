@@ -41,7 +41,8 @@ hub/
   `microsoft365` gives the secretary agent read-only mail and calendar — it cannot
   send or change anything ([docs/secretary-agent.md](docs/secretary-agent.md)).
   `teams` reads Teams meeting transcripts and the team's SharePoint files, also
-  read-only ([docs/teams.md](docs/teams.md)).
+  read-only; `teams-notes` saves meeting notes as new files in one folder, and
+  nothing else ([docs/teams.md](docs/teams.md)).
 - **Agents anywhere** — every agent registers as `hub_agent_<slug>` in any MCP client,
   and its Skills as `hub_skill_<slug>` with real arguments, so work built in the hub runs
   from Claude Code, VS Code or Cursor ([docs/agents-anywhere.md](docs/agents-anywhere.md)).

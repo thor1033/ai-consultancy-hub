@@ -1,7 +1,7 @@
 // Verification of the `teams` MCP server — meeting transcripts and the team's
 // files, read-only.
 //
-//   node packages/mcp/verify-teams.mjs
+//   node --experimental-transform-types packages/mcp/verify-teams.mjs
 //
 // No Microsoft tenant, no app registration, no database. A throwaway HTTP
 // server stands in for login.microsoftonline.com and graph.microsoft.com, and
@@ -10,16 +10,42 @@
 // zipped here with fflate and a PDF written byte by byte, so the text
 // extraction is exercised on the formats themselves, not on mocks of them.
 //
+// The same file started as `teams-notes` is the one tool that writes. Its
+// section drives the create-only path end to end — folder creation, an upload
+// session that asks Graph to fail on an existing name, the bytes sent to the
+// upload URL WITHOUT the token — and reads the notes back through the
+// knowledge-base source that indexes them.
+//
 // What it cannot prove: that Microsoft's live responses match the documented
 // shapes this fixture copies (getAllTranscripts, callTranscript, the VTT
-// content, driveItem), or that a tenant's access policy and Sites.Selected
-// grant are in place. teams_status is the check for those, run against the
-// real tenant once it is configured.
+// content, driveItem, createUploadSession), or that a tenant's access policy
+// and Sites.Selected grants are in place. teams_status is the check for those,
+// run against the real tenant once it is configured; a note's first save is
+// the only proof of write access.
+import { registerHooks } from "node:module";
+import { existsSync } from "node:fs";
 import { createServer } from "node:http";
 import { spawnSync } from "node:child_process";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { zipSync, strToU8 } from "fflate";
+
+// The rag package (for the knowledge source) uses extensionless relative
+// imports, which Next resolves and raw Node does not. Harness-only.
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (err) {
+      if (!specifier.startsWith(".") || !context.parentURL) throw err;
+      for (const ext of [".ts", ".mjs", ".js", "/index.ts"]) {
+        const url = new URL(specifier + ext, context.parentURL);
+        if (existsSync(fileURLToPath(url))) return { url: url.href, shortCircuit: true };
+      }
+      throw err;
+    }
+  },
+});
 
 const checks = [];
 function check(label, ok, detail = "") {
@@ -175,7 +201,11 @@ const strip = ({ body, ...rest }) => rest;
 
 // ── the throwaway tenant ─────────────────────────────────────────────────────
 const requests = [];
+const uploads = [];
 let tokenRequests = 0;
+let writeDenied = false;
+let nextUpload = 0;
+const pendingUploads = new Map();
 let origin = "";
 
 const http = createServer(async (req, res) => {
@@ -197,11 +227,58 @@ const http = createServer(async (req, res) => {
     return json(200, { access_token: ACCESS_TOKEN, expires_in: 3600 });
   }
 
+  // The upload URL stands in for SharePoint's pre-authorised one: no token
+  // expected, and the test asserts none is sent.
+  const up = path.match(/^\/upload\/(\d+)$/);
+  if (up && req.method === "PUT") {
+    const chunks = [];
+    for await (const chunk of req) chunks.push(chunk);
+    const bytes = Buffer.concat(chunks);
+    const pending = pendingUploads.get(up[1]);
+    uploads.push({ authorization: req.headers.authorization, range: req.headers["content-range"], bytes: bytes.length, name: pending?.name });
+    if (!pending) return graphError(404, "itemNotFound", "No such upload session.");
+    pendingUploads.delete(up[1]);
+    const id = `it-note-${up[1]}`;
+    FILES[id] = item(id, pending.name, pending.folder, { size: bytes.length, file: {}, body: new Uint8Array(bytes) });
+    return json(201, strip(FILES[id]));
+  }
+
   requests.push({ method: req.method, path, query: url.searchParams, accept: req.headers.accept });
   if (req.headers.authorization !== `Bearer ${ACCESS_TOKEN}`) {
     return graphError(401, "InvalidAuthenticationToken", "Access token is empty.");
   }
-  if (req.method !== "GET") return graphError(405, "MethodNotAllowed", "This fixture only reads.");
+  const readBody = async () => {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const parsed = raw ? JSON.parse(raw) : {};
+    requests.at(-1).body = parsed;
+    return parsed;
+  };
+  const exists = (p) => Object.values(FILES).some((x) => `${x.parentReference.path.replace(/^.*root:\/?/, "")}/${x.name}`.replace(/^\//, "") === p);
+  if (req.method === "POST") {
+    if (writeDenied) return graphError(403, "accessDenied", "Access denied.");
+    const kids = path.match(/^\/drives\/drive-1\/root(?::\/(.+):)?\/children$/);
+    if (kids) {
+      const body = await readBody();
+      const parent = kids[1] ?? "";
+      if (exists(parent ? `${parent}/${body.name}` : body.name)) return graphError(409, "nameAlreadyExists", "Name already exists.");
+      const id = `it-folder-${body.name}`;
+      FILES[id] = item(id, body.name, parent, { folder: { childCount: 0 } });
+      return json(201, strip(FILES[id]));
+    }
+    const session = path.match(/^\/drives\/drive-1\/root:\/(.+)\/([^/]+):\/createUploadSession$/);
+    if (session) {
+      const body = await readBody();
+      if (body.item?.["@microsoft.graph.conflictBehavior"] === "fail" && exists(`${session[1]}/${session[2]}`)) {
+        return graphError(409, "nameAlreadyExists", "The specified item name already exists.");
+      }
+      const n = String(++nextUpload);
+      pendingUploads.set(n, { folder: session[1], name: session[2] });
+      return json(200, { uploadUrl: `${origin}/upload/${n}`, expirationDateTime: "2026-10-30T00:00:00Z" });
+    }
+    return graphError(404, "ResourceNotFound", `No POST route for ${path}.`);
+  }
+  if (req.method !== "GET") return graphError(405, "MethodNotAllowed", "This fixture only reads and creates.");
 
   // ── onlineMeetings ──
   const base = `/users/${ORGANIZER}/onlineMeetings`;
@@ -533,6 +610,140 @@ try {
     await half.close();
     process.env.M365_TEAMS_SITE_URL = ENV.M365_TEAMS_SITE_URL;
   }
+
+  // ── meeting notes: the one tool that writes ─────────────────────────────────
+  const NOTES = "Meetings/Notes";
+  check(
+    "teams-notes is a built-in server: the same file, started as the writer",
+    BUILTIN_SERVER_NAMES.includes("teams-notes") &&
+      builtinServerConfig("teams-notes")?.args[0].endsWith("servers/teams/server.mjs") &&
+      builtinServerConfig("teams-notes")?.env?.HUB_TEAMS_MODE === "notes",
+  );
+  check("and teams is always started as the reader", builtinServerConfig("teams")?.env?.HUB_TEAMS_MODE === "read");
+
+  const noFolder = start({ HUB_TEAMS_MODE: "notes", M365_TEAMS_NOTES_FOLDER: "" });
+  check("teams-notes without a folder refuses to start, naming it", noFolder.code === 1 && /M365_TEAMS_NOTES_FOLDER/.test(noFolder.stderr), noFolder.stderr.trim());
+  const escape = start({ HUB_TEAMS_MODE: "notes", M365_TEAMS_NOTES_FOLDER: "Meetings/../Finance" });
+  check("a folder path that climbs out is refused", escape.code === 1 && /must be a folder path/.test(escape.stderr));
+  const noSite = start({ HUB_TEAMS_MODE: "notes", M365_TEAMS_NOTES_FOLDER: NOTES, M365_TEAMS_SITE_URL: "" });
+  check("so is one with no site to write to", noSite.code === 1 && /M365_TEAMS_SITE_URL/.test(noSite.stderr));
+
+  // A deployment that sets the folder, or even HUB_TEAMS_MODE=notes, does not
+  // turn the read server into the writer: the hub sets the mode per name.
+  process.env.M365_TEAMS_NOTES_FOLDER = NOTES;
+  process.env.HUB_TEAMS_MODE = "notes";
+  const reader = await connectMcpServers([builtinServerConfig("teams")]);
+  try {
+    const names = reader.tools.map((t) => t.name);
+    check(
+      "the read server never has the write tool, whatever the environment says",
+      names.length === 6 && !names.includes("teams_notes_save"),
+      names.join(", "),
+    );
+    const st = parse(await reader.execute("teams_status", {}));
+    check("teams_status reports the notes folder, not yet created", st.notes?.folder === NOTES && st.notes?.exists === false, JSON.stringify(st.notes));
+  } finally {
+    await reader.close();
+  }
+  delete process.env.HUB_TEAMS_MODE;
+
+  const writer = await connectMcpServers([builtinServerConfig("teams-notes")]);
+  const CONTENT = {
+    summary: "The launch moved to November.\nThor updates the board.",
+    attendees: ["Ditlev Brygmann", "Thor Simonsen"],
+    decisions: [{ decision: "Launch moves to November", at: "00:00:20" }],
+    actions: [{ action: "Update the PM-tool board\nwith the new date", owner: "Thor Simonsen", due: "Friday", at: "00:00:24" }],
+  };
+  try {
+    const names = writer.tools.map((t) => t.name);
+    check("the notes server has exactly one tool", names.length === 1 && names[0] === "teams_notes_save", names.join(", "));
+
+    const before = requests.length;
+    const saved = parse(await writer.execute("teams_notes_save", { meetingId: "mtg-checkin", transcriptId: "tr-checkin-2", ...CONTENT }));
+    check(
+      "teams_notes_save creates a dated file in the notes folder",
+      saved.saved === "Meetings/Notes/2026-10-21 Teqneo Check-In.md" && Boolean(saved.webUrl),
+      saved.saved ?? JSON.stringify(saved).slice(0, 100),
+    );
+    const mine = requests.slice(before);
+    const folderPost = mine.find((r) => r.method === "POST" && r.path.endsWith("/children"));
+    check(
+      "the missing Notes folder is created inside Meetings, refusing to clobber",
+      folderPost?.path === "/drives/drive-1/root:/Meetings:/children" &&
+        folderPost.body?.name === "Notes" &&
+        folderPost.body["@microsoft.graph.conflictBehavior"] === "fail",
+      folderPost?.path,
+    );
+    const sessionPost = mine.find((r) => r.path.endsWith(":/createUploadSession"));
+    check(
+      "the upload session asks Graph to FAIL on an existing name, never replace",
+      sessionPost?.body?.item?.["@microsoft.graph.conflictBehavior"] === "fail",
+      JSON.stringify(sessionPost?.body),
+    );
+    check(
+      "the bytes go to the upload URL without the token, as one complete range",
+      uploads.length === 1 && uploads[0].authorization === undefined && uploads[0].range === `bytes 0-${uploads[0].bytes - 1}/${uploads[0].bytes}`,
+      JSON.stringify(uploads[0]),
+    );
+    check(
+      "nothing is written anywhere but the notes folder",
+      mine.filter((r) => r.method !== "GET").every((r) => r.path === "/drives/drive-1/root:/Meetings:/children" || r.path.startsWith(`/drives/drive-1/root:/${NOTES}/`)),
+    );
+
+    const note = new TextDecoder().decode(Object.values(FILES).find((x) => x.name === "2026-10-21 Teqneo Check-In.md")?.body ?? new Uint8Array());
+    check("the note carries front matter a machine can read", /^---\nmeeting: "Teqneo Check-In"\ndate: 2026-10-21\n/.test(note) && /transcriptId: "tr-checkin-2"/.test(note));
+    check("a heading, and a line saying an agent wrote it", /# Teqneo Check-In — 21 Oct 2026/.test(note) && /Written by an agent/.test(note));
+    check("attendees and the summary", /\*\*Attendees:\*\* Ditlev Brygmann, Thor Simonsen/.test(note) && /The launch moved to November\.\nThor updates the board\./.test(note));
+    check("decisions numbered, with the transcript time", /## Decisions\n\n1\. Launch moves to November _\(00:00:20\)_/.test(note));
+    check(
+      "actions as a checklist with owner and due date, one line each",
+      /- \[ \] Update the PM-tool board with the new date — \*\*Thor Simonsen\*\*, due Friday _\(00:00:24\)_/.test(note),
+    );
+    check("an empty section says so rather than vanishing", /## Open questions\n\nNone recorded\./.test(note));
+
+    const again = parse(await writer.execute("teams_notes_save", { meetingId: "mtg-checkin", transcriptId: "tr-checkin-2", ...CONTENT, summary: "Second take." }));
+    check(
+      "saving the same meeting again makes a second file and says nothing existing changed",
+      again.saved === "Meetings/Notes/2026-10-21 Teqneo Check-In (2).md" && /nothing existing was changed/.test(again.note ?? ""),
+      again.saved,
+    );
+    check("the first note is untouched", new TextDecoder().decode(Object.values(FILES).find((x) => x.name === "2026-10-21 Teqneo Check-In.md").body) === note);
+
+    const sessionsBefore = requests.filter((r) => r.path.endsWith(":/createUploadSession")).length;
+    const priv = await writer.execute("teams_notes_save", { meetingId: "mtg-private", transcriptId: "tr-private", summary: "x" });
+    check(
+      "a private meeting cannot be written up, and no upload is even started",
+      /Tool error/.test(priv) && /outside a Teams channel/.test(priv) &&
+        requests.filter((r) => r.path.endsWith(":/createUploadSession")).length === sessionsBefore,
+    );
+
+    writeDenied = true;
+    const denied = await writer.execute("teams_notes_save", { meetingId: "mtg-brief", transcriptId: "tr-brief", summary: "x" });
+    check("a site granted read but not write says which grant is missing", /Tool error/.test(denied) && /"roles": \["write"\]/.test(denied), denied.split("\n")[0]);
+    writeDenied = false;
+  } finally {
+    await writer.close();
+  }
+
+  // ── the knowledge base reads them back ─────────────────────────────────────
+  const { teamsNotesSource, TEAMS_NOTES_COLLECTION } = await import("../rag/src/sources.ts");
+  const source = teamsNotesSource();
+  check("the teams-notes knowledge source is configured from the same variables", source.configured === true);
+  const docs = await source.fetch();
+  check(
+    "it reads every note in the folder, through the read server",
+    docs.length === 2 && docs.every((d) => d.externalId.startsWith("teams-notes:it-note-")),
+    docs.map((d) => d.title).join(" · "),
+  );
+  check(
+    "with the note's own text, not the tool's header lines",
+    docs.some((d) => d.content.startsWith("---\nmeeting:") && /## Decisions/.test(d.content)) && !docs.some((d) => /^File: /m.test(d.content)),
+  );
+  check("filed under the meetings collection", TEAMS_NOTES_COLLECTION === "meetings");
+  process.env.M365_TEAMS_NOTES_FOLDER = "Meetings/Nowhere";
+  check("a folder with no notes yet is empty, not an error", (await teamsNotesSource().fetch()).length === 0);
+  delete process.env.M365_TEAMS_NOTES_FOLDER;
+  check("and the source reports itself unconfigured without a folder", teamsNotesSource().configured === false);
 } finally {
   http.close();
 }

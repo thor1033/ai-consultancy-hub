@@ -12,6 +12,7 @@ import {
   type McpServerConfig,
 } from "@ai-hub/mcp";
 import { recordSession, finishRun, disabledMcpServerNames } from "@ai-hub/db";
+import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 
 // The code-owned servers the hub starts itself.
 const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
@@ -94,6 +95,18 @@ export interface RunSessionOutput {
   result: RunAgentResult;
 }
 
+async function fileMeetingNotes(): Promise<string> {
+  try {
+    const r = await syncSource("teams-notes", { collection: TEAMS_NOTES_COLLECTION });
+    return `\n\n_Filed in the knowledge base: ${r.documents} meeting note(s) in the "${TEAMS_NOTES_COLLECTION}" collection._`;
+  } catch (err) {
+    return (
+      `\n\n**The notes were saved to Teams but not filed in the knowledge base:** ` +
+      `${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
 // Runs one ad-hoc agent session (the practitioner's workflow) with the chosen MCP
 // servers connected, then persists it so it can be distilled into a Skill.
 export async function runSession(input: RunSessionInput): Promise<RunSessionOutput> {
@@ -129,6 +142,12 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         ? { source: "agent", agentId: input.agentId, servers }
         : { source: "workbench", servers },
     });
+
+    // A note saved to Teams is filed in the knowledge base in the same run, so
+    // "write up the meeting" leaves it searchable with no second step. The
+    // outcome goes into the answer itself: a filing that failed quietly would
+    // leave a person believing agents can find a meeting they cannot.
+    if (result.toolsUsed.includes("teams_notes_save")) result.text += await fileMeetingNotes();
 
     let sessionId: string;
     if (input.runId) {
