@@ -33,3 +33,12 @@ export const serverNames = (entries: unknown): string[] =>
 // in lib/mcp/hubServer.ts, which this client-safe module cannot import.
 export const agentToolName = (slug: string) => `hub_agent_${slug.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}`;
 export const skillToolName = (slug: string) => `hub_skill_${slug.replace(/[^a-zA-Z0-9_]/g, "_").toLowerCase()}`;
+
+/** The servers an agent's entries let write without a person's approval. */
+export function serverWritesAllowed(entries: unknown): string[] {
+  if (!Array.isArray(entries)) return [];
+  return entries
+    .filter((e) => e && typeof e === "object" && (e as { writes?: unknown }).writes === "allow")
+    .map((e) => String((e as { name?: unknown }).name ?? ""))
+    .filter(Boolean);
+}

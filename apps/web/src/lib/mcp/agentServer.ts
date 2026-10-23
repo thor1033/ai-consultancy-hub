@@ -15,6 +15,7 @@ import { retrieveChunks, getDocument, embedderStatus } from "@ai-hub/rag";
 import { entryName, isKnownServer, resolveServer } from "@/lib/runSession";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
+import { heldText, hold, needsApproval } from "@/lib/approvals";
 
 /*
  * One agent, served to the Claude Code session it was synced into.
@@ -198,7 +199,14 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
         remoteServerForwardsIdentity(name) &&
         remoteServerReadOnly(name),
       taken,
-      wrap: (tool, fn) => track(tool, fn),
+      // Logged, and writes held for a person (lib/approvals.ts) — the local
+      // agent's model is on someone's machine, but what it may change is not.
+      wrap: (tool, fn, info) =>
+        track(tool, async (args: unknown) => {
+          if (!needsApproval(info, entry)) return fn(args);
+          const proposal = await hold(info, args, { agentId: agent.id, principalId: principal.id, entries: agent.mcpServers });
+          return text(heldText(proposal));
+        }),
       // One unreachable server must not take the agent's memory down with it.
       onUnavailable: (err) => console.warn(`[agent-mcp] ${agent.slug}: "${name}" unavailable:`, err),
     });

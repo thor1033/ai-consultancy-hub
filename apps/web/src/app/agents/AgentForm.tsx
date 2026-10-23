@@ -28,6 +28,8 @@ export interface AgentFormValues {
   placement: Placement;
   /** Per-server mailbox, for the servers in MAILBOX_SERVERS. Blank = the deployment default. */
   mailboxes: Record<string, string>;
+  /** Servers this agent may write through WITHOUT a person approving each call. */
+  writesAllowed: string[];
 }
 
 export type KnowledgeMode = "none" | "all" | "selected";
@@ -82,6 +84,7 @@ export function AgentForm({
   defaultMaxIterations,
   maxIterationsCeiling,
   canSetPlacement,
+  canAllowWrites,
   localFiles,
 }: {
   initial: AgentFormValues;
@@ -91,6 +94,8 @@ export function AgentForm({
   maxIterationsCeiling: number;
   /** Only an admin may move an agent between the hub and Claude Code. */
   canSetPlacement: boolean;
+  /** Only an admin may let an agent write without approval. */
+  canAllowWrites: boolean;
   /** What a sync writes for the SAVED agent, if it is placed local or both. */
   localFiles: { path: string; content: string }[];
 }) {
@@ -127,7 +132,11 @@ export function AgentForm({
         maxIterations: v.maxIterations.trim() === "" ? null : Number(v.maxIterations),
         mcpServers: v.servers.map((name) => {
           const mailbox = v.mailboxes[name]?.trim();
-          return mailbox && MAILBOX_SERVERS.has(name) ? { name, mailbox } : { name };
+          return {
+            name,
+            ...(mailbox && MAILBOX_SERVERS.has(name) ? { mailbox } : {}),
+            ...(v.writesAllowed.includes(name) ? { writes: "allow" } : {}),
+          };
         }),
         enabled: v.enabled,
         placement: v.placement,
@@ -244,6 +253,27 @@ export function AgentForm({
                       )}
                     </span>
                   </label>
+                  {on && t.name !== "memory" && (
+                    <label className={`mt-2 flex items-start gap-2 ${canAllowWrites ? "cursor-pointer" : "cursor-not-allowed"}`}>
+                      <input
+                        type="checkbox"
+                        className="mt-0.5 h-4 w-4 accent-[var(--text)]"
+                        checked={!v.writesAllowed.includes(t.name)}
+                        disabled={!canAllowWrites}
+                        onChange={(e) =>
+                          set(
+                            "writesAllowed",
+                            e.target.checked ? v.writesAllowed.filter((n) => n !== t.name) : [...v.writesAllowed, t.name],
+                          )
+                        }
+                      />
+                      <span className="min-w-0 text-xs text-[var(--muted)]">
+                        <span className="block text-sm font-medium text-[var(--text)]">Writes need a person&apos;s approval</span>
+                        Anything this server would change is held on the Approvals page until someone says yes. Reads pass
+                        straight through.{!canAllowWrites && " Only an admin can switch this off."}
+                      </span>
+                    </label>
+                  )}
                   {on && MAILBOX_SERVERS.has(t.name) && (
                     <label className="mt-2 block">
                       <span className="mb-1 block text-xs text-[var(--muted)]">Mailbox this agent reads</span>

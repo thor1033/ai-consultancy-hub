@@ -13,6 +13,7 @@ import {
   type McpServerConfig,
 } from "@ai-hub/mcp";
 import { recordSession, finishRun, disabledMcpServerNames } from "@ai-hub/db";
+import { gatedExecutor } from "@/lib/approvals";
 
 // The code-owned servers: the sample server plus the investment-firm demo servers.
 const LOCAL_SERVERS = ["sample", ...BUILTIN_SERVER_NAMES] as const;
@@ -126,7 +127,15 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       effort: input.effort,
       maxIterations: input.maxIterations,
       tools: mcp?.tools,
-      toolExecutor: mcp?.execute,
+      // Writes are held for a person (lib/approvals.ts); reads pass through.
+      toolExecutor: mcp
+        ? gatedExecutor(mcp, {
+            agentId: input.agentId,
+            runId: input.runId,
+            principalId: input.principalId,
+            entries: input.serverEntries,
+          })
+        : undefined,
       metadata: input.agentId
         ? { source: "agent", agentId: input.agentId, servers }
         : { source: "workbench", servers },
