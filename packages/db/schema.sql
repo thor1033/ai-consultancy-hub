@@ -381,6 +381,17 @@ create table if not exists agent_schedules (
 create index if not exists agent_schedules_due_idx on agent_schedules (enabled, last_run_at);
 create index if not exists agent_schedules_agent_idx on agent_schedules (agent_id);
 
+-- A schedule may run a SKILL instead of a free-text prompt: the skill's
+-- template is filled from skill_args at fire time, so the morning brief and a
+-- brief asked for by hand are the same prompt from the same place. `prompt`
+-- stays as the human-readable line for such a schedule. The cascade is
+-- deliberate: deleting a skill ends its clock rather than leaving a schedule
+-- that fires into nothing.
+alter table agent_schedules add column if not exists agent_skill_id uuid
+  references agent_skills(id) on delete cascade;
+alter table agent_schedules add column if not exists skill_args jsonb not null default '{}'::jsonb;
+create index if not exists agent_schedules_skill_idx on agent_schedules (agent_skill_id);
+
 -- Where an agent runs (see docs/local-agents.md).
 --
 --   hub    the hub's own runtime: hub_agent_<slug>, the /agents console, schedules

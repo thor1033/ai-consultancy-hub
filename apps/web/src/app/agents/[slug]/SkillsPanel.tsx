@@ -266,6 +266,7 @@ function SkillEditor({
         onChange={(parameters) => onChange({ ...draft, parameters })}
       />
 
+
       <div className="mt-5 flex flex-wrap gap-2">
         <button className="btn-brand min-h-11" disabled={busy} onClick={onSave}>
           {busy ? "Saving…" : "Save skill"}

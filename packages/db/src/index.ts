@@ -17,7 +17,7 @@ export type {
   RecordSessionInput,
   StartRunInput,
   FinishRunInput,
-  RunStatus,
+  RunStatus
 } from "./sessions";
 export {
   listAgents,

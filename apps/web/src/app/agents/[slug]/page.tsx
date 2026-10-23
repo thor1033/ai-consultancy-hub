@@ -13,11 +13,12 @@ import {
   type Schedule,
   knowledgeLabel,
   knowledgeScope,
+  runsOnHub,
 } from "@ai-hub/db";
 import { DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
 import { listCollections } from "@ai-hub/rag";
-import { sessionCan, sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
-import { DAYS, cadence, money, rel } from "@/lib/format";
+import { sessionCan, sessionKnowledgeAccess, sessionPrincipal } from "@/lib/sessionPrincipal";
+import { DAYS, money, rel } from "@/lib/format";
 import { AgentForm } from "../AgentForm";
 import { toolCatalog } from "../catalog";
 import { MODELS, agentToolName, serverMailboxes, serverNames, skillToolName } from "../models";
@@ -25,6 +26,7 @@ import { AgentTabs } from "./AgentTabs";
 import { AgentChat } from "./AgentChat";
 import { MemoryPanel } from "./MemoryPanel";
 import { SkillsPanel } from "./SkillsPanel";
+import { SchedulesPanel } from "./SchedulesPanel";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { localAgentName, localSkillName, renderAgentFiles } from "@/lib/localAgents";
 
@@ -43,7 +45,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
   const mailboxes = serverMailboxes(agent.mcpServers);
   // Everything below is display; a failure in one source must not take the
   // page (and with it the only way to fix the agent) down.
-  const [memories, collections, skills, runs, schedules, roster, tools, canManage, activity, admin] =
+  const [memories, collections, skills, runs, schedules, roster, tools, canManage, activity, admin, viewer] =
     await Promise.all([
     listMemories(agent.id),
     sessionKnowledgeAccess()
@@ -59,6 +61,8 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
     // Moving an agent between the hub and Claude Code is admin-only
     // (actions.ts); the form greys the control out for everyone else.
     sessionCan("admin:manage"),
+    // Who is looking, so the schedules panel can tell "yours" from "theirs".
+    sessionPrincipal(),
   ]);
   const baseUrl = appBaseUrl(await headers()) ?? "https://hub.example.com";
 
@@ -269,33 +273,15 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           )}
         </section>
 
-        <section className="panel p-5 md:p-6">
-          <div className="eyebrow">Schedules</div>
-          {schedules.length === 0 ? (
-            <p className="mt-3 text-sm text-[var(--muted)]">
-              None. A schedule runs a fixed prompt on a timer, as the person who set it up.
-            </p>
-          ) : (
-            <ul className="mt-3 flex flex-col">
-              {schedules.map((s) => (
-                <li key={s.id} className={`border-t border-[var(--border)] py-3 first:border-t-0 first:pt-0 ${s.enabled ? "" : "opacity-60"}`}>
-                  <div className="flex items-baseline justify-between gap-3">
-                    <span className="font-medium">{s.name}</span>
-                    <span className="eyebrow shrink-0">{s.enabled ? "On" : "Off"}</span>
-                  </div>
-                  <p className="mt-0.5 text-sm text-[var(--text-soft)]">
-                    {cadence(s)}
-                    {s.kind === "daily" && <span className="text-[var(--muted)]"> · {s.timezone}</span>}
-                  </p>
-                  <p className="mt-0.5 text-xs text-[var(--muted)]">
-                    Last ran {rel(s.lastRunAt, now).toLowerCase()} · as <span className="mono">{s.ownerPrincipalId}</span>
-                  </p>
-                  {s.lastError && <p className="mt-1 line-clamp-2 text-xs text-[var(--danger)]">{s.lastError}</p>}
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+        <SchedulesPanel
+          agentId={agent.id}
+          skills={skills}
+          initial={schedules}
+          viewerId={viewer?.id ?? null}
+          isAdmin={Boolean(admin)}
+          canSchedule={runsOnHub(agent.placement)}
+          timezone={process.env.HUB_TIMEZONE?.trim() || "UTC"}
+        />
       </div>
     </div>
   );

@@ -3,6 +3,7 @@
 //
 //   node packages/db/seed-secretary.mjs --check              # no DB, no network
 //   node --env-file=apps/web/.env.local packages/db/seed-secretary.mjs
+//   node --env-file=apps/web/.env.local packages/db/seed-secretary.mjs --skills-only   # skills only; agent row and memories untouched
 //
 // Idempotent: the agent is matched by slug, the skill by slug and the memories
 // by key, so re-running corrects the row rather than adding a second one. That
@@ -52,27 +53,39 @@ const { fillTemplate, undeclaredPlaceholders, unusedParameters, templatePlacehol
 
 console.log("— the definition —");
 
-const skill = SECRETARY_SKILLS[0];
+const skill = SECRETARY_SKILLS.find((s) => s.slug === "meeting-to-pm");
+const prep = SECRETARY_SKILLS.find((s) => s.slug === "meeting-prep");
 
-check("exactly one skill is defined", SECRETARY_SKILLS.length === 1);
+check("the two skills are defined: the change set and the brief", Boolean(skill) && Boolean(prep) && SECRETARY_SKILLS.length === 2);
 check(
-  "the skill's slug is MCP-tool-safe",
-  /^[a-z0-9]+(-[a-z0-9]+)*$/.test(skill.slug),
-  `hub_skill_${skill.slug.replace(/-/g, "_")}`,
+  "slugs are unique and MCP-tool-safe",
+  new Set(SECRETARY_SKILLS.map((s) => s.slug)).size === SECRETARY_SKILLS.length &&
+    SECRETARY_SKILLS.every((s) => /^[a-z0-9]+(-[a-z0-9]+)*$/.test(s.slug)),
+  SECRETARY_SKILLS.map((s) => `hub_skill_${s.slug.replace(/-/g, "_")}`).join(", "),
 );
 
-const undeclared = undeclaredPlaceholders(skill.promptTemplate, skill.parameters);
-check(
-  "every {{placeholder}} has a parameter behind it",
-  undeclared.length === 0,
-  undeclared.length ? `undeclared: ${undeclared.join(", ")}` : `${templatePlaceholders(skill.promptTemplate).length} placeholders`,
-);
+for (const s of SECRETARY_SKILLS) {
+  const undeclared = undeclaredPlaceholders(s.promptTemplate, s.parameters);
+  check(
+    `${s.slug}: every {{placeholder}} has a parameter behind it`,
+    undeclared.length === 0,
+    undeclared.length ? `undeclared: ${undeclared.join(", ")}` : `${templatePlaceholders(s.promptTemplate).length} placeholders`,
+  );
+  const unused = unusedParameters(s.promptTemplate, s.parameters);
+  check(
+    `${s.slug}: every parameter is referenced by the template`,
+    unused.length === 0,
+    unused.length ? `unused: ${unused.join(", ")}` : "",
+  );
+}
 
-const unused = unusedParameters(skill.promptTemplate, skill.parameters);
+// The brief is the skill a morning schedule runs with only `day` supplied.
+const prepFilled = fillTemplate(prep.promptTemplate, prep.parameters, { day: "today" });
+check("the brief fills with only the day given", !prepFilled.error && prepFilled.prompt.includes("for: today") && !prepFilled.prompt.includes("{{"), prepFilled.error ?? "");
+check("the brief refuses to run without a day", Boolean(fillTemplate(prep.promptTemplate, prep.parameters, {}).error));
 check(
-  "every parameter is referenced by the template",
-  unused.length === 0,
-  unused.length ? `unused: ${unused.join(", ")}` : "",
+  "the brief reads, and says it cannot act",
+  /m365_calendar_list/.test(prep.promptTemplate) && /Do not act/.test(prep.promptTemplate) && !/m365_(send|create|accept)/.test(prep.promptTemplate),
 );
 
 // A filled prompt must contain the caller's words and no leftover syntax.
@@ -209,11 +222,23 @@ const { getSql } = await import("./src/client.ts");
 
 console.log("\n— provisioning —");
 
+// --skills-only adds or refreshes the skills and leaves the agent row and the
+// memories alone. The full seed rewrites the agent from this file, which is
+// right for a first install and wrong for a deployment where someone has since
+// changed its placement, knowledge scope or mailbox in /agents.
+const skillsOnly = process.argv.includes("--skills-only");
+
 const existing = await getAgent(SECRETARY_AGENT.slug);
-const agent = existing
-  ? await updateAgent(existing.id, SECRETARY_AGENT)
-  : await createAgent(SECRETARY_AGENT);
-console.log(`${existing ? "updated" : "created"}  agent   ${agent.slug}  (${agent.id})`);
+if (skillsOnly && !existing) {
+  console.error(`--skills-only: no agent "${SECRETARY_AGENT.slug}" exists yet — run without the flag first.`);
+  process.exit(1);
+}
+const agent = skillsOnly
+  ? existing
+  : existing
+    ? await updateAgent(existing.id, SECRETARY_AGENT)
+    : await createAgent(SECRETARY_AGENT);
+console.log(`${skillsOnly ? "kept   " : existing ? "updated" : "created"}  agent   ${agent.slug}  (${agent.id})`);
 
 for (const s of SECRETARY_SKILLS) {
   const found = await getSkill(s.slug);
@@ -231,7 +256,7 @@ for (const s of SECRETARY_SKILLS) {
 }
 
 const before = new Set((await listMemories(agent.id)).map((m) => m.key));
-for (const m of SECRETARY_MEMORIES) {
+for (const m of skillsOnly ? [] : SECRETARY_MEMORIES) {
   await rememberMemory(agent.id, m.key, m.content);
   console.log(`${before.has(m.key) ? "updated" : "created"}  memory  ${m.key}`);
 }

@@ -16,13 +16,22 @@ import {
   type McpEntry,
   knowledgeScope,
   retrievalScope,
+  createSchedule,
+  listSchedules,
+  getSchedule,
+  setScheduleEnabled,
+  deleteSchedule,
+  getSkill,
+  type Schedule,
+  type ScheduleKind,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
 import { MAX_ITERATIONS_CEILING, type ModelId } from "@ai-hub/agent";
 import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
 import { listSkills, createSkill, updateSkill, deleteSkill, type SkillParameter } from "@ai-hub/db";
-import { undeclaredPlaceholders } from "@/lib/skillPrompt";
+import { fillTemplate, undeclaredPlaceholders } from "@/lib/skillPrompt";
+import { runAgentForPrincipal, runSkillForPrincipal } from "@/lib/agentRuns";
 import { MAILBOX_SERVERS } from "./models";
 import { isUniqueViolation } from "@/lib/apiError";
 
@@ -411,4 +420,121 @@ export async function deleteSkillAction(id: string, agentId: string) {
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Delete failed." };
   }
+}
+
+// --- Schedules: the agent's clock ------------------------------------------
+//
+// Any agent, any skill or prompt, any person with agent:run. A schedule is
+// OWNED by whoever creates it and runs with their reach (docs/schedules.md), so
+// creating one is not an admin act; taking someone else's away is, unless it is
+// your own.
+
+export interface ScheduleDraft {
+  agentId: string;
+  name: string;
+  /** Exactly one of these: a skill (with its arguments) or a prompt. */
+  skillId?: string | null;
+  skillArgs?: Record<string, unknown>;
+  prompt?: string;
+  kind: ScheduleKind;
+  intervalMinutes?: number | null;
+  atMinute?: number | null;
+  weekdays?: number[];
+  timezone?: string;
+}
+
+async function scheduleList(agentId: string): Promise<{ schedules: Schedule[] }> {
+  return { schedules: await listSchedules(agentId) };
+}
+
+export async function createScheduleAction(input: ScheduleDraft): Promise<{ schedules: Schedule[] } | { error: string }> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { error: "You are not permitted to run agents." };
+  const agent = await getAgent(input.agentId);
+  if (!agent) return { error: "That agent no longer exists." };
+  if (!runsOnHub(agent.placement)) {
+    return { error: `"${agent.name}" runs in Claude Code only, so the hub has no clock for it. Set it to "Hub" or "Both" first.` };
+  }
+
+  let prompt = (input.prompt ?? "").trim();
+  let agentSkillId: string | null = null;
+  let skillArgs: Record<string, unknown> = {};
+  if (input.skillId) {
+    const skill = await getSkill(input.skillId);
+    if (!skill || skill.agentId !== agent.id) return { error: "That skill does not belong to this agent." };
+    if (!skill.enabled) return { error: `"${skill.name}" is switched off.` };
+    // Filled once here so a schedule that could never run is refused at the
+    // door, not discovered at 07:00 as a failed run nobody was watching.
+    const args = input.skillArgs && typeof input.skillArgs === "object" ? input.skillArgs : {};
+    const filled = fillTemplate(skill.promptTemplate, skill.parameters ?? [], args);
+    if ("error" in filled) return { error: `${skill.name}: ${filled.error}` };
+    agentSkillId = skill.id;
+    skillArgs = Object.fromEntries(
+      (skill.parameters ?? [])
+        .map((p) => [p.name, args[p.name]] as const)
+        .filter(([, v]) => v !== undefined && v !== null && v !== ""),
+    );
+    const shown = Object.entries(skillArgs).map(([k, v]) => `${k} = ${String(v)}`).join(", ");
+    prompt = `Run the skill "${skill.name}"${shown ? ` with ${shown}` : ""}.`;
+  }
+
+  const created = await createSchedule({
+    agentId: agent.id,
+    name: input.name,
+    prompt,
+    agentSkillId,
+    skillArgs,
+    kind: input.kind,
+    intervalMinutes: input.intervalMinutes ?? null,
+    atMinute: input.atMinute ?? null,
+    weekdays: input.weekdays ?? [],
+    timezone: input.timezone?.trim() || process.env.HUB_TIMEZONE?.trim() || "UTC",
+    ownerPrincipalId: principal.id,
+  });
+  if ("error" in created) return { error: created.error };
+  revalidatePath(`/agents/${agent.slug}`);
+  return scheduleList(agent.id);
+}
+
+/** The owner, or an admin. Anyone else may look. */
+async function ownedSchedule(id: string): Promise<Schedule | { error: string }> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { error: "You are not permitted to run agents." };
+  const schedule = await getSchedule(id);
+  if (!schedule) return { error: "That schedule no longer exists." };
+  if (schedule.ownerPrincipalId !== principal.id && !(await sessionCan("admin:manage"))) {
+    return { error: "Only the person who set this schedule up, or an admin, can change it." };
+  }
+  return schedule;
+}
+
+export async function setScheduleEnabledAction(id: string, enabled: boolean): Promise<{ schedules: Schedule[] } | { error: string }> {
+  const schedule = await ownedSchedule(id);
+  if ("error" in schedule) return schedule;
+  await setScheduleEnabled(id, enabled);
+  return scheduleList(schedule.agentId);
+}
+
+export async function deleteScheduleAction(id: string): Promise<{ schedules: Schedule[] } | { error: string }> {
+  const schedule = await ownedSchedule(id);
+  if ("error" in schedule) return schedule;
+  await deleteSchedule(id);
+  return scheduleList(schedule.agentId);
+}
+
+/**
+ * Run a schedule's work now, as the viewer rather than the owner: a person
+ * pressing a button is a person asking, so the run has their reach and lands
+ * in Recent runs like any other. Returns once the run has an id.
+ */
+export async function runScheduleNowAction(id: string): Promise<{ ok: true; runId: string; running: boolean } | { error: string }> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { error: "You are not permitted to run agents." };
+  const schedule = await getSchedule(id);
+  if (!schedule) return { error: "That schedule no longer exists." };
+  const outcome = schedule.agentSkillId
+    ? await runSkillForPrincipal({ skillRef: schedule.agentSkillId, args: schedule.skillArgs ?? {}, principal, deadlineMs: 3000 })
+    : await runAgentForPrincipal({ agentRef: schedule.agentId, prompt: schedule.prompt, principal, deadlineMs: 3000 });
+  if (outcome.kind === "error") return { error: outcome.message };
+  return { ok: true, runId: outcome.runId, running: outcome.kind === "running" };
 }
