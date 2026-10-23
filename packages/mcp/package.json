@@ -14,7 +14,7 @@
     "verify:remote": "node verify-remote.mjs",
     "verify:memory": "node verify-memory.mjs",
     "verify:m365": "node verify-m365.mjs",
-    "verify:teams": "node verify-teams.mjs"
+    "verify:teams": "node --experimental-transform-types verify-teams.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

@@ -22,6 +22,8 @@ export {
   syncSource,
   confluenceSource,
   pmToolSource,
+  teamsNotesSource,
+  TEAMS_NOTES_COLLECTION,
 } from "./sources";
 export type {
   KnowledgeSource,

@@ -1,10 +1,22 @@
 // Microsoft Teams MCP server — meeting transcripts and the team's files.
 //
-// READ-ONLY, like servers/microsoft365. There is no tool here that uploads,
-// edits, moves, shares or deletes anything, and no Graph scope behind it that
-// could: the app registration holds read permissions only. Writing (meeting
-// notes, decks) is a later increment, and should arrive as one narrow tool that
-// creates new files in one folder rather than as a general "save" verb.
+// ONE FILE, TWO SERVERS. The hub starts it as `teams` (HUB_TEAMS_MODE=read) or
+// as `teams-notes` (HUB_TEAMS_MODE=notes), and an agent is given each one
+// separately (servers.ts sets the mode; the model never can):
+//
+//   teams        READ-ONLY, like servers/microsoft365. Nothing that uploads,
+//                edits, moves, shares or deletes.
+//   teams-notes  ONE tool, teams_notes_save, which creates a NEW Markdown file
+//                in ONE folder (M365_TEAMS_NOTES_FOLDER). It cannot overwrite:
+//                the upload asks Graph to fail on a name that exists, and a
+//                clash becomes "… (2).md". It cannot write anywhere else: the
+//                folder is the deployment's configuration, not an argument.
+//
+// Splitting them is the point. An agent that reads transcripts does not gain
+// the ability to write because a deployment configured a notes folder; only an
+// agent someone ticked `teams-notes` on can. Microsoft cannot fence a folder —
+// Sites.Selected grants write on the whole site — so the folder is fenced here,
+// by having no tool that takes a path to write to.
 //
 // TWO HALVES, each configured on its own, each fenced by Microsoft rather than
 // by this file:
@@ -41,6 +53,10 @@ const CLIENT_SECRET = process.env.M365_CLIENT_SECRET;
 const ORGANIZER = process.env.M365_TEAMS_ORGANIZER_ID?.trim() || "";
 const SITE_URL = process.env.M365_TEAMS_SITE_URL?.trim() || "";
 const INCLUDE_PRIVATE = process.env.M365_TEAMS_PRIVATE_MEETINGS === "1";
+// Anything but exactly "notes" is the read server: an unset or mistyped mode
+// must not be the one that writes.
+const MODE = process.env.HUB_TEAMS_MODE === "notes" ? "notes" : "read";
+const NOTES_FOLDER_RAW = process.env.M365_TEAMS_NOTES_FOLDER?.trim() || "";
 
 // Overridable so verify-teams.mjs can point the whole server at a local fixture.
 // Never set these in production.
@@ -50,7 +66,7 @@ const TIMEZONE = process.env.M365_TIMEZONE ?? "UTC";
 
 // stdout is the JSON-RPC channel, so every refusal goes to stderr.
 function refuse(message) {
-  console.error(`[teams] ${message} Refusing to start.`);
+  console.error(`[${MODE === "notes" ? "teams-notes" : "teams"}] ${message} Refusing to start.`);
   process.exit(1);
 }
 
@@ -60,9 +76,32 @@ const missing = [
   ["M365_CLIENT_SECRET", CLIENT_SECRET],
 ].filter(([, v]) => !v).map(([k]) => k);
 if (missing.length > 0) refuse(`not configured — missing ${missing.join(", ")}.`);
-if (!ORGANIZER && !SITE_URL) {
+if (MODE === "read" && !ORGANIZER && !SITE_URL) {
   refuse("nothing to serve — set M365_TEAMS_ORGANIZER_ID (transcripts), M365_TEAMS_SITE_URL (files), or both.");
 }
+// Notes are written from a transcript, into the team's files: both halves, and
+// the folder, or there is nothing this server can do.
+if (MODE === "notes") {
+  const need = [
+    ["M365_TEAMS_ORGANIZER_ID", ORGANIZER],
+    ["M365_TEAMS_SITE_URL", SITE_URL],
+    ["M365_TEAMS_NOTES_FOLDER", NOTES_FOLDER_RAW],
+  ].filter(([, v]) => !v).map(([k]) => k);
+  if (need.length > 0) refuse(`not configured for notes — missing ${need.join(", ")}.`);
+}
+
+// The notes folder, as path segments. Checked once at startup, because it is
+// the one place this server writes: no "..", no empty or dot segments, none of
+// the characters SharePoint refuses in a name.
+let NOTES_SEGMENTS = [];
+if (NOTES_FOLDER_RAW) {
+  NOTES_SEGMENTS = NOTES_FOLDER_RAW.split("/").map((s) => s.trim()).filter(Boolean);
+  const bad = NOTES_SEGMENTS.find((s) => s === "." || s === ".." || /["*:<>?\\|#%\u0000-\u001f]/.test(s));
+  if (NOTES_SEGMENTS.length === 0 || bad !== undefined) {
+    refuse(`M365_TEAMS_NOTES_FOLDER must be a folder path inside the team's files, e.g. "Meetings/Notes" — got "${NOTES_FOLDER_RAW}".`);
+  }
+}
+const NOTES_FOLDER = NOTES_SEGMENTS.join("/");
 
 // The meetings API addresses users by object id; a UPN here would fail on
 // every call with an error that does not say why. Resolving one would need
@@ -121,7 +160,7 @@ class GraphError extends Error {
   }
 }
 
-async function graphFetch(target, { search = {}, accept } = {}) {
+async function graphFetch(target, { search = {}, accept, method = "GET", json } = {}) {
   const url = new URL(target.startsWith("http") ? target : `${GRAPH_BASE}${target}`);
   // Paging links come back from Graph as absolute URLs. The token only ever
   // goes to Graph itself, whatever a response says the next page is.
@@ -130,7 +169,13 @@ async function graphFetch(target, { search = {}, accept } = {}) {
     if (v !== undefined && v !== null && v !== "") url.searchParams.set(k, String(v));
   }
   const res = await fetch(url, {
-    headers: { authorization: `Bearer ${await accessToken()}`, ...(accept ? { accept } : {}) },
+    method,
+    headers: {
+      authorization: `Bearer ${await accessToken()}`,
+      ...(accept ? { accept } : {}),
+      ...(json !== undefined ? { "content-type": "application/json" } : {}),
+    },
+    ...(json !== undefined ? { body: JSON.stringify(json) } : {}),
   });
   if (!res.ok) {
     const err = (await res.json().catch(() => ({}))).error ?? {};
@@ -165,7 +210,10 @@ const failed = (message) => ({ isError: true, content: [{ type: "text", text: me
 // relay it to a person who can fix the tenant.
 function hintFor(area, err) {
   if (err.innerCode === "GraphAccessToTranscriptsDisabled") {
-    return "A tenant administrator has turned off Graph access to meeting transcripts. Nothing on this side can work around it.";
+    return (
+      "A tenant administrator has turned off Graph access to meeting transcripts. Nothing on this side can work " +
+      "around it; an admin turns it on with: Set-CsTeamsMeetingConfiguration -Identity Global -EnableGraphTranscriptAccess $true"
+    );
   }
   if (area === "meetings" && (err.status === 401 || err.status === 403)) {
     return (
@@ -174,7 +222,16 @@ function hintFor(area, err) {
     );
   }
   if (area === "files" && (err.status === 401 || err.status === 403)) {
-    return "The app needs Sites.Selected with read access granted on this site. See docs/teams.md.";
+    return (
+      "The app needs Sites.Selected with read access granted on this site, granted to its Application (client) ID " +
+      "(not its Object ID). See docs/teams.md."
+    );
+  }
+  if (area === "notes" && (err.status === 401 || err.status === 403)) {
+    return (
+      "If this came from saving the file, the app may read the site but not write to it: an admin grants write with " +
+      'the same Graph Explorer call as read, with "roles": ["write"]. If it came from the meeting, see teams_status. See docs/teams.md.'
+    );
   }
   if (area === "meetings" && err.status === 404) {
     return "Check the ids came from teams_meetings_list. If they did, Teams no longer has it: a meeting's transcripts go when the meeting expires, or when someone deletes them.";
@@ -559,19 +616,30 @@ const halves = [
 ].filter(Boolean);
 
 const server = new McpServer(
-  { name: "teams", version: "0.1.0" },
+  { name: MODE === "notes" ? "teams-notes" : "teams", version: "0.2.0" },
   {
     instructions:
-      `Read-only access to Microsoft Teams: ${halves.join(" and ")}. ` +
-      "Transcripts are timestamped and labelled by speaker; Teams' speaker labels can be wrong when people " +
-      "share a device or an account, so check them against what is said. Long transcripts and files come back " +
-      "a page at a time — when a result says there is more, call again with the offset it gives. You cannot " +
-      "upload, edit, move, share or delete anything from here. Use teams_status when a tool fails and you need " +
-      "to know which half of the connection is broken.",
+      MODE === "notes"
+        ? `Save meeting notes to the team's files with teams_notes_save: one new Markdown file in "${NOTES_FOLDER}" ` +
+          "per call. Read the meeting's whole transcript first (teams_meetings_list and teams_transcript_get, " +
+          "from the teams server). The file's layout is fixed; you supply the content. It never changes or " +
+          "deletes an existing file — saving twice makes a second file."
+        : `Read-only access to Microsoft Teams: ${halves.join(" and ")}. ` +
+          "Transcripts are timestamped and labelled by speaker; Teams' speaker labels can be wrong when people " +
+          "share a device or an account, so check them against what is said. Long transcripts and files come back " +
+          "a page at a time — when a result says there is more, call again with the offset it gives. You cannot " +
+          "upload, edit, move, share or delete anything from here. Use teams_status when a tool fails and you need " +
+          "to know which half of the connection is broken.",
   },
 );
 
-server.registerTool(
+// The read tools exist only on the read server, the write tool only on the
+// notes server. Registration is the fence: a tool that was never registered
+// cannot be called, whatever the model asks for.
+const readTool = MODE === "read" ? server.registerTool.bind(server) : () => {};
+const notesTool = MODE === "notes" ? server.registerTool.bind(server) : () => {};
+
+readTool(
   "teams_status",
   {
     description:
@@ -613,11 +681,28 @@ server.registerTool(
     } else {
       report.files = { working: false, error: FILES_OFF };
     }
+    // Reported from the read server so one tool answers "what is set up". It
+    // can say whether the folder exists; whether the app may write there is
+    // proven only by the first save (there is no read-only way to ask).
+    if (NOTES_FOLDER && SITE) {
+      try {
+        const d = await drive();
+        await graphJson(`/drives/${d.id}/root:/${encodePath(NOTES_FOLDER)}`, { $select: "id,folder" });
+        report.notes = { folder: NOTES_FOLDER, exists: true, server: "teams-notes" };
+      } catch (err) {
+        report.notes =
+          err instanceof GraphError && err.status === 404
+            ? { folder: NOTES_FOLDER, exists: false, note: "Created on the first save." }
+            : { folder: NOTES_FOLDER, error: err.message };
+      }
+    } else {
+      report.notes = { configured: false, note: "M365_TEAMS_NOTES_FOLDER is not set; meeting notes cannot be saved." };
+    }
     return text(report);
   },
 );
 
-server.registerTool(
+readTool(
   "teams_meetings_list",
   {
     description:
@@ -687,7 +772,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+readTool(
   "teams_transcript_get",
   {
     description:
@@ -746,7 +831,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+readTool(
   "teams_files_list",
   {
     description:
@@ -776,7 +861,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+readTool(
   "teams_files_search",
   {
     description:
@@ -802,7 +887,7 @@ server.registerTool(
   },
 );
 
-server.registerTool(
+readTool(
   "teams_file_read",
   {
     description: `Read a file from the team's files as text. Handles ${READABLE}. Give the itemId from teams_files_list or teams_files_search, or a path. Long files come in pages — when the result says there is more, call again with the offset it gives.`,
@@ -861,6 +946,201 @@ server.registerTool(
       );
     });
   },
+);
+
+// ── meeting notes (the teams-notes server) ───────────────────────────────────
+// The layout is code, not a prompt: the agent supplies what was said and
+// decided, and every note comes out in the same shape, so a person — or the
+// knowledge base — reads the fiftieth like the first.
+const oneLine = (s) => String(s).replace(/\s*\n\s*/g, " ").trim();
+
+function localDate(iso) {
+  // en-CA formats as YYYY-MM-DD, which sorts in a folder listing.
+  return new Intl.DateTimeFormat("en-CA", { timeZone: TIMEZONE, year: "numeric", month: "2-digit", day: "2-digit" }).format(new Date(iso));
+}
+
+function safeFileName(s) {
+  const name = oneLine(s).replace(/["*:<>?/\\|#%\u0000-\u001f]/g, "").replace(/\s+/g, " ").replace(/[ .]+$/, "").trim();
+  return name.slice(0, 120) || "Meeting";
+}
+
+function renderNote({ subject, date, meta, meetingId, transcriptId, summary, attendees, decisions, actions, openQuestions }) {
+  const at = (stamp) => (stamp ? ` _(${oneLine(stamp)})_` : "");
+  const heading = new Intl.DateTimeFormat("en-GB", { timeZone: TIMEZONE, day: "numeric", month: "short", year: "numeric" }).format(
+    new Date(meta.createdDateTime),
+  );
+  const lines = [
+    "---",
+    `meeting: ${JSON.stringify(subject)}`,
+    `date: ${date}`,
+    `transcribed: ${JSON.stringify(`${localTime(meta.createdDateTime)}${meta.endDateTime ? ` to ${localTime(meta.endDateTime)}` : ""} (${TIMEZONE})`)}`,
+    `meetingId: ${JSON.stringify(meetingId)}`,
+    `transcriptId: ${JSON.stringify(transcriptId)}`,
+    `written_by: "AI Hub agent, from the Teams transcript"`,
+    "---",
+    "",
+    `# ${oneLine(subject)} — ${heading}`,
+    "",
+    "_Written by an agent from the meeting transcript. Check it against the transcript before relying on it._",
+    "",
+    `**Attendees:** ${attendees?.length ? attendees.map(oneLine).join(", ") : "not recorded"}`,
+    "",
+    "## Summary",
+    "",
+    summary.trim(),
+    "",
+    "## Decisions",
+    "",
+    ...(decisions?.length ? decisions.map((d, i) => `${i + 1}. ${oneLine(d.decision)}${at(d.at)}`) : ["None recorded."]),
+    "",
+    "## Actions",
+    "",
+    ...(actions?.length
+      ? actions.map(
+          (a) =>
+            `- [ ] ${oneLine(a.action)}` +
+            `${a.owner ? ` — **${oneLine(a.owner)}**` : " — owner not stated"}` +
+            `${a.due ? `, due ${oneLine(a.due)}` : ""}${at(a.at)}`,
+        )
+      : ["None recorded."]),
+    "",
+    "## Open questions",
+    "",
+    ...(openQuestions?.length ? openQuestions.map((q) => `- ${oneLine(q)}`) : ["None recorded."]),
+    "",
+  ];
+  return lines.join("\n");
+}
+
+/** Creates the configured folder path where it is missing. Never any other. */
+async function ensureNotesFolder(d) {
+  let parent = "";
+  for (const segment of NOTES_SEGMENTS) {
+    const here = parent ? `${parent}/${segment}` : segment;
+    let exists = true;
+    try {
+      const item = await graphJson(`/drives/${d.id}/root:/${encodePath(here)}`, { $select: "id,folder" });
+      if (!item.folder) throw new Error(`"${here}" exists but is a file, not a folder. Notes cannot be saved there.`);
+    } catch (err) {
+      if (!(err instanceof GraphError && err.status === 404)) throw err;
+      exists = false;
+    }
+    if (!exists) {
+      const target = parent ? `/drives/${d.id}/root:/${encodePath(parent)}:/children` : `/drives/${d.id}/root/children`;
+      try {
+        await graphFetch(target, {
+          method: "POST",
+          json: { name: segment, folder: {}, "@microsoft.graph.conflictBehavior": "fail" },
+        });
+      } catch (err) {
+        // 409: someone created it in the meantime, which is what we wanted.
+        if (!(err instanceof GraphError && err.status === 409)) throw err;
+      }
+    }
+    parent = here;
+  }
+}
+
+/**
+ * Uploads a NEW file, or throws a 409 GraphError if the name is taken.
+ *
+ * An upload session rather than a plain PUT, because the session documents
+ * `conflictBehavior: "fail"`: Graph itself refuses to replace an existing file,
+ * so "create-only" does not rest on this code getting a name check right.
+ */
+async function createNewFile(d, name, body) {
+  const bytes = new TextEncoder().encode(body);
+  const session = await (
+    await graphFetch(`/drives/${d.id}/root:/${encodePath(`${NOTES_FOLDER}/${name}`)}:/createUploadSession`, {
+      method: "POST",
+      json: { item: { "@microsoft.graph.conflictBehavior": "fail" } },
+    })
+  ).json();
+  // The upload URL is pre-authorised and served by SharePoint, not Graph.
+  // Microsoft says not to send the token there, so it is a bare fetch.
+  const res = await fetch(session.uploadUrl, {
+    method: "PUT",
+    headers: { "content-range": `bytes 0-${bytes.length - 1}/${bytes.length}` },
+    body: bytes,
+  });
+  const out = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const err = out.error ?? {};
+    throw new GraphError(res.status, err.code, err.innerError?.code, err.message);
+  }
+  return out;
+}
+
+notesTool(
+  "teams_notes_save",
+  {
+    description:
+      `Save the notes for one transcribed Teams meeting as a NEW Markdown file in the team's "${NOTES_FOLDER}" folder, ` +
+      "named by the meeting's date and subject. Read the whole transcript with teams_transcript_get first. You supply " +
+      "the content; the layout is fixed (summary, decisions, actions with owners, open questions). It never changes an " +
+      "existing file: saving again for the same meeting creates a second one, \"… (2).md\". Returns the file's link.",
+    inputSchema: {
+      meetingId: z.string().min(1).describe("The meetingId from teams_meetings_list."),
+      transcriptId: z.string().min(1).describe("The transcriptId from teams_meetings_list."),
+      summary: z.string().min(1).max(4000).describe("What the meeting was about and what came of it: one or two short paragraphs."),
+      attendees: z
+        .array(z.string().min(1))
+        .optional()
+        .describe("Who took part, by real name. Teams speaker labels can be wrong; correct them from what is said."),
+      decisions: z
+        .array(
+          z.object({
+            decision: z.string().min(1).describe("What was decided, as a statement."),
+            at: z.string().optional().describe("Transcript time it was decided, e.g. 00:12:04."),
+          }),
+        )
+        .optional(),
+      actions: z
+        .array(
+          z.object({
+            action: z.string().min(1).describe("What is to be done."),
+            owner: z.string().optional().describe("Who will do it — only if the transcript says so."),
+            due: z.string().optional().describe("When — only if the transcript says so."),
+            at: z.string().optional().describe("Transcript time it was agreed, e.g. 00:31:10."),
+          }),
+        )
+        .optional(),
+      openQuestions: z.array(z.string().min(1)).optional().describe("What was raised but not settled."),
+    },
+  },
+  async ({ meetingId, transcriptId, ...content }) =>
+    attempt("notes", async () => {
+      // Same scope rule as reading: a note is a summary of the transcript, so a
+      // meeting an agent may not read is a meeting it may not write up.
+      const m = await meeting(meetingId);
+      if (!inScope(m)) return failed(OUT_OF_SCOPE);
+      const meta = await graphJson(
+        `${meetingsPath}/${encodeURIComponent(meetingId)}/transcripts/${encodeURIComponent(transcriptId)}`,
+      );
+
+      const subject = m.subject || "Untitled meeting";
+      const date = localDate(meta.createdDateTime);
+      const body = renderNote({ subject, date, meta, meetingId, transcriptId, ...content });
+
+      const d = await drive();
+      await ensureNotesFolder(d);
+      const base = `${date} ${safeFileName(subject)}`;
+      for (let n = 1; n <= 20; n++) {
+        const name = n === 1 ? `${base}.md` : `${base} (${n}).md`;
+        try {
+          const item = await createNewFile(d, name, body);
+          return text({
+            saved: `${NOTES_FOLDER}/${name}`,
+            webUrl: item.webUrl ?? null,
+            itemId: item.id ?? null,
+            ...(n > 1 ? { note: `Notes for this meeting already existed, so this is a new file beside them; nothing existing was changed.` } : {}),
+          });
+        } catch (err) {
+          if (!(err instanceof GraphError && err.status === 409)) throw err;
+        }
+      }
+      return failed(`There are already 20 notes named "${base}…" in ${NOTES_FOLDER}. Tidy the folder before saving another.`);
+    }),
 );
 
 const transport = new StdioServerTransport();

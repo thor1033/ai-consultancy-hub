@@ -1,4 +1,14 @@
-# Microsoft Teams: transcripts and the team's files
+# Microsoft Teams: transcripts, the team's files, and meeting notes
+
+Two MCP servers, one file (`packages/mcp/servers/teams/server.mjs`):
+
+- **`teams`** — read-only transcripts and files (below).
+- **`teams-notes`** — one tool that saves meeting notes as a **new** Markdown
+  file in one folder, and files them in the knowledge base
+  ([Meeting notes](#meeting-notes-teams-notes)).
+
+They are given to an agent separately. Ticking `teams` never brings the
+ability to write along with it.
 
 The `teams` MCP server gives an agent **read-only** access to two things in
 Microsoft Teams:
@@ -62,6 +72,17 @@ Teams keeps a transcript only when transcription was on in the meeting.
   open it → *Meeting options* → turn on **Record and transcribe
   automatically** if your licence offers it. Otherwise someone clicks *More →
   Record and transcribe → Start transcription* each time.
+- **Graph access to transcripts.** A tenant-wide switch, separate from the
+  policy below, decides whether any app may read transcripts through Graph.
+  When it is off, every transcript call fails with
+  `GraphAccessToTranscriptsDisabled`. Turn it (and speaker names) on:
+
+  ```powershell
+  Update-Module MicrosoftTeams          # the parameters need a recent module
+  Connect-MicrosoftTeams
+  Set-CsTeamsMeetingConfiguration -Identity Global `
+    -EnableGraphTranscriptAccess $true -EnableAttributedTranscripts $true
+  ```
 - **Spoken language.** Transcription assumes English unless told otherwise. If
   a meeting is in Danish, set the spoken language to Danish (when starting
   transcription, or in *Meeting options*) — an English model on Danish speech
@@ -132,6 +153,16 @@ Content-Type: application/json
 `201 Created` means it worked. The `Sites.FullControl.All` consent is Graph
 Explorer's, for this one call; the hub's app never holds it.
 
+Two things that go wrong here:
+
+- **The query goes in the URL bar**, with the method dropdown beside it, not in
+  the *Request body* box. The body box is for the POST's JSON only. A GET typed
+  into it runs whatever is in the URL bar, by default `/me`.
+- **`<client-id>` is the app's *Application (client) ID*** (App registrations
+  → the app → Overview), the same value as `M365_CLIENT_ID`. Not the app's
+  *Object ID*, and not the Enterprise Application's. A grant to the wrong id
+  succeeds and does nothing: check with `GET …/sites/<that id>/permissions`.
+
 ### 4. Set the configuration
 
 In production as Fly secrets, locally in `apps/web/.env.local`:
@@ -165,9 +196,88 @@ or not, and why. Common answers:
 | It says | Fix |
 |---|---|
 | 403 on transcripts | Step 1 consent, or the step 2 policy has not applied yet (wait 30 min). |
-| `GraphAccessToTranscriptsDisabled` | A tenant setting turned off Graph access to transcripts; turn it back on in the Teams admin centre. |
-| 403 on files | Step 3 was not done, or was done for a different app id. |
+| `GraphAccessToTranscriptsDisabled` | The tenant switch is off: `Set-CsTeamsMeetingConfiguration -Identity Global -EnableGraphTranscriptAccess $true` (step 0). |
+| 403 on files | Step 3 was not done, or the grant went to the app's Object ID instead of its Application (client) ID. |
 | "No transcripts" | Nobody turned on transcription in those meetings (step 0). |
+
+## Meeting notes (`teams-notes`)
+
+`teams-notes` has one tool, **`teams_notes_save`**. It writes up one
+transcribed meeting as a new Markdown file in one folder of the team's files,
+`M365_TEAMS_NOTES_FOLDER` (Teqneo: `Meetings/Notes`, so the notes sit in the
+Meetings channel's *Shared* tab). The agent supplies the content, and the
+server lays it out the same way every time:
+
+```markdown
+---
+meeting: "Teqneo Check-In"
+date: 2026-10-21
+transcribed: "Tue, 21 Oct 2026, 20:00 to …"
+meetingId: "…"
+transcriptId: "…"
+written_by: "AI Hub agent, from the Teams transcript"
+---
+
+# Teqneo Check-In — 21 Oct 2026
+
+_Written by an agent from the meeting transcript. Check it against the transcript before relying on it._
+
+**Attendees:** Ditlev Brygmann, Thor Simonsen
+
+## Summary
+## Decisions          1. … _(00:12:04)_
+## Actions            - [ ] … — **Owner**, due … _(00:31:10)_
+## Open questions
+```
+
+The file is named by the meeting's date and subject: `2026-10-21 Teqneo
+Check-In.md`.
+
+**What it can and cannot do.** Microsoft cannot fence a folder: `Sites.Selected`
+grants write on the whole site. So the folder is fenced by the code, in three
+ways:
+
+- **The tool takes no path.** The folder comes from the deployment's
+  configuration, checked at startup (no `..`), so the model has nothing to
+  point elsewhere.
+- **Create only.** The upload asks Graph to *fail* if the name exists
+  (`conflictBehavior: "fail"`), so Graph itself refuses an overwrite. Saving the
+  same meeting again makes `… (2).md`. There is no tool that edits, moves or
+  deletes.
+- **Same scope as reading.** A meeting outside a channel cannot be written up,
+  just as it cannot be read.
+
+**Filed in the knowledge base.** After a run in which a note was saved, the
+hub syncs the notes folder into the **`meetings`** collection (source
+`teams-notes`), so any agent scoped to it can answer "when did we decide X?"
+across meetings. The run's answer ends with a line saying it was filed, or, if
+filing failed, that the note is in Teams but not yet searchable, and why. The
+same sync runs from `/knowledge` → Sources → *Teams meeting notes*. The files
+are the record and the collection is the index: a note deleted in Teams stays
+in the collection until it is deleted there too.
+
+### Setup
+
+1. **Grant write on the site**, in Graph Explorer, exactly as in step 3 above,
+   with `"roles": ["write"]` (write includes read). Check with the GET: the app
+   should now show `write`.
+2. **Set the folder:**
+   `flyctl secrets set -a teqneo-ai-hub M365_TEAMS_NOTES_FOLDER='Meetings/Notes'`.
+   The folder is created on the first save if it does not exist.
+3. **Give the agent both servers**, `/agents` → the agent → Settings → What it
+   may use: **`teams`** (to read the transcript) and **`teams-notes`** (to save).
+   Then **What it may read** → include the `meetings` collection, so it can find
+   past notes.
+4. **Try it:** *"Write the notes for the most recent Teqneo Check-In."* The
+   answer links to the new file. `teams_status` (on `teams`) shows the notes
+   folder and whether it exists yet.
+
+If a save fails with 403 after the folder exists, the app was granted read but
+not write (step 1).
+
+**Automatic later.** Once you trust the notes, add a schedule to the agent,
+e.g. every evening: *"Write notes for any meeting transcribed today that has
+none yet in Meetings/Notes."* Until then, ask for each one.
 
 ## Your colleague without a Microsoft account
 
@@ -188,6 +298,7 @@ files.
 | `teams_files_list` | What is in a folder? Each channel has a folder named after it. |
 | `teams_files_search` | Which files mention this? |
 | `teams_file_read` | A file's text, a page at a time: Word, PowerPoint (in slide order), Excel (sheet by sheet), PDF, `.vtt`, HTML, plain text. |
+| `teams_notes_save` | **`teams-notes` only.** Saves one meeting's notes as a new file in the notes folder. |
 
 Details that are load-bearing and easy to regress, all asserted in the
 verifier:
@@ -210,7 +321,8 @@ verifier:
 ## Verify
 
 ```bash
-node packages/mcp/verify-teams.mjs          # or: npm run verify:teams -w @ai-hub/mcp
+npm run verify:teams -w @ai-hub/mcp
+# or: node --experimental-transform-types packages/mcp/verify-teams.mjs
 ```
 
 No tenant, no app registration, no database. A throwaway HTTP server stands in
@@ -222,20 +334,36 @@ meeting is hidden from the list and refused by id, the attribution fallback,
 paging that joins up with nothing lost, and that no oversized or unreadable
 file is ever downloaded.
 
-What it cannot prove is that the live tenant is configured. That is what
-`teams_status` is for.
+For notes it drives the write path end to end:
+- the read server never carries the write tool, even with `HUB_TEAMS_MODE=notes`
+  in the environment;
+- the missing folder is created where it should be;
+- the upload session asks Graph to fail on an existing name;
+- the bytes go to the upload URL without the token;
+- a second save makes `(2)` and leaves the first file untouched;
+- a private meeting is refused before any upload starts;
+- the knowledge source reads the notes back through the read server.
+
+89 checks.
+
+What it cannot prove: that the live tenant is configured (`teams_status` is
+for that, and a first save is the only proof of write access), and the few
+lines in `runSession` that file notes after a run. Those need a fake model
+that streams, which the web test scripts do not have yet; `verify:scheduler`
+fails today for the same reason.
 
 ## What this increment deliberately does not do
 
-- **Write anything.** Meeting notes and decks saved to SharePoint are the next
-  step, and should arrive as one tool that creates new files in one folder,
-  never as a general "save" or "overwrite".
+- **Write anything but new notes.** No editing, moving or deleting, and no
+  folder but the configured one. Decks are next, and get the same treatment: one
+  create-only tool, one folder.
+- **Write notes automatically.** That is a schedule on the agent, added once the
+  notes have earned trust.
 - **Read meetings someone else organised.** The access policy is granted to
   one organiser. Adding a second person is a second
   `Grant-CsApplicationAccessPolicy` and a change to accept several ids.
-- **Index the files into the knowledge base.** Agents read files live. Copying
-  the library into `/knowledge` for search across everything is a source
-  connector, built when it is needed.
+- **Index the whole library into the knowledge base.** Only the notes folder is
+  indexed. Agents read other files live.
 - **Speaker notes in decks, old `.doc`/`.xls`/`.ppt`, images, scanned PDFs.**
   The last has no text to extract; the tool says so rather than returning
   nothing.
