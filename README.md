@@ -58,6 +58,10 @@ hub/
   time on chosen weekdays. Runs execute as the principal who owns the schedule,
   so an unattended run has exactly the reach of the person who asked for it.
   Off unless `HUB_SCHEDULER=1` ([docs/schedules.md](docs/schedules.md)).
+- **Decks** (`/decks`) — presentations drawn in the Teqneo design that change while you
+  present: a question from the room becomes a slide in the presenter's tray, and goes on
+  screen when they say so. Built here or from Claude Code (`hub_deck_*`), exported as PDF
+  ([docs/decks.md](docs/decks.md)).
 - **Approvals** (`/approvals`) — no agent writes unattended. A tool call that would
   change something is held, shown to a person with its exact arguments, and run only
   when they approve ([docs/approvals.md](docs/approvals.md)).

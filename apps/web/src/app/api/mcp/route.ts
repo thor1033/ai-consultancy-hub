@@ -2,6 +2,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { authenticate } from "@ai-hub/authz";
 import { wwwAuthenticate } from "@/lib/authz";
 import { buildHubMcpServer } from "@/lib/mcp/hubServer";
+import { appBaseUrl } from "@/lib/baseUrl";
 
 /*
  * The hub as an MCP server: the endpoint Claude Code connects to.
@@ -47,7 +48,7 @@ export async function POST(request: Request): Promise<Response> {
     enableJsonResponse: true,
   });
 
-  const server = await buildHubMcpServer(principal);
+  const server = await buildHubMcpServer(principal, { baseUrl: appBaseUrl(request.headers) });
   await server.connect(transport);
 
   try {

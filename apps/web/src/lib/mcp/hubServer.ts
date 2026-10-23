@@ -20,6 +20,7 @@ import {
   listProposals,
 } from "@ai-hub/db";
 import { approve, reject } from "@/lib/approvals";
+import { registerDeckTools } from "@/lib/mcp/deckTools";
 import { remoteServerConfig, remoteServerInfo } from "@ai-hub/mcp";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
@@ -52,7 +53,10 @@ import {
  * hub that is a cross-client read, not a demo bug.
  */
 
-export async function buildHubMcpServer(principal: Principal): Promise<McpServer> {
+export async function buildHubMcpServer(
+  principal: Principal,
+  opts: { baseUrl?: string } = {},
+): Promise<McpServer> {
   const may = async (action: Parameters<typeof authorize>[1]) =>
     authorize(principal, action);
 
@@ -592,6 +596,8 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         });
       },
     );
+
+    registerDeckTools(server, principal, opts.baseUrl);
   }
 
   // --- The person's own systems, through the one door ----------------------

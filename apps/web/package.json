@@ -13,7 +13,8 @@
     "verify:large-args": "node --experimental-transform-types verify-large-args.mjs",
     "verify:local-agents": "node --experimental-transform-types --env-file=.env.local verify-local-agents.mjs",
     "verify:identity": "node --experimental-transform-types --env-file=.env.local verify-identity.mjs",
-    "verify:approvals": "node --experimental-transform-types --env-file=.env.local verify-approvals.mjs"
+    "verify:approvals": "node --experimental-transform-types --env-file=.env.local verify-approvals.mjs",
+    "verify:decks": "node --experimental-transform-types --env-file=.env.local verify-decks.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",

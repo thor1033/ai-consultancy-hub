@@ -738,3 +738,370 @@
     animation: none;
   }
 }
+
+/* ------------------------------------------------------------------ *
+ *  Slides (components/slides/Slide.tsx) — 1280×720, always light.
+ *
+ *  The design system scaled to a room: paper ground, black type, red as
+ *  the one structural accent, hairlines rather than boxes, nothing rounded.
+ *  Sizes are for the back of a meeting room at 1080p, which is why the
+ *  body copy starts at 28px and the schema caps how much text a slide
+ *  takes. Fixed --tk-* colours, never the theme aliases: a slide does not
+ *  turn dark with the hub.
+ * ------------------------------------------------------------------ */
+.slide {
+  position: relative;
+  width: 1280px;
+  height: 720px;
+  overflow: hidden;
+  background: var(--tk-paper);
+  color: var(--tk-black);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+.slide-body {
+  position: absolute;
+  inset: 64px 88px 84px 88px;
+}
+.slide-kicker {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: var(--tk-red);
+  margin-bottom: 18px;
+}
+.slide-title {
+  font-size: 50px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 1.06;
+  margin: 0 0 36px;
+  max-width: 1040px;
+}
+.slide strong {
+  font-weight: 700;
+}
+.slide-bullets {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  font-size: 28px;
+  line-height: 1.32;
+  max-width: 1060px;
+}
+.slide-bullets li {
+  position: relative;
+  padding-left: 34px;
+}
+.slide-bullets li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.5em;
+  width: 11px;
+  height: 11px;
+  background: var(--tk-red);
+}
+.slide-dense .slide-bullets {
+  font-size: 24px;
+  gap: 13px;
+}
+.slide-denser .slide-bullets {
+  font-size: 21px;
+  gap: 10px;
+}
+.slide-dense .slide-title,
+.slide-denser .slide-title {
+  font-size: 42px;
+  margin-bottom: 28px;
+}
+
+/* title & section: the cover and the divider */
+.slide-cover {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.slide-rule {
+  display: block;
+  width: 72px;
+  height: 5px;
+  background: var(--tk-red);
+  margin-bottom: 36px;
+}
+.slide-cover-title {
+  font-size: 78px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1;
+  margin: 0;
+  max-width: 1000px;
+}
+.slide-subtitle {
+  margin: 28px 0 0;
+  font-size: 30px;
+  line-height: 1.3;
+  color: var(--tk-ink-2);
+  max-width: 900px;
+}
+.slide-k-section {
+  background: var(--tk-black);
+  color: var(--tk-paper);
+}
+.slide-k-section .slide-subtitle {
+  color: var(--tk-ink-4);
+}
+.slide-k-section .slide-foot {
+  border-color: rgba(241, 235, 221, 0.16);
+  color: var(--tk-ink-4);
+}
+.slide-k-section .slide-wordmark {
+  color: var(--tk-paper);
+}
+.slide-section-title {
+  font-size: 72px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+  margin: 0;
+  max-width: 1000px;
+}
+
+/* columns */
+.slide-columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 56px;
+}
+.slide-columns .slide-bullets {
+  font-size: 25px;
+  gap: 14px;
+}
+.slide-dense .slide-columns .slide-bullets,
+.slide-denser .slide-columns .slide-bullets {
+  font-size: 21px;
+  gap: 10px;
+}
+.slide-col-head {
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.22em;
+  text-transform: uppercase;
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--tk-black);
+}
+
+/* table */
+.slide-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 23px;
+  line-height: 1.3;
+}
+.slide-table th {
+  text-align: left;
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--tk-ink-3);
+  padding: 0 20px 12px 0;
+  border-bottom: 2px solid var(--tk-black);
+}
+.slide-table td {
+  padding: 13px 20px 13px 0;
+  border-bottom: 1px solid rgba(11, 11, 11, 0.14);
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+.slide-table td:first-child {
+  font-weight: 600;
+}
+.slide-dense .slide-table {
+  font-size: 19px;
+}
+.slide-dense .slide-table td {
+  padding: 9px 18px 9px 0;
+}
+
+/* stats */
+.slide-stats {
+  display: grid;
+  gap: 40px;
+  margin-top: 40px;
+}
+.slide-stat {
+  border-top: 3px solid var(--tk-black);
+  padding-top: 22px;
+}
+.slide-stat-value {
+  font-size: 88px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.slide-stat:first-child .slide-stat-value {
+  color: var(--tk-red);
+}
+.slide-stat-label {
+  margin-top: 16px;
+  font-size: 22px;
+  line-height: 1.3;
+  color: var(--tk-ink-2);
+}
+
+/* bars */
+.slide-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.slide-bars-tight {
+  gap: 12px;
+}
+.slide-bar-row {
+  display: grid;
+  grid-template-columns: 280px 1fr 140px;
+  align-items: center;
+  gap: 24px;
+  font-size: 22px;
+}
+.slide-bar-label {
+  text-align: right;
+  color: var(--tk-ink-2);
+}
+.slide-bar-track {
+  height: 30px;
+}
+.slide-bars-tight .slide-bar-track {
+  height: 22px;
+}
+.slide-bar {
+  height: 100%;
+  background: var(--tk-black);
+}
+.slide-bar-row:first-child .slide-bar {
+  background: var(--tk-red);
+}
+.slide-bar-value {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.slide-bar-unit {
+  margin-left: 4px;
+  font-weight: 400;
+  color: var(--tk-ink-3);
+}
+
+/* quote */
+.slide-quote-wrap {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.slide-quote {
+  margin: 0;
+  padding-left: 40px;
+  border-left: 5px solid var(--tk-red);
+  font-size: 46px;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  max-width: 1040px;
+}
+.slide-quote-long {
+  font-size: 34px;
+}
+.slide-attribution {
+  margin: 28px 0 0 45px;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--tk-ink-3);
+}
+
+/* footer */
+.slide-foot {
+  position: absolute;
+  left: 88px;
+  right: 88px;
+  bottom: 0;
+  height: 60px;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  border-top: 1px solid rgba(11, 11, 11, 0.12);
+  color: var(--tk-ink-3);
+  font-size: 13px;
+}
+.slide-brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--tk-black);
+}
+.slide-k-section .slide-brand {
+  color: var(--tk-paper);
+}
+.slide-wordmark {
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.42em;
+  text-transform: uppercase;
+}
+.slide-deck {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.slide-page {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Print: one slide per page, nothing of the hub around it. */
+@media print {
+  @page {
+    size: 1280px 720px;
+    margin: 0;
+  }
+  body * {
+    visibility: hidden;
+  }
+  .deck-print,
+  .deck-print * {
+    visibility: visible;
+  }
+  .deck-print {
+    position: absolute !important;
+    inset: auto !important;
+    left: 0 !important;
+    top: 0 !important;
+    overflow: visible !important;
+    background: none !important;
+    padding: 0 !important;
+  }
+  .deck-print-page {
+    break-after: page;
+    margin: 0 !important;
+    box-shadow: none !important;
+  }
+  .deck-print-toolbar {
+    display: none !important;
+  }
+}
