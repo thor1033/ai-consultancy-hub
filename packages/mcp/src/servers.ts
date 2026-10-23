@@ -12,11 +12,16 @@ import type { McpStdioConfig } from "./manager";
 // deployment gets a connection error naming the missing variable instead of a
 // server that silently answers nothing.
 //
+// `teams` is the same shape for Microsoft Teams: meeting transcripts and the
+// team's SharePoint files, read-only, on the same M365_* app registration. Each
+// half is fenced by Microsoft (an access policy for one organiser's meetings,
+// Sites.Selected for one site) and switched on by its own variable.
+//
 // What is NOT here: `memory`, which is deliberately not resolvable by name (see
 // below), and whatever HUB_REMOTE_MCP_SERVERS declares over HTTP. Adding a new
 // bundled server means dropping it in ../servers/<name>/server.mjs and naming it
 // here.
-export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365"];
+export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365", "teams"];
 
 /** Bundled servers that read one mailbox, and so take a per-agent `mailbox`. */
 export const MAILBOX_SERVER_NAMES: readonly string[] = ["microsoft365"];
