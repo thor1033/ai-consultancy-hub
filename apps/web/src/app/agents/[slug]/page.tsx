@@ -21,7 +21,7 @@ import { sessionCan, sessionKnowledgeAccess, sessionPrincipal } from "@/lib/sess
 import { DAYS, money, rel } from "@/lib/format";
 import { AgentForm } from "../AgentForm";
 import { toolCatalog } from "../catalog";
-import { MODELS, agentToolName, serverMailboxes, serverNames, skillToolName } from "../models";
+import { MODELS, agentToolName, serverMailboxes, serverNames, serverWritesAllowed, skillToolName } from "../models";
 import { AgentTabs } from "./AgentTabs";
 import { AgentChat } from "./AgentChat";
 import { MemoryPanel } from "./MemoryPanel";
@@ -43,6 +43,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
 
   const named = serverNames(agent.mcpServers).filter((n) => n !== "memory");
   const mailboxes = serverMailboxes(agent.mcpServers);
+  const writesAllowed = serverWritesAllowed(agent.mcpServers);
   // Everything below is display; a failure in one source must not take the
   // page (and with it the only way to fix the agent) down.
   const [memories, collections, skills, runs, schedules, roster, tools, canManage, activity, admin, viewer] =
@@ -309,12 +310,14 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           enabled: agent.enabled,
           placement: agent.placement,
           mailboxes,
+          writesAllowed,
         }}
         tools={tools}
         collections={collections}
         defaultMaxIterations={DEFAULT_MAX_ITERATIONS}
         maxIterationsCeiling={MAX_ITERATIONS_CEILING}
         canSetPlacement={Boolean(admin)}
+        canAllowWrites={Boolean(admin)}
         localFiles={renderAgentFiles(agent, skills, baseUrl)}
       />
     </>

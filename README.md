@@ -58,6 +58,9 @@ hub/
   time on chosen weekdays. Runs execute as the principal who owns the schedule,
   so an unattended run has exactly the reach of the person who asked for it.
   Off unless `HUB_SCHEDULER=1` ([docs/schedules.md](docs/schedules.md)).
+- **Approvals** (`/approvals`) — no agent writes unattended. A tool call that would
+  change something is held, shown to a person with its exact arguments, and run only
+  when they approve ([docs/approvals.md](docs/approvals.md)).
 - **Control plane** (`/admin`) — people, credentials and the audit trail; which shared
   drives each person may open ([docs/knowledge-access.md](docs/knowledge-access.md));
   and enabling or disabling registered servers.

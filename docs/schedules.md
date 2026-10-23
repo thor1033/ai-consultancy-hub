@@ -112,12 +112,10 @@ reach the live PM-tool; both need `DATABASE_URL` and clean up after themselves.
 
 - **No editing.** A schedule is created, switched on or off, run by hand and
   deleted from its agent's page; changing its time means making it again.
-- **Nothing to gate.** The natural next step for a secretary is *drafting* a
-  reply, and that is the point where an approval step has to exist. Right now
-  there is nothing to approve: the Microsoft 365 server has no tool that writes
-  ([secretary-agent.md](secretary-agent.md)), so a scheduled run can read and
-  report and nothing else. Keep that order — the gate must land with the first
-  write tool, not after it.
+- **Writes still wait for a person.** A scheduled run's writes are held like
+  any other agent's ([approvals.md](approvals.md)); the owner finds them on
+  `/approvals`. Nothing wakes the owner up: a morning run that proposed three
+  changes sits there until they look.
 - **No webhook.** A schedule is a clock, not a subscription. Reacting to mail as
   it arrives means a Graph change notification endpoint, which is its own
   increment.

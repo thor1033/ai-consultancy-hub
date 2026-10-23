@@ -636,8 +636,15 @@ const server = new McpServer(
 // The read tools exist only on the read server, the write tool only on the
 // notes server. Registration is the fence: a tool that was never registered
 // cannot be called, whatever the model asks for.
-const readTool = MODE === "read" ? server.registerTool.bind(server) : () => {};
-const notesTool = MODE === "notes" ? server.registerTool.bind(server) : () => {};
+//
+// Each tool also SAYS which it is (readOnlyHint). The hub's approval gate
+// holds any tool not declared read-only for a person, so the read tools
+// declare it and pass, and teams_notes_save declares the opposite and is held
+// until someone approves the file it would create.
+const withHint = (hint) => (name, config, handler) =>
+  server.registerTool(name, { ...config, annotations: { ...hint, ...(config.annotations ?? {}) } }, handler);
+const readTool = MODE === "read" ? withHint({ readOnlyHint: true }) : () => {};
+const notesTool = MODE === "notes" ? withHint({ readOnlyHint: false, destructiveHint: false }) : () => {};
 
 readTool(
   "teams_status",

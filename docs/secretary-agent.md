@@ -46,6 +46,13 @@ already exists does the confirming and the applying. `call.args` holds the
 literal arguments to be sent, so what a reviewer approves is byte-for-byte what
 gets sent, and nothing is re-derived at apply time.
 
+The hub now has a general version of this: any agent's write is held for a
+person's approval unless an admin says otherwise ([approvals.md](approvals.md)).
+The Secretary keeps its read-scoped credential regardless; two fences are not a
+contradiction, and the credential is the one a prompt cannot talk its way past.
+When it is time for the Secretary to draft or book, the way to do it is to give
+it the write-capable entry and let the gate hold each call.
+
 ## The skill
 
 `hub_skill_meeting_to_pm`, in any MCP client:

@@ -421,3 +421,47 @@ create table if not exists agent_local_calls (
   at           timestamptz not null default now()
 );
 create index if not exists agent_local_calls_agent_idx on agent_local_calls (agent_id, at desc);
+
+-- ---------------------------------------------------------------------------
+-- Proposals: the approval gate (docs/approvals.md).
+--
+-- An agent's call to a tool that WRITES is not executed; it is written here
+-- and the model is told it was held. A person approves it on /approvals (or
+-- through the hub's MCP tools), and the hub executes the very call that was
+-- held, with the arguments that were shown. Nothing is re-derived at approval
+-- time: what the approver saw is what runs.
+--
+-- Which calls are held is decided per agent, per server entry
+-- (`"writes": "allow"` lets an entry write unattended; the default asks).
+-- A tool is a write unless its server says readOnlyHint: true — "not proven
+-- read-only" is the safe reading, as it is for dropWrites in proxyTools.ts.
+-- The agent's own memory is exempt: it never leaves the hub.
+--
+--   pending   held, nobody has decided
+--   approved  claimed by an approver, being executed (transient)
+--   executed  ran; `result` holds what the tool returned
+--   failed    approved, but the tool call failed; `error` says why
+--   rejected  a person said no; `note` may say why
+-- ---------------------------------------------------------------------------
+create table if not exists proposals (
+  id            uuid primary key default gen_random_uuid(),
+  agent_id      uuid references agents(id) on delete cascade,
+  run_id        uuid references agent_sessions(id) on delete set null,
+  -- Whose reach the run had. Null for a workbench session with no principal.
+  principal_id  text references principals(id) on delete cascade,
+  server        text not null,
+  tool          text not null,
+  args          jsonb not null default '{}'::jsonb,
+  description   text not null default '',      -- the tool's own description, for the reader
+  status        text not null default 'pending'
+                check (status in ('pending', 'approved', 'executed', 'failed', 'rejected')),
+  decided_by    text,
+  decided_at    timestamptz,
+  note          text,
+  result        text,
+  error         text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists proposals_status_idx on proposals (status, created_at desc);
+create index if not exists proposals_run_idx on proposals (run_id);
+create index if not exists proposals_principal_idx on proposals (principal_id, status);

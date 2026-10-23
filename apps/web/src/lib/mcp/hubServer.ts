@@ -17,7 +17,9 @@ import {
   getRunStatus,
   runsOnHub,
   disabledMcpServerNames,
+  listProposals,
 } from "@ai-hub/db";
+import { approve, reject } from "@/lib/approvals";
 import { remoteServerConfig, remoteServerInfo } from "@ai-hub/mcp";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
@@ -488,21 +490,105 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         // own output, so someone else's id must not resolve here.
         const run = await getRunStatus(runId, principal.id);
         if (!run) return text(`No run ${runId} belongs to you.`);
+        // Writes the run wanted to make and could not: the caller is the one
+        // who can approve them, so they travel with the status.
+        const held = (await listProposals({ runId, status: "pending" })).map((p) => ({
+          proposal: p.id,
+          tool: p.tool,
+          server: p.server,
+          args: p.args,
+        }));
+        const heldNote = held.length
+          ? { heldForApproval: held, hint: "Approve or reject each with hub_decide_proposal, or on the hub's Approvals page." }
+          : {};
         if (run.status === "running") {
           return text({
             status: "running",
             startedAt: run.startedAt,
             hint: "Still working. Check again in a few seconds.",
+            ...heldNote,
           });
         }
         if (run.status === "failed") {
-          return text({ status: "failed", error: run.error ?? "The run failed." });
+          return text({ status: "failed", error: run.error ?? "The run failed.", ...heldNote });
         }
         return text({
           status: run.status,
           output: run.output,
           toolsUsed: run.toolsUsed,
           finishedAt: run.finishedAt,
+          ...heldNote,
+        });
+      },
+    );
+
+    // --- The approval gate, from a client -----------------------------------
+    //
+    // An agent's write is held as a proposal (lib/approvals.ts). The person it
+    // acted as, or an admin, decides; a credential bound to an agent cannot,
+    // because an agent approving its own writes is no gate at all.
+    server.registerTool(
+      "hub_list_proposals",
+      {
+        description:
+          "Writes that agents wanted to make and are waiting for a person's approval. " +
+          "Yours: the ones from runs that acted as you (all of them, for an admin). " +
+          "Nothing listed here has happened yet.",
+        inputSchema: {
+          status: z
+            .enum(["pending", "executed", "failed", "rejected"])
+            .optional()
+            .describe("Default: pending."),
+        },
+      },
+      async ({ status }) => {
+        const admin = await may("admin:manage");
+        const rows = await listProposals({
+          status: status ?? "pending",
+          ...(admin ? {} : { principalId: principal.id }),
+          limit: 50,
+        });
+        if (!rows.length) return text(`No ${status ?? "pending"} proposals.`);
+        return text(
+          rows.map((p) => ({
+            proposal: p.id,
+            agent: p.agentSlug,
+            tool: p.tool,
+            server: p.server,
+            args: p.args,
+            description: p.description,
+            status: p.status,
+            createdAt: p.createdAt,
+            ...(p.result ? { result: p.result.slice(0, 2000) } : {}),
+            ...(p.error ? { error: p.error } : {}),
+          })),
+        );
+      },
+    );
+
+    server.registerTool(
+      "hub_decide_proposal",
+      {
+        description:
+          "Approve or reject a held write. Approving runs the exact call that was held, " +
+          "with the arguments shown by hub_list_proposals, and returns what the tool said. " +
+          "Only a person may decide: ask them before calling this on their behalf.",
+        inputSchema: {
+          proposal: z.string().min(1).describe("The proposal id."),
+          decision: z.enum(["approve", "reject"]),
+          note: z.string().max(2000).optional().describe("For a rejection: why, if you want it recorded."),
+        },
+      },
+      async ({ proposal, decision, note }) => {
+        const res = decision === "approve" ? await approve(proposal, principal) : await reject(proposal, principal, note);
+        if ("error" in res) return { ...text(res.error), isError: true };
+        const p = res.proposal;
+        return text({
+          proposal: p.id,
+          tool: p.tool,
+          status: p.status,
+          ...(p.result ? { result: p.result } : {}),
+          ...(p.error ? { error: p.error } : {}),
         });
       },
     );

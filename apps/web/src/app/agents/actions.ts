@@ -32,7 +32,7 @@ import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
 import { listSkills, createSkill, updateSkill, deleteSkill, type SkillParameter } from "@ai-hub/db";
 import { fillTemplate, undeclaredPlaceholders } from "@/lib/skillPrompt";
 import { runAgentForPrincipal, runSkillForPrincipal } from "@/lib/agentRuns";
-import { MAILBOX_SERVERS } from "./models";
+import { MAILBOX_SERVERS, serverWritesAllowed } from "./models";
 import { isUniqueViolation } from "@/lib/apiError";
 
 // Server actions for the agents console. Each one checks the signed-in user's
@@ -77,6 +77,10 @@ export async function saveAgentAction(
   const already = new Set(
     (existing?.mcpServers ?? []).map((e) => String((e as { name?: unknown }).name ?? "")),
   );
+  // Letting an agent write without approval widens what it may do unattended,
+  // so turning it on is admin-only; an entry that already has it keeps it.
+  const alreadyAllowed = new Set(serverWritesAllowed(existing?.mcpServers ?? []));
+  const admin = await sessionCan("admin:manage");
   // Rebuilt field by field rather than stored as sent. An entry is read back
   // at run time and a setting in it lands in a server's environment, so only
   // the settings a server is known to take get through, each checked.
@@ -93,6 +97,16 @@ export async function saveAgentAction(
         return { error: `"${mailbox.trim()}" is not a mailbox address.` };
       }
       entry.mailbox = clean;
+    }
+    const writes = (e as { writes?: unknown }).writes;
+    if (writes !== undefined && writes !== "ask" && writes !== "allow") {
+      return { error: `"${name}": writes must be "ask" or "allow".` };
+    }
+    if (writes === "allow") {
+      if (!alreadyAllowed.has(name) && !admin) {
+        return { error: `Only an admin can let an agent write through "${name}" without approval.` };
+      }
+      entry.writes = "allow";
     }
     servers.push(entry);
   }

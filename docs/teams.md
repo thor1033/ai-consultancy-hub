@@ -202,7 +202,11 @@ or not, and why. Common answers:
 
 ## Meeting notes (`teams-notes`)
 
-`teams-notes` has one tool, **`teams_notes_save`**. It writes up one
+`teams-notes` has one tool, **`teams_notes_save`**. Like every tool that
+writes, an agent's call to it is held for a person's approval unless an admin
+has switched that off for the agent's entry ([approvals.md](approvals.md));
+the file is created when someone approves, and the next sync of the notes
+source files it in the knowledge base. It writes up one
 transcribed meeting as a new Markdown file in one folder of the team's files,
 `M365_TEAMS_NOTES_FOLDER` (Teqneo: `Meetings/Notes`, so the notes sit in the
 Meetings channel's *Shared* tab). The agent supplies the content, and the

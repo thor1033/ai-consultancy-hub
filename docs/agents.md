@@ -109,6 +109,14 @@ and `retrievalScope()` in `packages/db/src/agents.ts` turn the two columns into
 retrieval options, and every run path goes through them so the three scopes
 mean the same thing in the console, on a schedule and from Claude Code.
 
+### Writes wait for a person
+
+A tool call that would write — anything its server does not mark read-only —
+is not executed. It is held as a proposal, the model is told, and a person
+approves or rejects it on `/approvals`. Per agent, per server, an admin can
+switch the gate off ("Writes need a person's approval" under What it may use).
+The agent's own memory is never held. See [approvals.md](approvals.md).
+
 ### Tool-use rounds
 
 A run is a loop: the model asks for tools, the hub runs them, the model asks

@@ -64,6 +64,16 @@ export type {
   HubRun,
 } from "./agents";
 export { contextSnapshot } from "./context";
+export {
+  createProposal,
+  getProposal,
+  listProposals,
+  pendingProposalCount,
+  claimProposal,
+  finishProposal,
+  rejectProposal,
+} from "./proposals";
+export type { Proposal, ProposalInput, ProposalFilter, ProposalStatus } from "./proposals";
 export type {
   ContextSnapshot,
   ContextAgent,

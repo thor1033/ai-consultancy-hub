@@ -13,6 +13,7 @@ import {
 } from "@ai-hub/mcp";
 import { recordSession, finishRun, disabledMcpServerNames } from "@ai-hub/db";
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
+import { gatedExecutor } from "@/lib/approvals";
 
 // The code-owned servers the hub starts itself.
 const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
@@ -121,6 +122,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
   if (input.agentId && !servers.includes("memory")) servers.push("memory");
 
   let mcp: ConnectedMcp | undefined;
+  const held = new Set<string>();
   try {
     const entryFor = (name: string) => input.serverEntries?.find((e) => entryName(e) === name);
     const configs = servers
@@ -137,7 +139,16 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       effort: input.effort,
       maxIterations: input.maxIterations,
       tools: mcp?.tools,
-      toolExecutor: mcp?.execute,
+      // Writes are held for a person (lib/approvals.ts); reads pass through.
+      toolExecutor: mcp
+        ? gatedExecutor(mcp, {
+            agentId: input.agentId,
+            runId: input.runId,
+            principalId: input.principalId,
+            entries: input.serverEntries,
+            held,
+          })
+        : undefined,
       metadata: input.agentId
         ? { source: "agent", agentId: input.agentId, servers }
         : { source: "workbench", servers },
@@ -146,8 +157,12 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
     // A note saved to Teams is filed in the knowledge base in the same run, so
     // "write up the meeting" leaves it searchable with no second step. The
     // outcome goes into the answer itself: a filing that failed quietly would
-    // leave a person believing agents can find a meeting they cannot.
-    if (result.toolsUsed.includes("teams_notes_save")) result.text += await fileMeetingNotes();
+    // leave a person believing agents can find a meeting they cannot. Not when
+    // the save was held for approval: nothing was written, so there is nothing
+    // to file; the next sync of the notes source picks it up once approved.
+    if (result.toolsUsed.includes("teams_notes_save") && !held.has("teams_notes_save")) {
+      result.text += await fileMeetingNotes();
+    }
 
     let sessionId: string;
     if (input.runId) {

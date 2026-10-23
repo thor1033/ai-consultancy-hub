@@ -57,6 +57,17 @@ export const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/approvals",
+    label: "Approvals",
+    icon: (
+      // A square with a tick inside: a decision a person makes.
+      <svg {...s}>
+        <rect x="3" y="3" width="18" height="18" />
+        <path d="M7 12.5l3.5 3.5L17 9" />
+      </svg>
+    ),
+  },
+  {
     href: "/context",
     label: "Context",
     icon: (

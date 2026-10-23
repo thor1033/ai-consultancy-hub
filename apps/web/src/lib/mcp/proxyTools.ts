@@ -74,8 +74,8 @@ export interface ProxyOptions {
   dropWrites: boolean;
   /** Names already registered on the server; a clash keeps the existing tool. */
   taken: Set<string>;
-  /** Wraps each handler — the endpoints use it to log calls. */
-  wrap?: (name: string, fn: (args: unknown) => Promise<unknown>) => (args: unknown) => Promise<unknown>;
+  /** Wraps each handler — the endpoints use it to log calls and to hold writes. */
+  wrap?: (name: string, fn: (args: unknown) => Promise<unknown>, tool: McpToolInfo) => (args: unknown) => Promise<unknown>;
   /** The upstream could not be reached; it is skipped rather than failing the endpoint. */
   onUnavailable?: (err: unknown) => void;
 }
@@ -119,7 +119,7 @@ export async function registerProxiedTools(server: McpServer, opts: ProxyOptions
         } finally {
           await mcp.close();
         }
-      }) as never,
+      }, tool) as never,
     );
   }
   return registered;

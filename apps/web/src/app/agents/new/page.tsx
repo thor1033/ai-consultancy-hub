@@ -56,12 +56,14 @@ export default async function NewAgentPage() {
             enabled: true,
             placement: "hub",
             mailboxes: {},
+            writesAllowed: [],
           }}
           tools={tools}
           collections={collections}
           defaultMaxIterations={DEFAULT_MAX_ITERATIONS}
           maxIterationsCeiling={MAX_ITERATIONS_CEILING}
           canSetPlacement={Boolean(admin)}
+          canAllowWrites={Boolean(admin)}
           localFiles={[]}
         />
       </div>

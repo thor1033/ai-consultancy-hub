@@ -25,9 +25,10 @@ memory and knowledge are reached through one endpoint per agent,
 
 - **Tools.** The agent's configured servers (PM-tool, `microsoft365`, …) are
   dialled by the hub with the hub's credential and proxied through. The
-  PM-tool token never leaves the hub, so "the secretary cannot write" is still a
-  property of the read-only token it holds rather than of a prompt someone can
-  edit (see [secretary-agent.md](secretary-agent.md)).
+  PM-tool token never leaves the hub, and a call that would write is held for a
+  person's approval exactly as it is for a hub run
+  ([approvals.md](approvals.md)), so what a local agent may change is decided
+  here, not by a prompt someone can edit.
 - **Memory.** The agent's own, and only its own. The id is closed over by the
   server; no tool takes an agent id ([agents.md](agents.md#memory)).
 - **Knowledge.** Retrieved as the *caller*, narrowed to the agent's collections,

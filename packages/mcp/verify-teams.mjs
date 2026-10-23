@@ -414,6 +414,11 @@ try {
     check("connects over stdio and lists six tools", names.length === 6, names.join(", "));
     const writeish = names.filter((n) => /upload|write|create|update|delete|move|share|send|put|save/i.test(n));
     check("no tool can upload, change or delete anything", writeish.length === 0, writeish.join(", ") || "read-only");
+    check(
+      "every read tool declares readOnlyHint: true, so the hub's approval gate waves it through",
+      mcp.details.every((t) => t.annotations?.readOnlyHint === true),
+      mcp.details.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name).join(", ") || "all declared",
+    );
 
     const status = parse(await mcp.execute("teams_status", {}));
     check("teams_status: both halves working", status.transcripts?.working === true && status.files?.working === true, JSON.stringify(status).slice(0, 120));
@@ -657,6 +662,11 @@ try {
   try {
     const names = writer.tools.map((t) => t.name);
     check("the notes server has exactly one tool", names.length === 1 && names[0] === "teams_notes_save", names.join(", "));
+    check(
+      "and it declares itself a write (readOnlyHint: false), so the hub holds it for approval",
+      writer.details[0]?.annotations?.readOnlyHint === false,
+      JSON.stringify(writer.details[0]?.annotations),
+    );
 
     const before = requests.length;
     const saved = parse(await writer.execute("teams_notes_save", { meetingId: "mtg-checkin", transcriptId: "tr-checkin-2", ...CONTENT }));

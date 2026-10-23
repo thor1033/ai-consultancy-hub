@@ -29,6 +29,8 @@ export function isHttpConfig(cfg: McpServerConfig): cfg is McpHttpConfig {
 /** One upstream tool as the server described it, annotations included. */
 export interface McpToolInfo {
   name: string;
+  /** The server (config name) that offers it — a proxy or a gate needs to know. */
+  server: string;
   description: string;
   inputSchema: Record<string, unknown>;
   /** MCP tool annotations (readOnlyHint, destructiveHint, …), when the server sets them. */
@@ -105,6 +107,7 @@ export async function connectMcpServers(
       });
       details.push({
         name: t.name,
+        server: cfg.name,
         description: t.description ?? "",
         inputSchema: t.inputSchema as Record<string, unknown>,
         ...(t.annotations ? { annotations: t.annotations as Record<string, unknown> } : {}),
