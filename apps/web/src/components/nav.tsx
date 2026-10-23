@@ -2,6 +2,8 @@
 // glyphs drawn from the brand's geometry (rectangle = data, circle = human,
 // stacked rectangles = knowledge, portal = access) — not a SaaS icon set.
 
+import { Mark } from "./Mark";
+
 export interface NavItem {
   href: string;
   label: string;
@@ -112,21 +114,19 @@ export function isActive(pathname: string, href: string): boolean {
 }
 
 /**
- * The brand lockup for the product: the typographic wordmark with the product
- * name beside it. The mark itself (assets/logo/mark-red.svg) is a supplied
- * asset the design system says never to redraw, so there is a slot for it,
- * not an imitation of it: drop the SVG into public/brand/mark-red.svg and set
- * `mark` to true.
+ * The brand lockup for the product: the mark, the typographic wordmark, a
+ * rule, and the product name. "AI hub: 14px mark-red beside the product name"
+ * (Teqneo Design System v1). The mark lives in ./Mark, traced from the system's
+ * own logo page until the master vector is supplied.
  */
-export function Wordmark({ mark = false, product = "AI hub" }: { mark?: boolean; product?: string }) {
+export function Wordmark({ mark = true, product = "AI hub" }: { mark?: boolean; product?: string }) {
   return (
-    <span className="flex items-center gap-2.5">
-      {mark && (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src="/brand/mark-red.svg" alt="" width={14} height={14} className="shrink-0" />
-      )}
+    <span className="flex items-center gap-2 whitespace-nowrap text-[var(--text)]">
+      {mark && <Mark size={14} />}
       <span className="wordmark">Teqneo</span>
-      <span className="wordmark-rule" aria-hidden />
+      {/* The system's 40px rule is a slide-frame measure; beside the mark it
+          would push the product name out of the 15rem rail, so it shortens. */}
+      <span className="wordmark-rule" style={mark ? { width: 24 } : undefined} aria-hidden />
       <span className="text-[0.8rem] font-medium text-[var(--text-soft)]">{product}</span>
     </span>
   );
