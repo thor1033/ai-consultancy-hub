@@ -59,6 +59,17 @@ export const NAV: NavItem[] = [
     ),
   },
   {
+    href: "/decks",
+    label: "Decks",
+    icon: (
+      // A screen on a stand: something you present.
+      <svg {...s}>
+        <rect x="3" y="4" width="18" height="12" />
+        <path d="M12 16v4M8 20h8" />
+      </svg>
+    ),
+  },
+  {
     href: "/approvals",
     label: "Approvals",
     icon: (

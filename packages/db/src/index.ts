@@ -64,6 +64,8 @@ export type {
   HubRun,
 } from "./agents";
 export { contextSnapshot } from "./context";
+export { createDeck, getDeck, deckVersion, listDecks, saveDeck, deleteDeck } from "./decks";
+export type { Deck, StoredSlide } from "./decks";
 export {
   createProposal,
   getProposal,

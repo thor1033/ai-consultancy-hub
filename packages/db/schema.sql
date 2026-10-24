@@ -465,3 +465,41 @@ create table if not exists proposals (
 create index if not exists proposals_status_idx on proposals (status, created_at desc);
 create index if not exists proposals_run_idx on proposals (run_id);
 create index if not exists proposals_principal_idx on proposals (principal_id, status);
+
+-- ---------------------------------------------------------------------------
+-- Decks: presentations the hub renders and that change while they are shown
+-- (docs/decks.md).
+--
+-- A deck is data, not a file. `slides` is an ordered array of structured
+-- slides (a kind plus fields; validated in apps/web/src/lib/decks), each with
+-- an id, a status and who made it:
+--
+--   live     part of the deck, shown in order
+--   pending  in the presenter's tray: drafted by an agent (or asked for from
+--            the question box) while the deck is being presented, never on
+--            the audience's screen until a person puts it there
+--
+-- One row per deck, the slides as one array, so an ordering change and the
+-- version bump are one atomic write. Every change bumps `version`; the views
+-- poll it and redraw when it moves, and writers update conditionally on it,
+-- so a presenter and an agent writing at the same second both land.
+--
+-- `collection` names the knowledge this deck is about. It is curation and a
+-- fence at once: a deck about a restricted client collection is visible only
+-- to people who may read that collection, and a slide drafted from the
+-- question box retrieves from it.
+-- ---------------------------------------------------------------------------
+create table if not exists decks (
+  id                 uuid primary key default gen_random_uuid(),
+  title              text not null,
+  owner_principal_id text references principals(id) on delete set null,
+  collection         text,
+  slides             jsonb not null default '[]'::jsonb,
+  -- The slide on screen while presenting (a slide id), so every view follows.
+  position           text,
+  presenting         boolean not null default false,
+  version            int not null default 0,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+create index if not exists decks_updated_idx on decks (updated_at desc);
