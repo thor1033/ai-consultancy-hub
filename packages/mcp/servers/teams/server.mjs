@@ -32,6 +32,19 @@
 //                admin grants read on this one. The default document library of
 //                a team site is the team's "Files"/"Shared" tab.
 //
+// FINDING TRANSCRIPTS takes two routes, because Microsoft's bulk listing
+// (getAllTranscripts) does not return CHANNEL meetings — the very meetings
+// this server shares. So channel meetings are found through a calendar
+// instead: M365_TEAMS_CALENDAR (default M365_MAILBOX, the secretary's
+// mailbox) is read for events with a Teams join link, each link is resolved to
+// its meeting under the organiser (onlineMeetings?$filter=JoinWebUrl eq …),
+// and that meeting's transcripts are listed one meeting at a time, which
+// Microsoft does support for channel meetings. Invite the calendar's mailbox
+// to a meeting series and its transcripts become findable; a "Meet now" in a
+// channel has no invitation and is not. The bulk listing still runs, for the
+// organiser's other meetings. The calendar read rides on Calendars.Read and
+// the same Exchange access policy as microsoft365.
+//
 // The organiser's meetings include private ones — a one-to-one with a client
 // is as reachable as the team's standing meeting. So by default only CHANNEL
 // meetings are served: they are the ones everyone in the team can already see,
@@ -57,6 +70,10 @@ const INCLUDE_PRIVATE = process.env.M365_TEAMS_PRIVATE_MEETINGS === "1";
 // must not be the one that writes.
 const MODE = process.env.HUB_TEAMS_MODE === "notes" ? "notes" : "read";
 const NOTES_FOLDER_RAW = process.env.M365_TEAMS_NOTES_FOLDER?.trim() || "";
+// Whose calendar lists the meetings to look in: the secretary's mailbox by
+// default. Empty means channel-meeting transcripts cannot be found (see the
+// header), and teams_status says so.
+const CALENDAR = (process.env.M365_TEAMS_CALENDAR?.trim() || process.env.M365_MAILBOX?.trim() || "").toLowerCase();
 
 // Overridable so verify-teams.mjs can point the whole server at a local fixture.
 // Never set these in production.
@@ -373,6 +390,96 @@ const summariseTranscript = (t, m) => ({
   channelMeeting: isChannelMeeting(m),
 });
 
+/**
+ * Transcripts of the meetings on CALENDAR between `from` and `to`, found one
+ * meeting at a time (see the header for why the bulk listing cannot).
+ *
+ * Never throws: a calendar the app may not read, or a meeting it cannot
+ * resolve, becomes a note, so the caller still shows what the bulk route
+ * found. `seen` counts what was looked at, which is what teams_status reports
+ * and what a person needs to tell "no transcription" from "not reachable".
+ */
+async function calendarTranscripts(from, to) {
+  const seen = { calendar: CALENDAR || null, teamsMeetings: 0, resolved: 0, transcripts: 0, otherOrganisers: [] };
+  const notes = [];
+  if (!CALENDAR) {
+    notes.push(
+      "Channel-meeting transcripts cannot be found: no calendar is set to look in (M365_TEAMS_CALENDAR or M365_MAILBOX). " +
+        "Microsoft's bulk transcript listing leaves channel meetings out; see docs/teams.md.",
+    );
+    return { items: [], notes, seen };
+  }
+
+  let events;
+  try {
+    ({ items: events } = await graphAll(
+      `/users/${encodeURIComponent(CALENDAR)}/calendarView`,
+      {
+        startDateTime: from.toISOString(),
+        endDateTime: to.toISOString(),
+        $select: "subject,start,organizer,isOnlineMeeting,onlineMeeting",
+        $top: 100,
+      },
+      { max: 500, pages: 5 },
+    ));
+  } catch (err) {
+    notes.push(
+      `Could not read ${CALENDAR}'s calendar to find channel meetings: ${err.message}. ` +
+        "It needs Calendars.Read (Application) and to be inside the Exchange access policy's group, like the microsoft365 mailbox.",
+    );
+    return { items: [], notes, seen };
+  }
+
+  // A series has one join link for every occurrence: resolve each link once.
+  const links = new Map();
+  for (const e of events) {
+    const url = e.onlineMeeting?.joinUrl;
+    if (typeof url === "string" && /^https:\/\/teams\.microsoft\.com\//i.test(url) && !links.has(url)) links.set(url, e);
+  }
+  seen.teamsMeetings = links.size;
+
+  const items = [];
+  const others = new Set();
+  await Promise.all(
+    [...links].map(async ([url, event]) => {
+      let m;
+      try {
+        const found = await graphJson(meetingsPath, { $filter: `JoinWebUrl eq '${url.replace(/'/g, "''")}'` });
+        m = found.value?.[0];
+      } catch (err) {
+        notes.push(`Could not look up "${event.subject ?? "a meeting"}": ${err.message}`);
+        return;
+      }
+      if (!m) {
+        // Graph only finds meetings under the organiser the access policy covers.
+        others.add(event.organizer?.emailAddress?.address ?? event.organizer?.emailAddress?.name ?? "someone else");
+        return;
+      }
+      seen.resolved++;
+      meetingCache.set(m.id, Promise.resolve(m));
+      try {
+        const { items: ts } = await graphAll(`${meetingsPath}/${encodeURIComponent(m.id)}/transcripts`, undefined, { max: 200, pages: 5 });
+        for (const t of ts) {
+          const at = new Date(t.createdDateTime);
+          if (at >= from && at <= to) items.push({ ...t, meetingId: t.meetingId ?? m.id });
+        }
+      } catch (err) {
+        notes.push(`Could not list the transcripts of "${m.subject ?? event.subject ?? "a meeting"}": ${err.message}`);
+      }
+    }),
+  );
+  seen.transcripts = items.length;
+  seen.otherOrganisers = [...others];
+  if (others.size) {
+    notes.push(
+      `${others.size === 1 ? "A Teams meeting" : `${others.size} Teams meetings`} on the calendar ${others.size === 1 ? "is" : "are"} organised by ` +
+        `${[...others].join(", ")}, not the configured organiser, so ${others.size === 1 ? "its" : "their"} transcripts cannot be read. ` +
+        "Only meetings organised by the person in M365_TEAMS_ORGANIZER_ID are reachable.",
+    );
+  }
+  return { items, notes, seen };
+}
+
 // ── files ────────────────────────────────────────────────────────────────────
 const FILES_OFF = "The team's files are not set up on this deployment: M365_TEAMS_SITE_URL is missing. See docs/teams.md.";
 
@@ -667,6 +774,19 @@ readTool(
           { $top: 1 },
         );
         report.transcripts.working = true;
+        // The probe a person needs when the list is empty: did the calendar
+        // route see the meetings, resolve them, and find transcripts?
+        const to = new Date();
+        const found = await calendarTranscripts(new Date(to.getTime() - 14 * 864e5), to);
+        report.transcripts.channelMeetings = {
+          calendar: found.seen.calendar,
+          last14Days: {
+            teamsMeetingsOnCalendar: found.seen.teamsMeetings,
+            organisedByOrganiser: found.seen.resolved,
+            transcriptsFound: found.seen.transcripts,
+          },
+          ...(found.notes.length ? { notes: found.notes } : {}),
+        };
       } catch (err) {
         report.transcripts.working = false;
         report.transcripts.error = [err.message, err instanceof GraphError ? hintFor("meetings", err) : ""].filter(Boolean).join(" ");
@@ -729,9 +849,15 @@ readTool(
       if (Number.isNaN(from.getTime())) return failed(`"${start}" is not a date I can read.`);
       if (to <= from) return failed("The end of the window must be after its start.");
 
-      const { items, more } = await graphAll(
+      const { items: bulk, more } = await graphAll(
         `${meetingsPath}/getAllTranscripts(meetingOrganizerUserId='${ORGANIZER}',startDateTime=${from.toISOString()},endDateTime=${to.toISOString()})`,
       );
+      // Channel meetings come only from the calendar route; the bulk listing
+      // covers the rest. The same transcript found both ways counts once.
+      const viaCalendar = await calendarTranscripts(from, to);
+      const byId = new Map();
+      for (const t of [...bulk, ...viaCalendar.items]) if (!byId.has(t.id)) byId.set(t.id, t);
+      const items = [...byId.values()];
 
       // Every transcript is checked against its meeting before it is shown:
       // the subject is what a person recognises, and the meeting's thread is
@@ -759,15 +885,20 @@ readTool(
         visible.length > shown.length ? `${visible.length - shown.length} more in this window: raise the limit or narrow the dates.` : null,
         more ? "Graph had more pages than were read; narrow the window to be sure nothing is missed." : null,
         ...problems,
+        ...viaCalendar.notes,
       ].filter(Boolean);
 
       if (shown.length === 0) {
+        const s = viaCalendar.seen;
         return text(
           [
             `No transcripts between ${from.toISOString()} and ${to.toISOString()}.`,
-            "Teams keeps a transcript only when someone turned on transcription in the meeting (or the meeting was set to transcribe automatically).",
+            s.calendar
+              ? `Looked at ${s.teamsMeetings} Teams meeting(s) on ${s.calendar}'s calendar; ${s.resolved} belong to the organiser and none of those has a transcript in this window.`
+              : null,
+            "Teams keeps a transcript only when someone turned on transcription in the meeting (or the meeting was set to transcribe automatically). A recording alone is not a transcript.",
             ...notes,
-          ].join(" "),
+          ].filter(Boolean).join(" "),
         );
       }
       return text({

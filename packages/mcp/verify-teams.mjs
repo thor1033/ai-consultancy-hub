@@ -78,6 +78,36 @@ const TRANSCRIPTS = [
   { id: "tr-long", meetingId: "mtg-long", createdDateTime: "2026-10-10T07:00:00Z", endDateTime: "2026-10-10T15:00:00Z" },
 ];
 
+// The secretary's calendar, which is how channel meetings are found: Graph's
+// bulk listing leaves them out (see `realisticBulk`). The series appears once
+// per occurrence with one join link; one meeting is someone else's, one is
+// in person and one is on another platform.
+const CALENDAR_ADDR = "secretary@teqneo.example.com";
+const joinUrl = (thread) =>
+  `https://teams.microsoft.com/l/meetup-join/${encodeURIComponent(thread)}/0?context=%7b%22Tid%22%3a%22t%22%7d`;
+const JOIN = {
+  "mtg-checkin": joinUrl("19:abc123@thread.tacv2"),
+  "mtg-brief": joinUrl("19:def456@thread.tacv2"),
+  "mtg-private": joinUrl("19:meeting_NjQ2@thread.v2"),
+};
+const OTHER_JOIN = joinUrl("19:xyz@thread.tacv2");
+const event = (subject, start, organizer, url) => ({
+  subject,
+  start: { dateTime: start, timeZone: "UTC" },
+  organizer: { emailAddress: { name: organizer.split("@")[0], address: organizer } },
+  isOnlineMeeting: Boolean(url),
+  onlineMeeting: url ? { joinUrl: url } : null,
+});
+const EVENTS = [
+  event("Teqneo Check-In", "2026-10-14T18:00:00", "ditlev@teqneo.example.com", JOIN["mtg-checkin"]),
+  event("Teqneo Check-In", "2026-10-21T18:00:00", "ditlev@teqneo.example.com", JOIN["mtg-checkin"]),
+  event("Teqneo PM-tool Weekly Brief", "2026-10-18T09:00:00", "ditlev@teqneo.example.com", JOIN["mtg-brief"]),
+  event("Salary talk", "2026-10-15T09:00:00", "ditlev@teqneo.example.com", JOIN["mtg-private"]),
+  event("Client sync", "2026-10-16T10:00:00", "thor@teqneo.example.com", OTHER_JOIN),
+  event("Lunch", "2026-10-16T12:00:00", "thor@teqneo.example.com", null),
+  event("Vendor call", "2026-10-17T12:00:00", "vendor@example.org", "https://zoom.example.org/j/123"),
+];
+
 const CHECKIN_VTT = `WEBVTT
 
 a1b2c3d4/12-0
@@ -204,6 +234,11 @@ const requests = [];
 const uploads = [];
 let tokenRequests = 0;
 let writeDenied = false;
+// Off: the bulk listing returns every transcript, which is how the fixture
+// began. On: it behaves as Microsoft documents and real tenants show, leaving
+// channel meetings out, so only the calendar route can find them.
+let realisticBulk = false;
+let calendarDenied = false;
 let nextUpload = 0;
 const pendingUploads = new Map();
 let origin = "";
@@ -289,7 +324,12 @@ const http = createServer(async (req, res) => {
       // A hostile next page: the token must never be sent off Graph.
       return json(200, { value: [], "@odata.nextLink": "http://attacker.invalid/steal" });
     }
-    const all = TRANSCRIPTS.filter((t) => new Date(t.createdDateTime) >= from && new Date(t.createdDateTime) <= to);
+    const all = TRANSCRIPTS.filter(
+      (t) =>
+        new Date(t.createdDateTime) >= from &&
+        new Date(t.createdDateTime) <= to &&
+        !(realisticBulk && /@thread\.tacv2$/.test(MEETINGS[t.meetingId].chatInfo.threadId)),
+    );
     // Two pages, so paging is exercised.
     if (url.searchParams.get("$skiptoken") === "p2") return json(200, { value: all.slice(2) });
     return json(200, {
@@ -311,6 +351,25 @@ const http = createServer(async (req, res) => {
     }
     res.writeHead(200, { "content-type": "text/vtt" });
     return res.end(tr.id === "tr-long" ? LONG_VTT : CHECKIN_VTT);
+  }
+  if (path === base && url.searchParams.has("$filter")) {
+    const want = url.searchParams.get("$filter").match(/^JoinWebUrl eq '(.*)'$/)?.[1]?.replace(/''/g, "'");
+    if (want === undefined) return graphError(400, "BadRequest", "Unsupported filter.");
+    const id = Object.keys(JOIN).find((k) => JOIN[k] === want);
+    return json(200, { value: id ? [{ id, ...MEETINGS[id] }] : [] });
+  }
+  const list = path.match(new RegExp(`^${base}/([^/]+)/transcripts$`));
+  if (list) {
+    if (!MEETINGS[list[1]]) return graphError(404, "NotFound", "No meeting.");
+    // Per meeting, Graph leaves meetingId off; the server must fill it in.
+    return json(200, { value: TRANSCRIPTS.filter((x) => x.meetingId === list[1]).map(({ meetingId, ...rest }) => rest) });
+  }
+  if (path === `/users/${CALENDAR_ADDR}/calendarView`) {
+    if (calendarDenied) return graphError(403, "ErrorAccessDenied", "Access is denied. Check credentials and try again.");
+    const from = new Date(url.searchParams.get("startDateTime"));
+    const to = new Date(url.searchParams.get("endDateTime"));
+    const inWindow = EVENTS.filter((e) => new Date(`${e.start.dateTime}Z`) >= from && new Date(`${e.start.dateTime}Z`) <= to);
+    return json(200, { value: inWindow });
   }
   const mm = path.match(new RegExp(`^${base}/([^/]+)$`));
   if (mm) return MEETINGS[mm[1]] ? json(200, { id: mm[1], ...MEETINGS[mm[1]] }) : graphError(404, "NotFound", "No meeting.");
@@ -366,6 +425,8 @@ const ENV = {
 };
 Object.assign(process.env, ENV);
 delete process.env.M365_TEAMS_PRIVATE_MEETINGS;
+delete process.env.M365_TEAMS_CALENDAR;
+delete process.env.M365_MAILBOX;
 
 const { connectMcpServers } = await import("./src/manager.ts");
 const { builtinServerConfig, BUILTIN_SERVER_NAMES } = await import("./src/servers.ts");
@@ -614,6 +675,111 @@ try {
   } finally {
     await half.close();
     process.env.M365_TEAMS_SITE_URL = ENV.M365_TEAMS_SITE_URL;
+  }
+
+  // ── channel meetings, as Microsoft actually lists them ─────────────────────
+  // getAllTranscripts leaves channel meetings out. This is the fault seen on
+  // the real tenant: recordings in the channel, "no transcripts" from the tool.
+  realisticBulk = true;
+  const blind = await connectMcpServers([builtinServerConfig("teams")]);
+  try {
+    const list = parse(await blind.execute("teams_meetings_list", { start: "2026-10-01T00:00:00Z", end: "2026-10-31T00:00:00Z" }));
+    const ids = list.transcripts?.map((x) => x.transcriptId) ?? [];
+    check(
+      "without a calendar, channel meetings the bulk listing omits stay missing — and the result says why",
+      !ids.includes("tr-checkin-2") && /no calendar is set/.test(list.notes?.join(" ") ?? ""),
+      ids.join(", ") || "none",
+    );
+  } finally {
+    await blind.close();
+  }
+
+  process.env.M365_MAILBOX = CALENDAR_ADDR.toUpperCase();
+  const calRequests = () => requests.filter((r) => r.path.startsWith(`/users/${CALENDAR_ADDR}/`) || r.query.has("$filter"));
+  const before = requests.length;
+  const viaCal = await connectMcpServers([builtinServerConfig("teams")]);
+  try {
+    const list = parse(await viaCal.execute("teams_meetings_list", { start: "2026-10-01T00:00:00Z", end: "2026-10-31T00:00:00Z" }));
+    const ids = list.transcripts?.map((x) => x.transcriptId) ?? [];
+    check(
+      "with the secretary's mailbox as the calendar (M365_MAILBOX), channel-meeting transcripts are found through it",
+      ["tr-checkin-2", "tr-brief", "tr-checkin-1", "tr-long"].every((id) => ids.includes(id)) && ids.length === 4,
+      ids.join(", "),
+    );
+    check("still newest first, with the meeting's name", ids[0] === "tr-checkin-2" && list.transcripts[0].meeting === "Teqneo Check-In");
+    const mine = requests.slice(before);
+    const view = mine.find((r) => r.path === `/users/${CALENDAR_ADDR}/calendarView`);
+    check(
+      "the calendar is read for the same window, lower-cased",
+      view?.query.get("startDateTime") === "2026-10-01T00:00:00.000Z" && view.query.get("endDateTime") === "2026-10-31T00:00:00.000Z",
+      view ? `${view.query.get("startDateTime")} → ${view.query.get("endDateTime")}` : "not read",
+    );
+    const lookups = mine.filter((r) => r.query.has("$filter")).map((r) => r.query.get("$filter"));
+    check(
+      "each Teams join link is resolved once — a series is one lookup — and other platforms are skipped",
+      lookups.length === 4 && lookups.every((f) => f.startsWith("JoinWebUrl eq 'https://teams.microsoft.com/")),
+      `${lookups.length} lookups`,
+    );
+    check(
+      "the private meeting on the calendar is still not listed, only counted",
+      !ids.includes("tr-private") && /1 transcript\(s\) from meetings outside a Teams channel/.test(list.notes?.join(" ") ?? ""),
+    );
+    check(
+      "a meeting someone else organised is named as unreachable, not silently dropped",
+      /organised by thor@teqneo\.example\.com, not the configured organiser/.test(list.notes?.join(" ") ?? ""),
+      list.notes?.find((n) => /organised by/.test(n)),
+    );
+    check(
+      "meetings resolved from the calendar are not fetched again by id",
+      !mine.some((r) => r.path === `/users/${ORGANIZER}/onlineMeetings/mtg-checkin` || r.path === `/users/${ORGANIZER}/onlineMeetings/mtg-brief`),
+    );
+
+    const tr = await viaCal.execute("teams_transcript_get", { meetingId: "mtg-checkin", transcriptId: "tr-checkin-2" });
+    check("a transcript found this way reads like any other", /Meeting: Teqneo Check-In/.test(tr) && /Thor Simonsen: Agreed/.test(tr));
+
+    const empty = await viaCal.execute("teams_meetings_list", { start: "2026-11-01T00:00:00Z", end: "2026-11-30T00:00:00Z" });
+    check(
+      "an empty window says what was looked at, and that a recording is not a transcript",
+      /Looked at 0 Teams meeting\(s\) on secretary@teqneo\.example\.com's calendar/.test(empty) && /A recording alone is not a transcript/.test(empty),
+      empty.split("\n")[1],
+    );
+
+    const st = parse(await viaCal.execute("teams_status", {}));
+    const cm = st.transcripts?.channelMeetings;
+    check(
+      "teams_status reports the calendar route: meetings seen, resolved, transcripts found",
+      cm?.calendar === CALENDAR_ADDR && typeof cm.last14Days?.teamsMeetingsOnCalendar === "number" && typeof cm.last14Days?.transcriptsFound === "number",
+      JSON.stringify(cm),
+    );
+
+    calendarDenied = true;
+    const denied = parse(await viaCal.execute("teams_meetings_list", { start: "2026-10-01T00:00:00Z", end: "2026-10-31T00:00:00Z" }));
+    check(
+      "a calendar the app may not read degrades to a note naming the permission; the bulk results still come back",
+      denied.transcripts?.some((x) => x.transcriptId === "tr-long") && /Calendars\.Read/.test(denied.notes?.join(" ") ?? ""),
+      denied.notes?.find((n) => /calendar/.test(n))?.slice(0, 90),
+    );
+    calendarDenied = false;
+  } finally {
+    await viaCal.close();
+  }
+  check("every request on the calendar route was a read", calRequests().every((r) => r.method === "GET"));
+
+  // M365_TEAMS_CALENDAR overrides the mailbox, for a deployment whose
+  // invitations go somewhere else.
+  process.env.M365_TEAMS_CALENDAR = "someone-else@teqneo.example.com";
+  const other = await connectMcpServers([builtinServerConfig("teams")]);
+  try {
+    const list = parse(await other.execute("teams_meetings_list", { start: "2026-10-01T00:00:00Z", end: "2026-10-31T00:00:00Z" }));
+    check(
+      "M365_TEAMS_CALENDAR wins over M365_MAILBOX",
+      requests.some((r) => r.path === "/users/someone-else@teqneo.example.com/calendarView") && /Could not read someone-else@/.test(list.notes?.join(" ") ?? ""),
+    );
+  } finally {
+    await other.close();
+    delete process.env.M365_TEAMS_CALENDAR;
+    delete process.env.M365_MAILBOX;
+    realisticBulk = false;
   }
 
   // ── meeting notes: the one tool that writes ─────────────────────────────────
