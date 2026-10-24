@@ -11,6 +11,7 @@ export {
   builtinOptionsFrom,
   memoryServerConfig,
   BUILTIN_SERVER_NAMES,
+  BUILTIN_SERVER_INFO,
   MAILBOX_SERVER_NAMES,
 } from "./servers";
 export type { BuiltinServerOptions } from "./servers";
