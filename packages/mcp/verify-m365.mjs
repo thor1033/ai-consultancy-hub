@@ -204,7 +204,7 @@ Object.assign(process.env, {
 });
 
 const { connectMcpServers } = await import("./src/manager.ts");
-const { builtinServerConfig } = await import("./src/servers.ts");
+const { builtinServerConfig, BUILTIN_SERVER_INFO, BUILTIN_SERVER_NAMES } = await import("./src/servers.ts");
 
 const parse = (text) => {
   try {
@@ -222,6 +222,13 @@ try {
   const mcp = await connectMcpServers([cfg]);
   try {
     const names = mcp.tools.map((t) => t.name).sort();
+    const info = BUILTIN_SERVER_INFO.find((s) => s.name === "microsoft365");
+    check(
+      "it registers its own description, and the description does not promise writes it cannot make",
+      Boolean(info?.label && info.description) && /read-only/.test(info.description) && !/draft/i.test(info.description) &&
+        BUILTIN_SERVER_NAMES.every((n) => BUILTIN_SERVER_INFO.some((s) => s.name === n)),
+      info?.description,
+    );
     check(
       "every tool declares readOnlyHint: true, so the hub's approval gate waves it through",
       mcp.details.length === names.length && mcp.details.every((t) => t.annotations?.readOnlyHint === true),

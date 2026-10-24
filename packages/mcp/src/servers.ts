@@ -28,6 +28,37 @@ import type { McpStdioConfig } from "./manager";
 // here.
 export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365", "teams", "teams-notes"];
 
+/**
+ * How each bundled server introduces itself in /mcp and in the agent form.
+ *
+ * Owned by the code, beside the server, and registered on every read of the
+ * registry the way remote servers are from HUB_REMOTE_MCP_SERVERS. Before
+ * this, the rows were added by hand and nothing kept them true: the
+ * microsoft365 row still claimed to write drafts long after the tool that did
+ * so was gone. A description that says what a server can do is a security
+ * statement as much as a label, so it lives where the tools do.
+ */
+export const BUILTIN_SERVER_INFO: readonly { name: string; label: string; description: string }[] = [
+  {
+    name: "microsoft365",
+    label: "Microsoft 365",
+    description:
+      "One mailbox and its calendar, read-only: mail, events, attendees. The mailbox is set per agent. It cannot send, reply, accept or book.",
+  },
+  {
+    name: "teams",
+    label: "Microsoft Teams",
+    description:
+      "Meeting transcripts from channel meetings, and the team's SharePoint files, read-only.",
+  },
+  {
+    name: "teams-notes",
+    label: "Teams meeting notes",
+    description:
+      "Saves one meeting's notes as a new file in the team's notes folder. Create-only; each save waits for a person's approval unless an admin allows it for the agent.",
+  },
+];
+
 /** Bundled servers that read one mailbox, and so take a per-agent `mailbox`. */
 export const MAILBOX_SERVER_NAMES: readonly string[] = ["microsoft365"];
 

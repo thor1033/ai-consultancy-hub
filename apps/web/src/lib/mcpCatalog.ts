@@ -1,4 +1,4 @@
-import { connectMcpServers, remoteServerInfo, type McpServerConfig } from "@ai-hub/mcp";
+import { BUILTIN_SERVER_INFO, connectMcpServers, remoteServerInfo, type McpServerConfig } from "@ai-hub/mcp";
 import { listMcpServers, upsertMcpServer } from "@ai-hub/db";
 import { resolveServer } from "@/lib/runSession";
 
@@ -23,7 +23,11 @@ export function declaredRemoteNames(): string[] {
 }
 
 export async function listRegisteredServers() {
-  const remotes = remoteServerInfo();
+  // Bundled servers describe themselves from code (packages/mcp/src/servers.ts),
+  // remote ones from their declaration; both are refreshed on every read, so
+  // the page never shows a description the server has outgrown. `enabled` is
+  // untouched by the upsert, so a server an admin switched off stays off.
+  const remotes = [...BUILTIN_SERVER_INFO, ...remoteServerInfo()];
   await Promise.all(
     remotes.map((r) =>
       upsertMcpServer(r.name, r.label, r.description).catch((e) => {
