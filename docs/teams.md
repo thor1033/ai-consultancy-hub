@@ -52,6 +52,26 @@ already see. A private meeting's transcript is left out of the list (and
 counted, so its absence is visible) and refused by id. Set
 `M365_TEAMS_PRIVATE_MEETINGS=1` to widen that deliberately.
 
+**Channel meetings are found through a calendar.** Microsoft's bulk listing of
+an organiser's transcripts (`getAllTranscripts`) [does not return channel
+meetings](https://learn.microsoft.com/graph/api/onlinemeeting-getalltranscripts)
+— exactly the meetings this server shares. So the server also reads a calendar
+(`M365_TEAMS_CALENDAR`, by default `M365_MAILBOX`: the secretary's mailbox),
+takes each event's Teams join link, looks the meeting up under the organiser
+(`onlineMeetings?$filter=JoinWebUrl eq '…'`) and lists that meeting's
+transcripts one meeting at a time, which Microsoft does support for channel
+meetings. Both routes run on every list; a transcript found by both counts
+once. What follows from it:
+
+- **Invite the secretary to the meeting series** (secretary@teqneo.co, as for
+  accepting meetings). A channel meeting that is not on its calendar cannot be
+  found. A *Meet now* in a channel has no invitation, so it never can.
+- **Only the organiser's meetings resolve.** A meeting on the calendar that
+  someone else organised is named in the result as unreachable, not dropped
+  silently.
+- **A recording is not a transcript.** A meeting recorded without transcription
+  has nothing to read; the empty result says how many meetings it looked at.
+
 Each half switches on with its own variable. With only one set, the other half's
 tools answer with the variable that is missing. With neither, or with the
 credentials missing, the server refuses to start and the run fails naming the
@@ -99,6 +119,8 @@ Application permissions:**
   channel meeting
 - `OnlineMeetingTranscript.Read.All` — to read its transcripts
 - `Sites.Selected` — files, on sites granted one by one (step 3)
+- `Calendars.Read` — already there for `microsoft365`; it is how channel
+  meetings are found (see above)
 
 Then **Grant admin consent**. Application, not Delegated: this server never has
 a signed-in person.
@@ -198,6 +220,11 @@ or not, and why. Common answers:
 | 403 on transcripts | Step 1 consent, or the step 2 policy has not applied yet (wait 30 min). |
 | `GraphAccessToTranscriptsDisabled` | The tenant switch is off: `Set-CsTeamsMeetingConfiguration -Identity Global -EnableGraphTranscriptAccess $true` (step 0). |
 | 403 on files | Step 3 was not done, or the grant went to the app's Object ID instead of its Application (client) ID. |
+| `channelMeetings.calendar` is `null` | Set `M365_MAILBOX` (or `M365_TEAMS_CALENDAR`) to the mailbox invited to the team's meetings. |
+| `teamsMeetingsOnCalendar: 0` | That mailbox is not invited to the meeting series. Add it as an attendee. |
+| `organisedByOrganiser` lower than `teamsMeetingsOnCalendar` | Those meetings were organised by someone other than `M365_TEAMS_ORGANIZER_ID`; the note names them. |
+| Meetings resolve, `transcriptsFound: 0` | Transcription was not on in them (step 0). Recording alone does not make one. |
+| Could not read the calendar | The app needs `Calendars.Read` and the mailbox must be in the Exchange access policy's group — the same setup as `microsoft365`. |
 | "No transcripts" | Nobody turned on transcription in those meetings (step 0). |
 
 ## Meeting notes (`teams-notes`)
@@ -297,7 +324,7 @@ files.
 | Tool | Answers |
 |---|---|
 | `teams_status` | Which halves are set up and working, and if not, why? |
-| `teams_meetings_list` | Which meetings have a transcript (default: last 30 days)? A recurring meeting appears once per transcribed occurrence. |
+| `teams_meetings_list` | Which meetings have a transcript (default: last 30 days)? A recurring meeting appears once per transcribed occurrence. Channel meetings come from the calendar route above. |
 | `teams_transcript_get` | What was said: `[00:12:04] Name: …`, one line per turn, a page at a time. |
 | `teams_files_list` | What is in a folder? Each channel has a folder named after it. |
 | `teams_files_search` | Which files mention this? |
@@ -348,9 +375,18 @@ For notes it drives the write path end to end:
 - a private meeting is refused before any upload starts;
 - the knowledge source reads the notes back through the read server.
 
-89 checks.
+And, with the fixture's bulk listing behaving as Microsoft's does (channel
+meetings left out), that the calendar route finds them: one lookup per join
+link however many occurrences, other platforms skipped, someone else's meeting
+named, the private meeting still hidden, a denied calendar degrading to a note
+while the bulk results still come back, and `M365_TEAMS_CALENDAR` overriding
+the mailbox.
 
-What it cannot prove: that the live tenant is configured (`teams_status` is
+105 checks.
+
+What it cannot prove: that Microsoft's `JoinWebUrl` filter matches the join
+link exactly as a calendar event carries it (`teams_status` reports how many
+links resolved, which is the check), that the live tenant is configured (`teams_status` is
 for that, and a first save is the only proof of write access), and the few
 lines in `runSession` that file notes after a run. Those need a fake model
 that streams, which the web test scripts do not have yet; `verify:scheduler`
