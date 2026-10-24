@@ -66,9 +66,13 @@ once. What follows from it:
 - **Invite the secretary to the meeting series** (secretary@teqneo.co, as for
   accepting meetings). A channel meeting that is not on its calendar cannot be
   found. A *Meet now* in a channel has no invitation, so it never can.
-- **Only the organiser's meetings resolve.** A meeting on the calendar that
-  someone else organised is named in the result as unreachable, not dropped
-  silently.
+- **Only the organiser's meetings resolve.** A channel meeting's calendar
+  event names the team's group mailbox as organiser, so the server reads the
+  real organiser from the join link (its `context` carries their object id).
+  A meeting someone else organised is named as unreachable without a lookup;
+  one whose link names the organiser but that Microsoft does not match is
+  reported as unmatched. Neither is dropped silently. Short `/meet/<id>` links
+  are looked up by their meeting id instead.
 - **A recording is not a transcript.** A meeting recorded without transcription
   has nothing to read; the empty result says how many meetings it looked at.
 
@@ -222,7 +226,7 @@ or not, and why. Common answers:
 | 403 on files | Step 3 was not done, or the grant went to the app's Object ID instead of its Application (client) ID. |
 | `channelMeetings.calendar` is `null` | Set `M365_MAILBOX` (or `M365_TEAMS_CALENDAR`) to the mailbox invited to the team's meetings. |
 | `teamsMeetingsOnCalendar: 0` | That mailbox is not invited to the meeting series. Add it as an attendee. |
-| `organisedByOrganiser` lower than `teamsMeetingsOnCalendar` | Those meetings were organised by someone other than `M365_TEAMS_ORGANIZER_ID`; the note names them. |
+| `organisedByOrganiser` lower than `teamsMeetingsOnCalendar` | The notes say which: organised by someone other than `M365_TEAMS_ORGANIZER_ID`, or a link Microsoft did not match. |
 | Meetings resolve, `transcriptsFound: 0` | Transcription was not on in them (step 0). Recording alone does not make one. |
 | Could not read the calendar | The app needs `Calendars.Read` and the mailbox must be in the Exchange access policy's group — the same setup as `microsoft365`. |
 | "No transcripts" | Nobody turned on transcription in those meetings (step 0). |
@@ -377,12 +381,13 @@ For notes it drives the write path end to end:
 
 And, with the fixture's bulk listing behaving as Microsoft's does (channel
 meetings left out), that the calendar route finds them: one lookup per join
-link however many occurrences, other platforms skipped, someone else's meeting
-named, the private meeting still hidden, a denied calendar degrading to a note
-while the bulk results still come back, and `M365_TEAMS_CALENDAR` overriding
-the mailbox.
+link however many occurrences, a short `/meet/` link found by its meeting id,
+other platforms skipped, someone else's meeting named from its link without a
+lookup, an unmatched link reported as such, the private meeting still hidden,
+a denied calendar degrading to a note while the bulk results still come back,
+and `M365_TEAMS_CALENDAR` overriding the mailbox.
 
-105 checks.
+108 checks.
 
 What it cannot prove: that Microsoft's `JoinWebUrl` filter matches the join
 link exactly as a calendar event carries it (`teams_status` reports how many

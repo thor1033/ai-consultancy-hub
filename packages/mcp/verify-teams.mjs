@@ -79,18 +79,25 @@ const TRANSCRIPTS = [
 ];
 
 // The secretary's calendar, which is how channel meetings are found: Graph's
-// bulk listing leaves them out (see `realisticBulk`). The series appears once
-// per occurrence with one join link; one meeting is someone else's, one is
-// in person and one is on another platform.
+// bulk listing leaves them out (see `realisticBulk`). Links are shaped like
+// the real tenant's: the classic form carries the organiser's object id in
+// its context, the short /meet/ form does not. The series appears once per
+// occurrence with one join link; one meeting is someone else's, one link
+// Graph does not match, one is in person and one is on another platform.
+// Channel meetings name the team's group mailbox as organiser, as they do.
 const CALENDAR_ADDR = "secretary@teqneo.example.com";
-const joinUrl = (thread) =>
-  `https://teams.microsoft.com/l/meetup-join/${encodeURIComponent(thread)}/0?context=%7b%22Tid%22%3a%22t%22%7d`;
+const GROUP_MAILBOX = "Teqneo@teqneo.example.com";
+const joinUrl = (thread, oid = ORGANIZER.toUpperCase()) =>
+  `https://teams.microsoft.com/l/meetup-join/${encodeURIComponent(thread)}/1791055248851?context=` +
+  encodeURIComponent(JSON.stringify({ Tid: TENANT, Oid: oid })).replace(/%[0-9A-F]{2}/g, (e) => e.toLowerCase());
 const JOIN = {
   "mtg-checkin": joinUrl("19:abc123@thread.tacv2"),
-  "mtg-brief": joinUrl("19:def456@thread.tacv2"),
+  "mtg-brief": "https://teams.microsoft.com/meet/363184942410916?p=ro7wi1XvjAUc1uyUeD",
   "mtg-private": joinUrl("19:meeting_NjQ2@thread.v2"),
 };
-const OTHER_JOIN = joinUrl("19:xyz@thread.tacv2");
+const SHORT_IDS = { "363184942410916": "mtg-brief" };
+const OTHER_JOIN = joinUrl("19:xyz@thread.tacv2", "0f0f0f0f-0000-4000-8000-000000000001");
+const UNMATCHED_JOIN = joinUrl("19:old999@thread.tacv2");
 const event = (subject, start, organizer, url) => ({
   subject,
   start: { dateTime: start, timeZone: "UTC" },
@@ -99,11 +106,12 @@ const event = (subject, start, organizer, url) => ({
   onlineMeeting: url ? { joinUrl: url } : null,
 });
 const EVENTS = [
-  event("Teqneo Check-In", "2026-10-14T18:00:00", "ditlev@teqneo.example.com", JOIN["mtg-checkin"]),
-  event("Teqneo Check-In", "2026-10-21T18:00:00", "ditlev@teqneo.example.com", JOIN["mtg-checkin"]),
-  event("Teqneo PM-tool Weekly Brief", "2026-10-18T09:00:00", "ditlev@teqneo.example.com", JOIN["mtg-brief"]),
+  event("Teqneo Check-In", "2026-10-14T18:00:00", GROUP_MAILBOX, JOIN["mtg-checkin"]),
+  event("Teqneo Check-In", "2026-10-21T18:00:00", GROUP_MAILBOX, JOIN["mtg-checkin"]),
+  event("Teqneo PM-tool Weekly Brief", "2026-10-18T09:00:00", GROUP_MAILBOX, JOIN["mtg-brief"]),
   event("Salary talk", "2026-10-15T09:00:00", "ditlev@teqneo.example.com", JOIN["mtg-private"]),
-  event("Client sync", "2026-10-16T10:00:00", "thor@teqneo.example.com", OTHER_JOIN),
+  event("Client sync", "2026-10-16T10:00:00", GROUP_MAILBOX, OTHER_JOIN),
+  event("Old series", "2026-10-19T10:00:00", GROUP_MAILBOX, UNMATCHED_JOIN),
   event("Lunch", "2026-10-16T12:00:00", "thor@teqneo.example.com", null),
   event("Vendor call", "2026-10-17T12:00:00", "vendor@example.org", "https://zoom.example.org/j/123"),
 ];
@@ -353,9 +361,11 @@ const http = createServer(async (req, res) => {
     return res.end(tr.id === "tr-long" ? LONG_VTT : CHECKIN_VTT);
   }
   if (path === base && url.searchParams.has("$filter")) {
-    const want = url.searchParams.get("$filter").match(/^JoinWebUrl eq '(.*)'$/)?.[1]?.replace(/''/g, "'");
-    if (want === undefined) return graphError(400, "BadRequest", "Unsupported filter.");
-    const id = Object.keys(JOIN).find((k) => JOIN[k] === want);
+    const f = url.searchParams.get("$filter");
+    const byUrl = f.match(/^JoinWebUrl eq '(.*)'$/)?.[1]?.replace(/''/g, "'");
+    const byId = f.match(/^joinMeetingIdSettings\/joinMeetingId eq '(\d+)'$/)?.[1];
+    if (byUrl === undefined && byId === undefined) return graphError(400, "BadRequest", "Unsupported filter.");
+    const id = byId ? SHORT_IDS[byId] : Object.keys(JOIN).find((k) => JOIN[k] === byUrl);
     return json(200, { value: id ? [{ id, ...MEETINGS[id] }] : [] });
   }
   const list = path.match(new RegExp(`^${base}/([^/]+)/transcripts$`));
@@ -717,17 +727,30 @@ try {
     const lookups = mine.filter((r) => r.query.has("$filter")).map((r) => r.query.get("$filter"));
     check(
       "each Teams join link is resolved once — a series is one lookup — and other platforms are skipped",
-      lookups.length === 4 && lookups.every((f) => f.startsWith("JoinWebUrl eq 'https://teams.microsoft.com/")),
+      lookups.filter((f) => f.startsWith("JoinWebUrl eq 'https://teams.microsoft.com/l/meetup-join/")).length === 3,
       `${lookups.length} lookups`,
+    );
+    check(
+      "a short /meet/ link is looked up by its meeting id",
+      lookups.includes("joinMeetingIdSettings/joinMeetingId eq '363184942410916'") && ids.includes("tr-brief"),
+    );
+    check(
+      "a link naming another organiser is not looked up at all",
+      !lookups.some((f) => f.includes("xyz")) && lookups.length === 4,
     );
     check(
       "the private meeting on the calendar is still not listed, only counted",
       !ids.includes("tr-private") && /1 transcript\(s\) from meetings outside a Teams channel/.test(list.notes?.join(" ") ?? ""),
     );
     check(
-      "a meeting someone else organised is named as unreachable, not silently dropped",
-      /organised by thor@teqneo\.example\.com, not the configured organiser/.test(list.notes?.join(" ") ?? ""),
-      list.notes?.find((n) => /organised by/.test(n)),
+      "a meeting someone else organised is named by the organiser in its link, not the group mailbox on the event",
+      /Not organised by the configured organiser.*"Client sync" \(organiser id 0f0f0f0f-0000-4000-8000-000000000001\)/.test(list.notes?.join(" ") ?? "") &&
+        !/Teqneo@/i.test(list.notes?.join(" ") ?? ""),
+      list.notes?.find((n) => /organiser/.test(n)),
+    );
+    check(
+      "a link that names the organiser but does not resolve is reported as unmatched, not blamed on the organiser",
+      /did not match the join link of "Old series"/.test(list.notes?.join(" ") ?? "") && !/"Old series" \(/.test(list.notes?.join(" ") ?? ""),
     );
     check(
       "meetings resolved from the calendar are not fetched again by id",

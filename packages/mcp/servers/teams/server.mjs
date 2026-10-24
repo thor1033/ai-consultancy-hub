@@ -390,6 +390,25 @@ const summariseTranscript = (t, m) => ({
   channelMeeting: isChannelMeeting(m),
 });
 
+// The organiser's object id, from the `context` a classic join link carries
+// ({"Tid":…,"Oid":…}). Null when the link has none, e.g. the short /meet/ form.
+function organiserOf(url) {
+  try {
+    const oid = JSON.parse(new URL(url).searchParams.get("context") ?? "")?.Oid;
+    return typeof oid === "string" ? oid.toLowerCase() : null;
+  } catch {
+    return null;
+  }
+}
+
+// How Graph finds a meeting from its link: a short /meet/<id> link by its
+// numeric meeting id, a classic one by the link itself. Quotes are doubled
+// for OData.
+function meetingFilter(url) {
+  const id = url.match(/^https:\/\/teams\.microsoft\.com\/meet\/(\d+)/i)?.[1];
+  return id ? `joinMeetingIdSettings/joinMeetingId eq '${id}'` : `JoinWebUrl eq '${url.replace(/'/g, "''")}'`;
+}
+
 /**
  * Transcripts of the meetings on CALENDAR between `from` and `to`, found one
  * meeting at a time (see the header for why the bulk listing cannot).
@@ -440,19 +459,31 @@ async function calendarTranscripts(from, to) {
 
   const items = [];
   const others = new Set();
+  const unmatched = [];
   await Promise.all(
     [...links].map(async ([url, event]) => {
+      const title = event.subject ?? "a meeting";
+      // The event's organiser is no help for a channel meeting: it is the
+      // team's group mailbox, not a person. The join link names the real one.
+      const oid = organiserOf(url);
+      if (oid && oid !== ORGANIZER.toLowerCase()) {
+        others.add(`"${title}" (organiser id ${oid})`);
+        return;
+      }
       let m;
       try {
-        const found = await graphJson(meetingsPath, { $filter: `JoinWebUrl eq '${url.replace(/'/g, "''")}'` });
+        const found = await graphJson(meetingsPath, { $filter: meetingFilter(url) });
         m = found.value?.[0];
       } catch (err) {
-        notes.push(`Could not look up "${event.subject ?? "a meeting"}": ${err.message}`);
+        notes.push(`Could not look up "${title}": ${err.message}`);
         return;
       }
       if (!m) {
-        // Graph only finds meetings under the organiser the access policy covers.
-        others.add(event.organizer?.emailAddress?.address ?? event.organizer?.emailAddress?.name ?? "someone else");
+        // Graph only finds meetings under the organiser the access policy
+        // covers. A link that names that organiser and still does not resolve
+        // is Microsoft not matching it, which is worth saying differently.
+        if (oid) unmatched.push(title);
+        else others.add(`"${title}" (${event.organizer?.emailAddress?.address ?? "organiser unknown"})`);
         return;
       }
       seen.resolved++;
@@ -472,9 +503,14 @@ async function calendarTranscripts(from, to) {
   seen.otherOrganisers = [...others];
   if (others.size) {
     notes.push(
-      `${others.size === 1 ? "A Teams meeting" : `${others.size} Teams meetings`} on the calendar ${others.size === 1 ? "is" : "are"} organised by ` +
-        `${[...others].join(", ")}, not the configured organiser, so ${others.size === 1 ? "its" : "their"} transcripts cannot be read. ` +
+      `Not organised by the configured organiser, so their transcripts cannot be read: ${[...others].join(", ")}. ` +
         "Only meetings organised by the person in M365_TEAMS_ORGANIZER_ID are reachable.",
+    );
+  }
+  if (unmatched.length) {
+    notes.push(
+      `Microsoft did not match the join link of ${unmatched.map((t) => `"${t}"`).join(", ")} to a meeting, ` +
+        "although the link names the configured organiser. Its transcripts cannot be listed this way.",
     );
   }
   return { items, notes, seen };
