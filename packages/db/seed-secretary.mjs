@@ -42,7 +42,7 @@ function check(label, ok, detail = "") {
   console.log(`${ok ? "ok  " : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
 }
 
-const { SECRETARY_AGENT, SECRETARY_SKILLS, SECRETARY_MEMORIES, PM_TOOL_READ_SERVER } =
+const { SECRETARY_AGENT, SECRETARY_SKILLS, SECRETARY_MEMORIES, PM_TOOL_SERVER, TEAMS_SERVER, TEAMS_NOTES_SERVER, FOLLOWUP_LEDGER_KEY } =
   await import("./src/seeds/secretary.ts");
 
 // The real filler the hub will use on this template, imported rather than
@@ -55,8 +55,9 @@ console.log("— the definition —");
 
 const skill = SECRETARY_SKILLS.find((s) => s.slug === "meeting-to-pm");
 const prep = SECRETARY_SKILLS.find((s) => s.slug === "meeting-prep");
+const followup = SECRETARY_SKILLS.find((s) => s.slug === "meeting-followup");
 
-check("the two skills are defined: the change set and the brief", Boolean(skill) && Boolean(prep) && SECRETARY_SKILLS.length === 2);
+check("the three skills are defined: the change set, the brief and the follow-up", Boolean(skill) && Boolean(prep) && Boolean(followup) && SECRETARY_SKILLS.length === 3);
 check(
   "slugs are unique and MCP-tool-safe",
   new Set(SECRETARY_SKILLS.map((s) => s.slug)).size === SECRETARY_SKILLS.length &&
@@ -83,6 +84,17 @@ for (const s of SECRETARY_SKILLS) {
 const prepFilled = fillTemplate(prep.promptTemplate, prep.parameters, { day: "today" });
 check("the brief fills with only the day given", !prepFilled.error && prepFilled.prompt.includes("for: today") && !prepFilled.prompt.includes("{{"), prepFilled.error ?? "");
 check("the brief refuses to run without a day", Boolean(fillTemplate(prep.promptTemplate, prep.parameters, {}).error));
+
+// The follow-up is the skill an hourly schedule runs with nothing supplied.
+const followupFilled = fillTemplate(followup.promptTemplate, followup.parameters, {});
+check("the follow-up fills with nothing given, so a schedule can run it", !followupFilled.error && !followupFilled.prompt.includes("{{"), followupFilled.error ?? "");
+check("the follow-up reads the whole transcript, page by page", /keep calling it with\nthe offset/.test(followup.promptTemplate));
+check("the follow-up keeps a ledger so an hourly run never proposes a change twice", followup.promptTemplate.split(FOLLOWUP_LEDGER_KEY).length - 1 >= 2 && /Keep the newest fifty/.test(followup.promptTemplate));
+check("the follow-up waits 45 minutes after a meeting ends", /at least 45 minutes ago/.test(followup.promptTemplate));
+check("an empty hour costs nothing: no memory write, no other tool", /Write no memory and call\nno other tool/.test(followup.promptTemplate));
+check("the follow-up says every write is held, and proposes through the tools", /each call is held for approval/.test(followup.promptTemplate) && /pm_update_task/.test(followup.promptTemplate) && /teams_notes_save/.test(followup.promptTemplate));
+check("the follow-up never marks done, never invents a date or an owner", /Never mark a task done/.test(followup.promptTemplate) && /Never invent a date or an owner/.test(followup.promptTemplate));
+check("the change set still calls no write tool: that path is reviewed in Claude Code", /call no write tool in this\nskill/.test(skill.promptTemplate));
 check(
   "the brief reads, and says it cannot act",
   /m365_calendar_list/.test(prep.promptTemplate) && /Do not act/.test(prep.promptTemplate) && !/m365_(send|create|accept)/.test(prep.promptTemplate),
@@ -121,14 +133,17 @@ console.log("\n— discretion —");
 
 const servers = (SECRETARY_AGENT.mcpServers ?? []).map((s) => s.name);
 check(
-  "the agent holds the read-scoped PM-tool server",
-  servers.includes(PM_TOOL_READ_SERVER),
+  "the agent holds the read+write PM-tool server, the transcripts and the notes",
+  servers.includes(PM_TOOL_SERVER) && servers.includes(TEAMS_SERVER) && servers.includes(TEAMS_NOTES_SERVER) && !servers.includes("pm-tool-read"),
   servers.join(", ") || "none",
 );
+// The gate is what makes "proposes, never applies" true now that the
+// credential can write: an entry that said "writes": "allow" would let the
+// Secretary change the board in the middle of its own tool loop.
 check(
-  "the agent does NOT hold the read+write `pm-tool` server",
-  !servers.includes("pm-tool"),
-  "write tools must be absent from its tool list, not forbidden in prose",
+  "no entry switches the approval gate off: every write is held",
+  (SECRETARY_AGENT.mcpServers ?? []).every((s) => s.writes !== "allow"),
+  "lib/approvals.ts holds anything not marked readOnlyHint unless an entry says writes: allow",
 );
 const mailboxEntry = (SECRETARY_AGENT.mcpServers ?? []).find((s) => s.name === "microsoft365");
 check(
@@ -137,8 +152,8 @@ check(
   mailboxEntry?.mailbox ?? "no mailbox",
 );
 check(
-  "the brief says it proposes rather than applies",
-  /propose/i.test(SECRETARY_AGENT.instructions ?? ""),
+  "the brief says it proposes rather than applies, and that its writes are held",
+  /propose/i.test(SECRETARY_AGENT.instructions ?? "") && /held on \/approvals/.test(SECRETARY_AGENT.instructions ?? ""),
 );
 check(
   "every proposed row starts unapproved",
@@ -210,9 +225,8 @@ const missingServers = (SECRETARY_AGENT.mcpServers ?? [])
   .filter((n) => !declared.has(n));
 if (missingServers.length) {
   console.log(`\nWARNING  this environment does not declare: ${missingServers.join(", ")}`);
-  console.log("         A run here would drop it silently and ground the change set");
-  console.log("         on nothing. Declare it in HUB_REMOTE_MCP_SERVERS wherever the");
-  console.log("         agent actually runs, then re-check with hub_list_agents.");
+  console.log("         A run here would say so and run without it. Declare it in");
+  console.log("         HUB_REMOTE_MCP_SERVERS wherever the agent actually runs.");
 }
 
 const { getAgent, createAgent, updateAgent, listMemories, rememberMemory } =
@@ -233,10 +247,15 @@ if (skillsOnly && !existing) {
   console.error(`--skills-only: no agent "${SECRETARY_AGENT.slug}" exists yet — run without the flag first.`);
   process.exit(1);
 }
+// An existing row keeps what a deployment tuned on the agent's page — model,
+// effort, knowledge scope, placement — and takes from the definition only what
+// the definition owns: the brief, the servers, the stamina. updateAgent leaves
+// an omitted field alone, so that is a matter of what is passed.
+const { slug, name, description, instructions, mcpServers, maxIterations } = SECRETARY_AGENT;
 const agent = skillsOnly
   ? existing
   : existing
-    ? await updateAgent(existing.id, SECRETARY_AGENT)
+    ? await updateAgent(existing.id, { slug, name, description, instructions, mcpServers, maxIterations })
     : await createAgent(SECRETARY_AGENT);
 console.log(`${skillsOnly ? "kept   " : existing ? "updated" : "created"}  agent   ${agent.slug}  (${agent.id})`);
 

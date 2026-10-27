@@ -34,7 +34,7 @@ building.
 
 It **changes nothing**. Every server it holds is read-only by construction —
 GitHub through the `/readonly` endpoint, the PM-tool through the read-scoped
-credential the Secretary also uses — so "the product owner never writes" is a
+`pm-tool-read` credential — so "the product owner never writes" is a
 property of its credentials, not a sentence in its brief. Asked to change
 something, it says who does and hands over what they need.
 
