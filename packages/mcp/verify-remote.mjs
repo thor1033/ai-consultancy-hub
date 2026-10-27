@@ -99,6 +99,27 @@ check("registry info reports it configured", remoteServerInfo()[0]?.configured =
 const cfg = remoteServerConfig("verify-remote");
 check("config carries the bearer header", cfg?.headers?.authorization === `Bearer ${TOKEN}`);
 
+// Extra headers ride along with the token: GitHub's remote server is told its
+// toolsets this way, and a read-only entry is read-only before any tool list.
+{
+  const saved = process.env.HUB_REMOTE_MCP_SERVERS;
+  process.env.HUB_REMOTE_MCP_SERVERS = JSON.stringify({
+    github: {
+      url: "https://api.githubcopilot.com/mcp/readonly",
+      tokenEnv: "VERIFY_REMOTE_TOKEN",
+      headers: { "X-MCP-Toolsets": "repos,issues,pull_requests" },
+      readOnly: true,
+    },
+  });
+  const gh = remoteServerConfig("github");
+  check(
+    "an entry's extra headers are sent alongside the bearer, and readOnly is honoured",
+    gh?.headers?.authorization === `Bearer ${TOKEN}` && gh?.headers?.["X-MCP-Toolsets"] === "repos,issues,pull_requests" && remoteServerInfo()[0]?.readOnly === true,
+    JSON.stringify(gh?.headers),
+  );
+  process.env.HUB_REMOTE_MCP_SERVERS = saved;
+}
+
 const mcp = await connectMcpServers([cfg]);
 const names = mcp.tools.map((t) => t.name).sort();
 check("tools discovered over HTTP", names.join(",") === "echo,whoami", names.join(", "));

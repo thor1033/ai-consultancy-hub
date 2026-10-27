@@ -11,6 +11,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "verify:pm-tool": "node verify-pm-tool.mjs",
+    "verify:github": "node --experimental-transform-types verify-github.mjs",
     "verify:access": "node --experimental-transform-types --env-file=../../apps/web/.env.local verify-access.mjs"
   },
   "devDependencies": {
