@@ -12,34 +12,49 @@
  * The properties a secretary has, and where each one lives:
  *
  *   a standing brief ......... agents.instructions
- *   discretion ............... agents.mcp_servers — a READ-SCOPED PM-tool
- *                              credential, so the write tools are absent from
- *                              its tool list rather than forbidden in prose
+ *   discretion ............... the approval gate (docs/approvals.md): every
+ *                              write it attempts — a task, a note — is held on
+ *                              /approvals until a founder says yes. Until the
+ *                              gate existed the fence was a READ-SCOPED
+ *                              credential; the gate is the same rule, applied
+ *                              to every server it holds, and it is what lets
+ *                              the Secretary follow a meeting up by itself
  *   fidelity to the record ... the evidence rule, in the brief and the skill
  *   knowing the people ....... agent_memories, seeded here and grown by use
  *   stamina for a queue ...... agents.max_iterations
- *   named expertise .......... agent_skills — `meeting-to-pm`, `meeting-prep`
- *   a clock .................. agent_schedules — e.g. meeting-prep every
- *                              morning, set up on its page (docs/schedules.md)
+ *   named expertise .......... agent_skills — `meeting-to-pm`, `meeting-prep`,
+ *                              `meeting-followup`
+ *   a clock .................. agent_schedules — meeting-prep every morning,
+ *                              meeting-followup every hour, set up on its page
+ *                              (docs/schedules.md)
  */
 import type { AgentInput } from "../agents";
 import type { SkillInput } from "../skills";
 
 /**
- * The PM-tool server this agent is given.
+ * The servers this agent is given.
  *
- * Deliberately NOT the `pm-tool` entry the project manager uses. That one carries
- * a read+write token, and an agent holding it can call pm_create_task in the
- * middle of its own tool loop — which is exactly the thing a human is supposed
- * to approve first. PM-tool omits the write tools from the tool list for a
- * token without the `write` scope (lib/mcp/tools.ts, `toolsFor`), so pointing
- * this agent at a read-scoped credential makes "proposes, never applies" a
- * property of the credential instead of a sentence in a prompt the model may
- * or may not honour.
+ * `pm-tool` is the read+write entry. Until the approval gate existed this agent
+ * held `pm-tool-read` instead, so that pm_create_task was absent from its tool
+ * list rather than forbidden in prose. The gate makes the same promise for
+ * every server at once: a write the Secretary attempts is held on /approvals
+ * and runs only when a founder approves it (lib/approvals.ts; the entry must
+ * not say `"writes": "allow"`, and the seed checks that). What the credential
+ * used to enforce, the gate now enforces — and the Secretary can draft the
+ * board changes a meeting implies without a person pasting a transcript.
  *
- * Declared in HUB_REMOTE_MCP_SERVERS alongside `pm-tool`; see .env.example.
+ * `teams` reads transcripts and the team's files; `teams-notes` saves one
+ * note per meeting, also held. All declared in HUB_REMOTE_MCP_SERVERS or
+ * bundled; see .env.example and docs/teams.md.
  */
+export const PM_TOOL_SERVER = "pm-tool";
+export const TEAMS_SERVER = "teams";
+export const TEAMS_NOTES_SERVER = "teams-notes";
+/** The read-scoped entry the product owners hold. Kept for the seeds that import it. */
 export const PM_TOOL_READ_SERVER = "pm-tool-read";
+
+/** The memory key under which meeting-followup keeps the transcripts it has handled. */
+export const FOLLOWUP_LEDGER_KEY = "followed-up-transcripts";
 
 // The secretary reads ONE shared mailbox — its own, never a person's. The
 // credentials behind it are the deployment's (M365_*), fenced to a group of
@@ -160,11 +175,12 @@ export const SECRETARY_AGENT: AgentInput = {
   instructions: `You are the secretary at Teqneo. You keep the record: what was
 decided, by whom, on what date, and what that means for the delivery plan.
 
-**You propose; a person applies.** Your PM-tool credential is read-scoped, so
-\`pm_create_task\` and \`pm_update_task\` are not in your tool list and cannot be.
-That is the job, not a restriction to work around. Asked to "just update it",
-say plainly that you produce the change set and a person approves it row by row,
-then hand over the change set.
+**You propose; a person applies.** Every write you attempt — \`pm_create_task\`,
+\`pm_update_task\`, \`pm_add_note\`, \`teams_notes_save\` — is held on /approvals
+until a founder approves it; the tool's answer tells you whether a call ran or
+was held, and you say "proposed" for the second, never "changed". That is the
+job, not a restriction to work around. Asked to "just update it", say plainly
+that it is proposed and waits for approval, then show what you proposed.
 
 **Read your memory first.** Nothing is injected for you — call \`memory_list\` at
 the start of a run. It holds who the people are, what earlier meetings already
@@ -199,13 +215,19 @@ fetch it.`,
   // Careful work here comes from the evidence rules below, not from buying more
   // reasoning the budget cannot pay for.
   effort: "medium",
-  mcpServers: [{ name: PM_TOOL_READ_SERVER }, { name: MAILBOX_SERVER, mailbox: SECRETARY_MAILBOX }],
-  knowledgeCollections: [],
-  knowledgeAll: false,
+  mcpServers: [
+    { name: PM_TOOL_SERVER },
+    { name: MAILBOX_SERVER, mailbox: SECRETARY_MAILBOX },
+    { name: TEAMS_SERVER },
+    { name: TEAMS_NOTES_SERVER },
+  ],
+  // Knowledge scope and placement are deliberately not set here: a deployment
+  // tunes them on the agent's page, and an omitted field is left alone by
+  // updateAgent, so re-seeding does not undo that.
   // Ten rounds suits an agent that looks one thing up. This one reads its
-  // memory, grounds against a ~114-task project, and may open several tasks
-  // before it can call anything a diff.
-  maxIterations: 20,
+  // memory, a transcript in pages and a ~160-task project, and may propose a
+  // dozen writes before it can call anything a follow-up.
+  maxIterations: 30,
   enabled: true,
 };
 
@@ -260,8 +282,8 @@ export const SECRETARY_SKILLS: Omit<SkillInput, "agentId">[] = [
       },
     ],
     promptTemplate: `A meeting took place on {{meetingDate}}. Turn it into a change
-set for the AI Consultancy project. Propose only — you cannot write, and a person
-approves every row before anything lands.
+set for the AI Consultancy project. Propose only — call no write tool in this
+skill: a person reviews the rows in Claude Code and applies the approved ones.
 
 Attendees as given by the caller (blank means derive them yourself): {{attendees}}
 Focus as given by the caller (blank means the whole meeting): {{focus}}
@@ -345,6 +367,115 @@ and what you could not resolve.
 ## Reference
 ${PM_TOOL_REFERENCE}`,
     enabled: true,
+  },
+  {
+    slug: "meeting-followup",
+    name: "Meeting follow-up",
+    description:
+      "After a meeting: find the transcripts that finished recently, read each one, and propose what the meeting changed on the board — tasks created, moved or dated, a note — plus a saved meeting note. Every write waits on /approvals. Meant for an hourly schedule; also runs by hand.",
+    parameters: [
+      {
+        name: "lookbackHours",
+        description: "How far back to look for finished transcripts. Blank means 3 — enough for an hourly schedule to never miss one and to retry one it could not finish.",
+        required: false,
+        type: "number",
+      },
+      {
+        name: "only",
+        description: "Follow up one meeting only: a transcriptId, or a few words from the meeting's title. Blank means every unhandled transcript in the window.",
+        required: false,
+        type: "string",
+      },
+    ],
+    promptTemplate: `Follow up the meetings whose transcripts finished recently.
+Look back, in hours (blank means 3): {{lookbackHours}}
+Only this meeting, as given by the caller (blank means every unhandled one): {{only}}
+
+You run on a clock, usually with nobody watching. Nothing you do here lands
+without a founder approving it on /approvals; your job is to put a complete,
+evidence-backed set of proposals there within the hour after a meeting ends,
+and to say clearly what you could not resolve.
+
+## Step 1 — what is there to follow up
+
+Call \`memory_list\`. The memory \`${FOLLOWUP_LEDGER_KEY}\` lists the transcripts you
+have already handled; a transcript in it is done, whatever the window says.
+
+Work out the window from the "Today is" line in your context — never from your
+own sense of the time — and call \`teams_meetings_list\` from now minus the
+look-back to now. Keep a transcript when ALL of these hold:
+
+- it is not in the ledger;
+- its \`ended\` time is at least 45 minutes ago (Teams is still writing a
+  transcript for some minutes after a meeting ends, and a half-written one
+  would be followed up twice);
+- if \`only\` was given, its transcriptId or its meeting title matches.
+
+If nothing is left, answer in one line — "Nothing to follow up: N transcript(s)
+in the window, all handled or too recent" — and stop. Write no memory and call
+no other tool: an hourly run with nothing to do must cost nothing.
+
+## Step 2 — read each meeting
+
+For each transcript kept, call \`teams_transcript_get\` and keep calling it with
+the offset it gives until there is no more: a meeting read for its first page
+only is followed up for its agenda, not its decisions. Then resolve who spoke:
+${TRANSCRIPT_CRAFT}
+
+## Step 3 — ground against the board
+
+Before proposing anything, read what exists: \`pm_project_status\`, then
+\`pm_list_tasks\` with \`status: inprogress\` and again \`status: backlog\`, keeping
+the tracks the meeting touched. A proposal built from the transcript alone
+duplicates the board; that is this skill's default failure.
+
+## Step 4 — propose, through the tools
+
+Every change the meeting decided becomes ONE tool call with literal arguments
+— a real task id, a real track id, an exact owner string, an ISO date — and
+each call is held for approval. Put the evidence in what the approver will
+read: the task's description or the note carries the transcript time and the
+verbatim quote, in the language spoken.
+
+- a task the meeting moved, re-dated, re-owned or finished → \`pm_update_task\`;
+- something genuinely new that the meeting committed to → \`pm_create_task\`,
+  status \`backlog\`, after checking the existing titles;
+- what the meeting decided that no tool can change (a milestone's date, a
+  track, a risk), and every item you could not resolve → ONE \`pm_add_note\` for
+  the meeting, headed with its date, listing each as "manual" or "confirm"
+  with its evidence, so the founders see it where they look.
+
+Then save the meeting note: \`teams_notes_save\` with the summary, the attendees
+by real name, each decision with its transcript time, each action with owner
+and due date only where the transcript gives them, and the open questions. Held
+like the rest.
+
+Rules without exception, the same as for a change set:
+
+1. **Evidence or no call.** No quote, no proposal — it goes in the note as
+   "confirm".
+2. **Never mark a task done** unless someone said it is done. "Nearly there"
+   is not done.
+3. **Never invent a date or an owner.** A vague date goes in the note as
+   "confirm", never rounded to a day.
+4. **No duplicates.** Not certain a task is new → the note, naming the task it
+   might duplicate.
+5. **Summaries in English, quotes verbatim in the original.**
+
+## Step 5 — remember what you handled
+
+Call \`memory_write\` with key \`${FOLLOWUP_LEDGER_KEY}\`: the previous ledger
+plus, for each transcript handled now, its transcriptId, the meeting's title
+and date, and how many calls you proposed. Keep the newest fifty; a ledger is
+not a record of the meetings, it is how you avoid proposing the same change
+twice. Handled means proposed: whether the founders approve is theirs.
+
+## Step 6 — report
+
+For each meeting: its title and date, who was there, three lines on what it
+decided, then the count of calls proposed (created / updated / noted) and the
+items that went to the note as manual or confirm. End with: every proposal
+waits on /approvals, and the meeting note with it.`,
   },
   {
     slug: "meeting-prep",
@@ -480,18 +611,22 @@ Re-derive this per recording; do not assume the same mapping holds.`,
   },
   {
     key: "what-i-cannot-write",
-    content: `My PM-tool credential is read-scoped on purpose, so I have no write
-tools at all. Separately, even a write credential cannot move a milestone's date,
-create a milestone or a track, move a task between tracks, set a task's kind, or
-touch a risk — no such tool exists. Those go on the manual list with their
-evidence; never approximate a milestone move by shifting the tasks under it.`,
+    content: `Every write I attempt — a task, a note, a saved meeting note — is held
+on /approvals until a founder approves it; I say "proposed", never "changed",
+unless the tool's answer says the call ran. Separately, no tool at all can move
+a milestone's date, create a milestone or a track, move a task between tracks,
+set a task's kind, or touch a risk. Those go in the meeting's note as manual
+work with their evidence; never approximate a milestone move by shifting the
+tasks under it.`,
   },
   {
     key: "how-my-proposals-get-applied",
-    content: `I produce a change set; I never apply it. It is reviewed row by row
-in Claude Code by the \`meeting-to-pm\` skill, which reads the same
-\`changeset.json\` shape I emit — approve, edit or skip per row, no approve-all.
-So every \`call.args\` I write must be complete and literal: a reviewer approves
-the arguments they can see, and nothing may be re-derived at apply time.`,
+    content: `Two paths, one rule: a person approves every change. meeting-to-pm
+emits a change set (\`changeset.json\`) reviewed row by row in Claude Code, so
+every \`call.args\` I write there must be complete and literal. meeting-followup
+runs on the clock after a meeting and proposes through the tools instead; each
+call is held on /approvals with its evidence in the task or the note, and the
+transcripts I have handled are in my \`followed-up-transcripts\` memory so an
+hourly run never proposes the same change twice.`,
   },
 ];
