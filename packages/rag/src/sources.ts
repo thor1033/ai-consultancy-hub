@@ -612,12 +612,15 @@ export function githubDocsSource(key: string, entry: GithubSourceEntry): Knowled
         ).trim();
         if (!content) continue;
         const title = markdownTitle(path, content);
+        // The commit rides in the title because retrieval prefixes every chunk
+        // with it: an agent can then cite "docs/agents.md @ 5a38488" and a
+        // reader knows how old the passage is. The body repeats path and
+        // commit for a chunk read on its own.
+        const at = `${path} @ ${sha.slice(0, 7)}`;
         docs.push({
           externalId: `github:${entry.repo}:${path}`,
-          // The path is in the body because chunks are retrieved without the
-          // title, and "Setup" alone does not say whose setup.
-          title: `${title} (${path})`,
-          content: `${title} — ${entry.repo}/${path}\n\n${content}`,
+          title: `${title} (${at})`,
+          content: `${title} — ${entry.repo}/${at}\n\n${content}`,
           metadata: {
             repo: entry.repo,
             path,

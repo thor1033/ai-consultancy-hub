@@ -101,6 +101,25 @@ export function remoteServerNames(): string[] {
   return Object.keys(loadEntries());
 }
 
+/**
+ * Why there are no remote servers, when the reason is the config itself.
+ *
+ * Failing closed on malformed JSON is right; failing silently is not. A run
+ * whose agent names `pm-tool` while this returns a message should say so in
+ * the output a person reads, instead of answering with no tools as if that
+ * were the agent's configuration. Null when the variable is unset or parses.
+ */
+export function remoteConfigError(): string | null {
+  const raw = process.env.HUB_REMOTE_MCP_SERVERS;
+  if (!raw) return null;
+  try {
+    JSON.parse(raw);
+    return null;
+  } catch (err) {
+    return `HUB_REMOTE_MCP_SERVERS is not valid JSON (${err instanceof Error ? err.message : String(err)})`;
+  }
+}
+
 export function isRemoteServer(name: string): boolean {
   return name in loadEntries();
 }

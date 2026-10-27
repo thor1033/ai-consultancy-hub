@@ -7,6 +7,7 @@ import {
   memoryServerConfig,
   remoteServerConfig,
   remoteServerNames,
+  remoteConfigError,
   BUILTIN_SERVER_NAMES,
   type ConnectedMcp,
   type McpServerConfig,
@@ -29,6 +30,55 @@ export function knownServers(): string[] {
 
 export function isKnownServer(name: string): boolean {
   return knownServers().includes(name);
+}
+
+export interface UnavailableServer {
+  name: string;
+  reason: string;
+}
+
+/**
+ * The servers an agent is configured with that this deployment will not
+ * connect, and why. Two causes, both deliberate on their own terms: a name
+ * nobody declared (or a HUB_REMOTE_MCP_SERVERS that failed to parse, which
+ * undeclares every remote server at once), and the /mcp kill switch.
+ *
+ * Deliberate is not the same as silent. Dropping a server without a word
+ * left agents answering "I have no such tool" while a person read the hub's
+ * log to learn why; the model is told, and the output says so (see below).
+ */
+export function unavailableServers(names: readonly string[], disabled: Set<string>): UnavailableServer[] {
+  const malformed = remoteConfigError();
+  const out: UnavailableServer[] = [];
+  for (const name of names) {
+    if (!name || name === "memory") continue;
+    if (!isKnownServer(name)) {
+      out.push({
+        name,
+        reason: malformed
+          ? `${malformed}, so this deployment has no remote servers at all`
+          : "not declared on this deployment (not a bundled server, and not in HUB_REMOTE_MCP_SERVERS)",
+      });
+    } else if (disabled.has(name)) {
+      out.push({ name, reason: "switched off on /mcp" });
+    }
+  }
+  return out;
+}
+
+/** What the model is told about them, in its system prompt. Null when all is well. */
+export function unavailabilityNote(missing: UnavailableServer[]): string | null {
+  if (missing.length === 0) return null;
+  return [
+    "Tool servers in your configuration that are NOT available on this deployment, so their tools are absent from your tool list:",
+    ...missing.map((m) => `- ${m.name}: ${m.reason}`),
+    "When a task needs one of them, say so plainly and name the server. Do not work around it with other tools, and do not present an answer built without it as complete.",
+  ].join("\n");
+}
+
+/** The line a person reads at the end of such a run's output. */
+export function unavailabilityFootnote(missing: UnavailableServer[]): string {
+  return `\n\n_Not available on this deployment, so absent from this run: ${missing.map((m) => `${m.name} (${m.reason})`).join("; ")}._`;
 }
 
 /** The server an agent's stored entry names — a bare string, or `{ name, … }`. */
@@ -111,11 +161,16 @@ async function fileMeetingNotes(): Promise<string> {
 // Runs one ad-hoc agent session (the practitioner's workflow) with the chosen MCP
 // servers connected, then persists it so it can be distilled into a Skill.
 export async function runSession(input: RunSessionInput): Promise<RunSessionOutput> {
-  // Known and not globally disabled by the control plane.
+  // Known and not globally disabled by the control plane. What that drops is
+  // told to the model and written into the output, never swallowed.
   const disabled = await disabledMcpServerNames();
   const servers = (input.servers ?? [])
     .filter(isKnownServer)
     .filter((name) => !disabled.has(name));
+  const missing = unavailableServers(input.servers ?? [], disabled);
+  const note = unavailabilityNote(missing);
+  if (note) console.warn(`[run] ${input.agentId ?? "workbench"}: unavailable servers — ${missing.map((m) => m.name).join(", ")}`);
+  const system = note ? [input.system, note].filter(Boolean).join("\n\n") : input.system;
 
   // An agent always gets its own memory, without having to select it: an agent
   // that could be configured to forget everything is just a chat window.
@@ -134,7 +189,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       prompt: input.prompt,
       history: input.history,
       context: input.context,
-      system: input.system,
+      system,
       model: input.model,
       effort: input.effort,
       maxIterations: input.maxIterations,
@@ -163,6 +218,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
     if (result.toolsUsed.includes("teams_notes_save") && !held.has("teams_notes_save")) {
       result.text += await fileMeetingNotes();
     }
+    if (missing.length) result.text += unavailabilityFootnote(missing);
 
     let sessionId: string;
     if (input.runId) {

@@ -19,6 +19,7 @@ export {
   remoteServerConfig,
   remoteServerNames,
   remoteServerInfo,
+  remoteConfigError,
   remoteServerReadOnly,
   remoteServerForwardsIdentity,
   isRemoteServer,

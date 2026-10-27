@@ -83,7 +83,7 @@ process.env.VERIFY_REMOTE_TOKEN = TOKEN;
 // bundler-style extensionless imports, which Node's ESM resolver won't follow.
 // Node ≥22 strips the types; both modules only import types across files.
 const { connectMcpServers } = await import("./src/manager.ts");
-const { remoteServerConfig, remoteServerNames, remoteServerInfo } = await import(
+const { remoteServerConfig, remoteServerNames, remoteServerInfo, remoteConfigError } = await import(
   "./src/remote.ts"
 );
 
@@ -94,6 +94,20 @@ const check = (label, ok, detail = "") => {
 };
 
 check("remote server is declared", remoteServerNames().includes("verify-remote"));
+check("a well-formed config reports no error", remoteConfigError() === null);
+{
+  // Fails closed AND says why: a run can tell the person that every remote
+  // server vanished because of one stray character, instead of answering
+  // with no tools as if that were the agent's configuration.
+  const saved = process.env.HUB_REMOTE_MCP_SERVERS;
+  process.env.HUB_REMOTE_MCP_SERVERS = "HUB_REMOTE_MCP_SERVERS=" + saved;
+  check(
+    "a malformed config declares no servers and names the fault",
+    remoteServerNames().length === 0 && /not valid JSON/.test(remoteConfigError() ?? ""),
+    remoteConfigError(),
+  );
+  process.env.HUB_REMOTE_MCP_SERVERS = saved;
+}
 check("registry info reports it configured", remoteServerInfo()[0]?.configured === true);
 
 const cfg = remoteServerConfig("verify-remote");

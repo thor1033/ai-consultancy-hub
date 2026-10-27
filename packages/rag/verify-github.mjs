@@ -143,12 +143,13 @@ try {
     Object.keys(byPath).sort().join(", "),
   );
   check("a .ts under docs/, a README outside the paths, a 300KB file and an empty file are left out", !byPath["docs/render.ts"] && !byPath["packages/rag/README.md"] && !byPath["docs/huge.md"] && !byPath["docs/empty.md"]);
-  check("the title is the first heading, with the path", byPath["docs/agents.md"]?.title === "Standing agents (docs/agents.md)", byPath["docs/agents.md"]?.title);
-  check("a file with no heading is titled by its name", byPath["docs/deep/approvals.md"]?.title === "approvals (docs/deep/approvals.md)", byPath["docs/deep/approvals.md"]?.title);
+  const short = HUB_SHA.slice(0, 7);
+  check("the title is the first heading, with the path and the commit it was read at", byPath["docs/agents.md"]?.title === `Standing agents (docs/agents.md @ ${short})`, byPath["docs/agents.md"]?.title);
+  check("a file with no heading is titled by its name", byPath["docs/deep/approvals.md"]?.title === `approvals (docs/deep/approvals.md @ ${short})`, byPath["docs/deep/approvals.md"]?.title);
   check("external ids are stable: github:<repo>:<path>", docs.every((d) => d.externalId === `github:${HUB_REPO}:${d.metadata.path}`));
   check(
     "the body opens with the title and the repository path, then the file as written",
-    byPath["docs/agents.md"]?.content === `Standing agents — ${HUB_REPO}/docs/agents.md\n\n# Standing agents\n\nAn **agent** is someone you keep.`,
+    byPath["docs/agents.md"]?.content === `Standing agents — ${HUB_REPO}/docs/agents.md @ ${short}\n\n# Standing agents\n\nAn **agent** is someone you keep.`,
   );
   check(
     "every document says which commit it was read at, and links to that commit",
