@@ -17,7 +17,8 @@ npm-workspaces + Turborepo monorepo, TypeScript throughout:
 - `packages/mcp` — MCP client/manager, remote (Streamable HTTP) registry, bundled
   stdio servers in `servers/` (e.g. `memory`, `microsoft365`, `teams`).
 - `packages/db` — Postgres access; schema in `schema.sql`, applied by `migrate.mjs`.
-  Agents that live in code are seeded from `src/seeds/*` (`seed:secretary`, `seed:product-owner`).
+  Agents that live in code are seeded from `src/seeds/*` (`seed:secretary`, `seed:product-owner`,
+  `seed:project-manager`).
 - `packages/rag` — ingest, chunking, Voyage embeddings, principal-aware retrieval.
 - `packages/authz` — bearer principals, OAuth, credentials, policy engine.
 
@@ -52,7 +53,8 @@ API spend. Each script's header comment says how to run it and what it needs.
 Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 
 - No DB needed: `verify:loop` (agent), `verify:remote`, `verify:m365`, `verify:teams` (mcp),
-  `verify:github` (rag; its sync half runs when `DATABASE_URL` is set), `verify:large-args` (web).
+  `verify:github` (rag; its sync half runs when `DATABASE_URL` is set), `verify:large-args`,
+  `verify:work-log` (web).
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules` (db),
   `verify:memory` (mcp), `verify:access` (rag), `verify:credentials` (authz),
   `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler` (web).

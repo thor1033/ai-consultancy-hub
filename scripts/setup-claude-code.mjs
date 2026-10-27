@@ -13,7 +13,9 @@
 //   1. checks the token against the hub
 //   2. stores HUB_TOKEN and HUB_URL in ~/.claude/settings.json (`env`), where
 //      the sync hook and each synced sub-agent's MCP connection read them
-//   3. installs the agent sync as a SessionStart hook in the same file
+//   3. installs the agent sync as a SessionStart hook in the same file, and
+//      the work log (what a session built, sent to the Project Manager when
+//      the session ends) as SessionStart + SessionEnd hooks
 //   4. adds the hub's MCP server (`ai-hub`) at user scope
 //   5. optionally (--with-pm-tool) adds the PM-tool's MCP server, which signs
 //      in with your own account through WorkOS the first time it is used
@@ -45,6 +47,7 @@ const claudeHome = join(homedir(), ".claude");
 const settingsPath = join(claudeHome, "settings.json");
 const hubHome = join(claudeHome, "hub");
 const syncTarget = join(hubHome, "sync-hub-agents.mjs");
+const workLogTarget = join(hubHome, "hub-work-log.mjs");
 
 const say = (m) => console.log(m);
 const fail = (m) => {
@@ -86,20 +89,26 @@ say(`  ✓ accepted — ${toolCount} hub tools available to you`);
 // ── 2 & 3. settings.json: env + hook ────────────────────────────────────────
 mkdirSync(hubHome, { recursive: true });
 // Next to this file when run from a clone; downloaded when piped from curl.
-let localCopy = null;
+let scriptsDir = null;
 try {
-  localCopy = join(dirname(fileURLToPath(import.meta.url)), "sync-hub-agents.mjs");
+  scriptsDir = dirname(fileURLToPath(import.meta.url));
 } catch {
   /* piped from stdin: no file of our own */
 }
-if (localCopy && existsSync(localCopy)) {
-  copyFileSync(localCopy, syncTarget);
-} else {
-  const res = await fetch(`${RAW}/sync-hub-agents.mjs`);
-  if (!res.ok) fail(`Could not download the sync script (${res.status}).`);
-  writeFileSync(syncTarget, await res.text());
+for (const [name, target] of [
+  ["sync-hub-agents.mjs", syncTarget],
+  ["hub-work-log.mjs", workLogTarget],
+]) {
+  const localCopy = scriptsDir ? join(scriptsDir, name) : null;
+  if (localCopy && existsSync(localCopy)) {
+    copyFileSync(localCopy, target);
+  } else {
+    const res = await fetch(`${RAW}/${name}`);
+    if (!res.ok) fail(`Could not download ${name} (${res.status}).`);
+    writeFileSync(target, await res.text());
+  }
 }
-say(`  ✓ sync script installed at ${syncTarget}`);
+say(`  ✓ sync and work-log scripts installed in ${hubHome}`);
 
 let settings = {};
 if (existsSync(settingsPath)) {
@@ -111,18 +120,23 @@ if (existsSync(settingsPath)) {
   copyFileSync(settingsPath, `${settingsPath}.before-hub`);
 }
 settings.env = { ...(settings.env ?? {}), HUB_TOKEN: token, HUB_URL: hubUrl };
-const hookCommand = `node "${syncTarget}" --hook --user`;
-const sessionStart = (settings.hooks?.SessionStart ?? []).filter(
-  (group) => !(group.hooks ?? []).some((h) => String(h.command ?? "").includes("sync-hub-agents.mjs")),
-);
+// Our own entries are recognised by the script they run, so re-running
+// replaces them and leaves every other hook alone.
+const ours = (group) => (group.hooks ?? []).some((h) => /sync-hub-agents\.mjs|hub-work-log\.mjs/.test(String(h.command ?? "")));
+const sessionStart = (settings.hooks?.SessionStart ?? []).filter((g) => !ours(g));
 sessionStart.push({
   matcher: "startup|resume|clear",
-  hooks: [{ type: "command", command: hookCommand, timeout: 30 }],
+  hooks: [
+    { type: "command", command: `node "${syncTarget}" --hook --user`, timeout: 30 },
+    { type: "command", command: `node "${workLogTarget}" --start`, timeout: 10 },
+  ],
 });
-settings.hooks = { ...(settings.hooks ?? {}), SessionStart: sessionStart };
+const sessionEnd = (settings.hooks?.SessionEnd ?? []).filter((g) => !ours(g));
+sessionEnd.push({ hooks: [{ type: "command", command: `node "${workLogTarget}" --hook`, timeout: 30 }] });
+settings.hooks = { ...(settings.hooks ?? {}), SessionStart: sessionStart, SessionEnd: sessionEnd };
 mkdirSync(claudeHome, { recursive: true });
 writeFileSync(settingsPath, JSON.stringify(settings, null, 2) + "\n");
-say(`  ✓ HUB_TOKEN, HUB_URL and the sync hook saved in ${settingsPath}`);
+say(`  ✓ HUB_TOKEN, HUB_URL, the sync hook and the work-log hooks saved in ${settingsPath}`);
 
 // ── 4 & 5. MCP servers ──────────────────────────────────────────────────────
 const hasClaude = spawnSync("claude", ["--version"], { stdio: "ignore" }).status === 0;

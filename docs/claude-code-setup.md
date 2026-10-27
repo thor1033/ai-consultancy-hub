@@ -63,6 +63,15 @@ the machine through a `hub_sk_…` credential:
 A synced sub-agent connects with that credential, so it acts as the hub's
 machine identity, not the person's — see [local-agents.md](local-agents.md).
 
+### What the one-command setup installs
+
+`scripts/setup-claude-code.mjs --token hub_sk_…` stores `HUB_TOKEN` and
+`HUB_URL` in `~/.claude/settings.json`, installs the agent sync as a
+SessionStart hook and the work log as SessionStart + SessionEnd hooks
+([project-manager.md](project-manager.md)), adds the hub's MCP server at user
+scope, and runs the first sync. Re-running it replaces its own entries and
+leaves the rest of the file alone.
+
 ## Revoking
 
 Disable the person in **/admin → Access** (or in WorkOS): OAuth sign-ins are

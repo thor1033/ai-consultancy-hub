@@ -96,6 +96,17 @@ short:
   `context: fork` inside the owning sub-agent, so it executes as that agent the
   way the hub would have run it.
 
+## The work log: the board hears what a session built
+
+The sync brings agents into Claude Code; the work log sends something back.
+`scripts/hub-work-log.mjs` runs as a SessionStart hook (`--start`, records
+when the session began) and a SessionEnd hook (`--hook`, sends what git can
+vouch for since then — commits, branch, uncommitted count, the assistant's
+last message — as one call of the `pm-work-log` skill). The Project Manager
+maps it to the board and proposes; every write waits on `/approvals`. A
+session that committed nothing sends nothing. Details, configuration and what
+it refuses to do: [project-manager.md](project-manager.md).
+
 ## Activity
 
 The hub cannot see a local agent's model, so it records what it can: one row per
