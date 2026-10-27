@@ -7,12 +7,12 @@ field on a row rather than a paragraph of encouragement in a prompt:
 | The property | Where it lives | Why it is that field |
 | --- | --- | --- |
 | A standing brief | `agents.instructions` | Who they work for, and what they do when asked for something they cannot do. |
-| **Discretion** | `agents.mcp_servers` → `pm-tool-read` | The defining trait. Enforced by the credential: PM-tool omits its write tools for a read-scoped token, so `pm_create_task` is *absent from the tool list*, not forbidden in prose. |
+| **Discretion** | the approval gate, on every server it holds | The defining trait. Every write it attempts — a task, a note, a saved meeting note — is held on `/approvals` until a founder approves it ([approvals.md](approvals.md)). Before the gate existed, a read-scoped credential kept the write tools out of its list; the gate makes the same promise for every server, and lets the Secretary draft the follow-up to a meeting by itself. |
 | Fidelity to the record | the evidence rule, in the brief and the skill | Every claim carries a timestamp and a verbatim quote. No quote means it is inference, and it is labelled. |
 | Knowing the people | `agent_memories` | Who the founders are, which exact owner strings match, and that Teams mislabels both of them. Seeded as an induction pack, corrected by use. |
-| Stamina for a queue | `agents.max_iterations` = 20 | Ten rounds suits looking one thing up. This one reads its memory, then grounds against a 114-task project. |
-| Named expertise | `agent_skills` → `meeting-to-pm` | Work a colleague can invoke by name with real arguments, not a paragraph retyped from memory. |
-| A clock | `agent_schedules` | Not yet used. See [schedules.md](schedules.md). |
+| Stamina for a queue | `agents.max_iterations` = 30 | Ten rounds suits looking one thing up. This one reads a transcript in pages and grounds against a 160-task project before it proposes a dozen writes. |
+| Named expertise | `agent_skills` → `meeting-to-pm`, `meeting-prep`, `meeting-followup` | Work a colleague can invoke by name with real arguments, not a paragraph retyped from memory. |
+| A clock | `agent_schedules` | `meeting-prep` every morning; `meeting-followup` every hour. See [schedules.md](schedules.md) and below. |
 
 The definition is **code, not a textarea**:
 `packages/db/src/seeds/secretary.ts`. Every other agent here was typed into
@@ -22,16 +22,21 @@ set and a delivery record rewritten from a bad transcript.
 
 ## It proposes; a person applies
 
-The hub has no approval step, and an agent run is an autonomous tool loop. So
-an agent given a write credential and told "update the PM tool" writes
-unattended — which is the one thing the founders decided this flow must not do.
+An agent run is an autonomous tool loop. An agent given a write credential and
+told "update the PM tool" would write unattended — the one thing the founders
+decided this flow must not do.
 
-The answer is not a stern instruction. It is that the secretary holds a
-**read-scoped PM-tool credential**, declared as a second server (`pm-tool-read`)
-against the same endpoint as the delivery lead's `pm-tool`. PM-tool filters its
-own tool list by scope (`lib/mcp/tools.ts`, `toolsFor`), so the write tools
-never reach the model. The same reasoning as the mailbox server below, where the
-read-only guarantee is "there is no tool that writes" rather than a setting.
+The answer is not a stern instruction. It is the **approval gate**
+([approvals.md](approvals.md)): every tool call that would write is held as a
+proposal and runs only when a founder approves it on `/approvals`. The
+Secretary now holds the read+write `pm-tool` entry, the `teams` transcripts
+and the `teams-notes` writer, and its brief says "proposed" for a held call
+and "changed" only for one that ran. Until the gate existed the fence was a
+read-scoped credential (`pm-tool-read`, which the product owners still hold);
+the gate makes the same promise for every server at once, and the seed refuses
+to provision an entry that switches it off (`"writes": "allow"`).
+
+Two paths, one rule:
 
 ```
 transcript ──▶ hub_skill_meeting_to_pm ──▶ changeset.json ──▶ .claude/skills/meeting-to-pm
@@ -46,16 +51,40 @@ already exists does the confirming and the applying. `call.args` holds the
 literal arguments to be sent, so what a reviewer approves is byte-for-byte what
 gets sent, and nothing is re-derived at apply time.
 
-The hub now has a general version of this: any agent's write is held for a
-person's approval unless an admin says otherwise ([approvals.md](approvals.md)).
-The Secretary keeps its read-scoped credential regardless; two fences are not a
-contradiction, and the credential is the one a prompt cannot talk its way past.
-When it is time for the Secretary to draft or book, the way to do it is to give
-it the write-capable entry and let the gate hold each call.
+The second path is the clock. `meeting-followup` runs every hour, finds the
+transcripts that finished at least 45 minutes ago and are not yet in its
+ledger, reads each one in full, grounds against the board, and proposes
+through the tools — `pm_update_task`, `pm_create_task`, one `pm_add_note` for
+the manual and unresolved items, `teams_notes_save` for the meeting note — each
+call held with its evidence in the task or the note. It records what it handled
+in its `followed-up-transcripts` memory so the next hour never proposes the
+same change twice, and an hour with nothing to do costs one `teams_meetings_list`
+call and no model work beyond saying so.
 
-## The skill
+```
+Teams transcript ──▶ meeting-followup (hourly) ──▶ proposals on /approvals ──▶ a founder approves
+                     reads, grounds, proposes          task · task · note · meeting note
+```
 
-`hub_skill_meeting_to_pm`, in any MCP client:
+**Setting the clock.** `/agents` → Secretary → Schedules → New: the skill
+*Meeting follow-up*, both arguments blank, **every 60 minutes**. It runs as
+whoever sets it up. "Run now, as you" is the way to test it on the last
+meeting before leaving it to the clock. What it needs on the deployment:
+the Secretary invited to the meeting series and transcription on
+([teams.md](teams.md)), `M365_TEAMS_NOTES_FOLDER` set, and `HUB_SCHEDULER=1`.
+
+What it deliberately does not do: fire on the meeting itself (the hub has no
+event trigger from Teams; an hourly poll is within the hour, which is what was
+asked, at the cost of 24 cheap runs a day), apply anything without a founder,
+or tell anyone that proposals are waiting — that notification is the one gap
+`docs/approvals.md` names, and it matters more now.
+
+## The skills
+
+`hub_skill_meeting_followup` takes `lookbackHours` (blank: 3) and `only` (a
+transcriptId or words from a title; blank: every unhandled transcript), and is
+described above. `hub_skill_meeting_prep` is the morning brief
+([schedules.md](schedules.md)). `hub_skill_meeting_to_pm`, in any MCP client:
 
 | Argument | | |
 | --- | --- | --- |
@@ -87,23 +116,24 @@ npm run seed:secretary -w @ai-hub/db                              # needs DATABA
 
 Idempotent — the agent matches by slug, the skill by slug, memories by key — so
 the same command provisions a laptop and production, and running it twice is not
-a mistake.
+a mistake. An existing row keeps what was tuned on its page (model, effort,
+knowledge scope, placement) and takes from the definition only the brief, the
+servers and the tool-use rounds.
 
 The checks are not optional: they run first and **refuse to provision** if they
 fail. What they catch is silent. A `{{placeholder}}` with no parameter behind it
 renders as the literal text `{{transcript}}`, which the model reads as content
 and answers confidently about a meeting it was never given.
 
-It also warns when the environment does not declare `pm-tool-read`. That matters
-more than it looks: `runSession` drops an unknown server name **silently**, on
-purpose, because that is also how `/admin` disables one. A secretary whose
-server was never declared does not fail — it runs with memory alone and writes a
-fluent, entirely ungrounded change set.
+It also warns when the environment does not declare a server the agent names
+(`pm-tool`, `teams`, `teams-notes`). A run on a deployment that lacks one now
+says so in its output and in the model's instructions
+([agents.md](agents.md), "A run"), rather than quietly grounding a change set
+on nothing — but a warning at seed time is still the earlier place to hear it.
 
-Before it can do real work, mint the read-scoped token in PM-tool's
-`PM_TOOL_MCP_TOKENS` under its own label. Not a person's existing token: the
-audit trail is attributed to the label, and a secretary's reads should not
-appear as someone's.
+Its PM-tool writes go through the same `pm-tool` entry the Project Manager
+uses and are attributed to that token's label in Atlas's audit trail, with the
+proposal on `/approvals` saying which agent asked.
 
 ## The mailbox and calendar
 
