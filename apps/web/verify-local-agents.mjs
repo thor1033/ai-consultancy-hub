@@ -86,7 +86,7 @@ await new Promise((resolve, reject) => {
 const { buildHubMcpServer, toolNameForAgent, toolNameForSkill } = await import("./src/lib/mcp/hubServer.ts");
 const { buildAgentMcpServer, resolveLocalAgent } = await import("./src/lib/mcp/agentServer.ts");
 const { runnableAgent } = await import("./src/lib/agentRuns.ts");
-const { resolveServer } = await import("./src/lib/runSession.ts");
+const { resolveServer, unavailableServers, unavailabilityNote } = await import("./src/lib/runSession.ts");
 const { renderAgentFiles, agentEndpoint } = await import("./src/lib/localAgents.ts");
 const exportRoute = await import("./src/app/api/agents/export/route.ts");
 const agentRoute = await import("./src/app/api/mcp/agents/[slug]/route.ts");
@@ -231,6 +231,34 @@ try {
   );
   await scopedClient.close();
   check("the agent's own tool server is proxied", localTools.includes("pm_list_projects"), localTools.join(", "));
+
+  // --- a server the deployment will not connect is said, not swallowed ---
+  const missing = unavailableServers(["verify-pm", "memory", "not-declared"], new Set(["verify-pm"]));
+  check(
+    "a switched-off server and an undeclared one are each named with their reason; memory is never listed",
+    missing.length === 2 &&
+      missing.find((m) => m.name === "verify-pm")?.reason === "switched off on /mcp" &&
+      /not declared/.test(missing.find((m) => m.name === "not-declared")?.reason ?? ""),
+    JSON.stringify(missing),
+  );
+  check("nothing missing, no note", unavailabilityNote([]) === null && unavailabilityNote(missing)?.includes("say so plainly"));
+  {
+    const saved = process.env.HUB_REMOTE_MCP_SERVERS;
+    process.env.HUB_REMOTE_MCP_SERVERS = "{not json";
+    const broken = unavailableServers(["verify-pm"], new Set());
+    check("a malformed HUB_REMOTE_MCP_SERVERS is named as the reason every remote server is gone", /not valid JSON/.test(broken[0]?.reason ?? ""), broken[0]?.reason);
+    process.env.HUB_REMOTE_MCP_SERVERS = saved;
+  }
+  const ghost = await mk("ghost", { placement: "local", mcpServers: [{ name: "verify-pm" }, { name: "not-declared" }] });
+  const ghostClient = await connect(await buildAgentMcpServer(ANALYST, ghost));
+  const ghostInstructions = ghostClient.getInstructions() ?? "";
+  check(
+    "a local agent's server instructions name the server the hub will not connect",
+    /not-declared: not declared on this deployment/.test(ghostInstructions) && !/verify-pm:/.test(ghostInstructions),
+    ghostInstructions.split("\n").find((l) => l.startsWith("- ")),
+  );
+  check("and its declared server is still proxied", (await toolNames(ghostClient)).includes("pm_list_projects"));
+  await ghostClient.close();
   check("no hub_agent_* runner is offered to a local agent", !localTools.some((t) => t.startsWith("hub_agent_") || t === "hub_run_agent"));
 
   const listed = (await localClient.listTools()).tools.find((t) => t.name === "pm_list_tasks");

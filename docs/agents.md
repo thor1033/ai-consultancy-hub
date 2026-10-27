@@ -90,6 +90,15 @@ traceable back to the agent that made it. Retrieval follows the agent's
 knowledge scope, best-effort: a missing embedder or an empty index answers
 without context rather than failing the turn.
 
+A server the agent names but the deployment will not connect — one nobody
+declared, every remote server when `HUB_REMOTE_MCP_SERVERS` fails to parse, or
+one switched off on `/mcp` — is dropped from the run, and **said**: the model is
+told which servers are absent and why (`unavailabilityNote`), the run's output
+ends with the same line, and the local endpoint puts it in the sub-agent's
+server instructions. Dropping was always deliberate (it is how the kill switch
+works); for a while it was also silent, and the symptom was an agent saying "I
+have no such tool" while the reason sat in the hub's log.
+
 ### What it reads
 
 An agent's knowledge scope is one of three things, set under **What it may

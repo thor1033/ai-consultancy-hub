@@ -12,7 +12,7 @@ import {
 } from "@ai-hub/db";
 import { isRemoteServer, remoteServerForwardsIdentity, remoteServerReadOnly } from "@ai-hub/mcp";
 import { retrieveChunks, getDocument, embedderStatus } from "@ai-hub/rag";
-import { entryName, isKnownServer, resolveServer } from "@/lib/runSession";
+import { entryName, isKnownServer, resolveServer, unavailableServers, unavailabilityNote } from "@/lib/runSession";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
 import { heldText, hold, needsApproval } from "@/lib/approvals";
@@ -60,13 +60,21 @@ export async function resolveLocalAgent(principal: Principal, slug: string): Pro
 }
 
 export async function buildAgentMcpServer(principal: Principal, agent: Agent): Promise<McpServer> {
+  // A server switched off in /mcp, or one this deployment never declared, is
+  // not dialled — and the sub-agent is told so in the server's instructions,
+  // which Claude Code shows its model, rather than finding a tool missing.
+  const disabled = await disabledMcpServerNames();
+  const missing = unavailableServers((agent.mcpServers ?? []).map(entryName), disabled);
+  const note = unavailabilityNote(missing);
+  if (note) console.warn(`[agent-mcp] ${agent.slug}: unavailable servers — ${missing.map((m) => m.name).join(", ")}`);
   const server = new McpServer(
     { name: `ai-hub-agent-${agent.slug}`, version: "0.1.0" },
     {
       instructions:
         `The hub's "${agent.name}" agent: its memory, its knowledge and its tools. ` +
         "Call hub_memory_list first. Everything here is checked by the hub; a refusal " +
-        "means this agent is not allowed to do it.",
+        "means this agent is not allowed to do it." +
+        (note ? `\n\n${note}` : ""),
     },
   );
 
@@ -177,7 +185,6 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
 
   // The agent's own tool servers, dialled by the hub. `memory` is served above,
   // and a server switched off in /mcp is off here too.
-  const disabled = await disabledMcpServerNames();
   const entries = (agent.mcpServers ?? [])
     .map((entry) => ({ entry, name: entryName(entry) }))
     .filter(({ name }) => name && name !== "memory" && isKnownServer(name) && !disabled.has(name));

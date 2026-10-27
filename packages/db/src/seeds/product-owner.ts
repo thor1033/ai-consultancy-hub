@@ -110,7 +110,49 @@ Manager and you are *configured in* it; the hub itself stays generic.`,
   ],
 };
 
-export const PRODUCTS: Record<string, ProductDefinition> = { hub: HUB_PRODUCT };
+export const ATLAS_PRODUCT: ProductDefinition = {
+  key: "atlas",
+  name: "Atlas (PM-tool)",
+  repo: "thor1033/pm-tool",
+  defaultBranch: "main",
+  collection: "atlas-product",
+  productionUrl: "https://pm.teqneo.co",
+  oneLine:
+    "Atlas, Teqneo's PM-tool: an AI-native project delivery hub where every client engagement gets one workspace — board, business case, scope, risks, stakeholders, plans, KPIs — and which the hub's agents reach through its MCP endpoint.",
+  whatItIs: `Atlas is the system of record for delivery. Every client engagement gets
+one workspace with thirteen modules: the task board (list, kanban, timeline,
+calendar), business case, scope, pre-analysis, risks, stakeholders, org chart,
+product catalogue, communication and change plans, KPIs, financials, taxonomy
+and glossary — and Claude can draft the whole workspace from a brief. It is a
+ground-up rewrite of the original single-file Atlas (kept in the legacy/ folder as the
+reference) into a multi-tenant Next.js application on Neon Postgres, signed in
+through WorkOS AuthKit, deployed on Vercel. It exposes its project data to the
+AI Hub as an MCP server (\`/api/mcp\`): a person's own token or a machine token
+scoped to one organisation, reads for everyone, writes only to a write-scoped
+token, every write attributed in the project's audit trail.`,
+  boundary: `Atlas is not the hub. The hub runs agents; Atlas records delivery and is
+one of the systems those agents reach. The Project Manager writes to the board
+through Atlas's MCP tools, and the hub's approval gate decides when such a
+write is allowed to land — Atlas's job is to record it and say who did it. The
+AI inside Atlas drafts a project from a brief; it does not run agents, keep
+memory or hold knowledge. And Atlas is one tenant per organisation: what one
+client's workspace holds, no other tenant's query may return.`,
+  principles: [
+    "**One workspace per engagement, the whole engagement.** Board, business case, scope, pre-analysis, risks, stakeholders, org chart, catalogue, communication and change plans, KPIs, financials, taxonomy, glossary. A feature belongs in one of those modules, or it is not Atlas.",
+    "**Tenant isolation is explicit, in the query.** Every row carries `org_id`; every query in `lib/db/queries.ts` filters by it; row-level security is a second layer and dormant on Neon until the app connects as a non-owner role. A missing `org_id` predicate is a security bug, not a style issue.",
+    "**The user's vocabulary is fixed.** Track and Task, never Category or Action, everywhere a person reads. Internal names (columns, routes, files) may lag; copy may not.",
+    "**The MCP endpoint is a product surface.** It fails closed on auth, offers write tools only to a write-scoped token, annotates every tool with `readOnlyHint`, and attributes every write in the audit trail to the person or the token's label. An agent edit is visibly an agent edit.",
+    "**People sign in once.** WorkOS AuthKit is the authorization server; Atlas issues no tokens. A person's own token reaches their own workspace, directly or forwarded through the hub, and is audited as them.",
+    "**Parity before novelty.** The rewrite is measured against the legacy Atlas; a deviation from it is recorded in PARITY-NOTES.md with its reason, never slipped in. The user is asked before a spec is reinterpreted.",
+    "**This is not the Next.js you know.** Read `node_modules/next/dist/docs` before writing code; conventions from training data do not apply, and deprecation notices are heeded.",
+    "**Prose is slow, the board is live.** The documents (business case, scope, glossary, notes) may be indexed by the hub; task state is only ever read live through the `pm_*` tools, never from a copy.",
+  ],
+  docsPaths: ["README.md", "AGENTS.md", "PARITY-NOTES.md"],
+  deploy: "Vercel deploys `main`; database migrations run once against the production Neon database with `npm run db:migrate`; a Dockerfile exists for a VPC deployment",
+  tracks: [{ id: "ct_2j3ngcl", label: "PM tool" }],
+};
+
+export const PRODUCTS: Record<string, ProductDefinition> = { hub: HUB_PRODUCT, atlas: ATLAS_PRODUCT };
 
 // ── the reference block ──────────────────────────────────────────────────────
 //
