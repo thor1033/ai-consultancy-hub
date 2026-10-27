@@ -45,4 +45,6 @@ export interface SourceRow {
   type: string;
   label: string;
   configured: boolean;
+  /** Where a sync files its documents when no collection is named. */
+  defaultCollection?: string;
 }

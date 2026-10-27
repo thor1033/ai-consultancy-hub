@@ -20,7 +20,14 @@ const SOURCE_SETUP: Record<string, { what: string; env: string[] }> = {
     what: "Pulls each project's documents — business case, scope, plans, KPIs — from the PM-tool.",
     env: ["HUB_REMOTE_MCP_SERVERS (with a pm-tool entry)", "PM_TOOL_MCP_TOKEN"],
   },
+  // One source per repository in HUB_GITHUB_SOURCES, typed github:<key>.
+  github: {
+    what: "Pulls a repository's docs — docs/, README, CLAUDE.md — at one commit, so an agent knows the product's design record.",
+    env: ["GITHUB_TOKEN"],
+  },
 };
+
+const setupFor = (type: string) => SOURCE_SETUP[type] ?? SOURCE_SETUP[type.split(":")[0]];
 
 const UNFILED = "__unfiled__";
 const ALL = "__all__";
@@ -533,7 +540,7 @@ function Sources({
       </label>
       <ul className="mt-4 grid gap-3 md:grid-cols-2">
         {sources.map((s) => {
-          const setup = SOURCE_SETUP[s.type];
+          const setup = setupFor(s.type);
           return (
             <li key={s.type} className="inset flex flex-col gap-3 p-4">
               <div className="flex items-center justify-between gap-3">
@@ -548,6 +555,11 @@ function Sources({
                 </span>
               </div>
               {setup && <p className="text-sm text-[var(--text-soft)]">{setup.what}</p>}
+              {s.defaultCollection && (
+                <p className="text-xs text-[var(--muted)]">
+                  Filed under <code className="text-[var(--text-soft)]">{s.defaultCollection}</code> unless you name a collection above.
+                </p>
+              )}
               {s.configured ? (
                 <button type="button" onClick={() => sync(s.type)} disabled={busy !== null} className="btn-brand min-h-11 self-start">
                   {busy === s.type ? "Syncing…" : "Sync now"}
