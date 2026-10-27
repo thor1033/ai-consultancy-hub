@@ -110,7 +110,9 @@ collection; name one and it wins for that sync.
 A sync reads the repository **at one commit**: it resolves `ref` to a sha, lists
 the tree at that sha, and reads every file at that sha, so a push in the middle
 cannot produce an index that is half one version and half another. Every
-document carries the sha and a link to the file at it. A re-sync replaces that
+document carries the sha and a link to the file at it, and its title ends in
+`@ <short sha>`, so a retrieved passage can be cited with its age
+("docs/agents.md @ 5a38488"). A re-sync replaces that
 source's documents through the same upsert path as every other connector.
 
 What a sync refuses rather than guesses at: a truncated tree (GitHub stops
