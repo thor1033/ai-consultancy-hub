@@ -35,7 +35,8 @@ hub/
 - **Agents** (`/agents`) — a named worker with its own instructions, tool access and
   memory that survives between conversations.
 - **Knowledge** (`/knowledge`) — documents indexed into pgvector, retrievable by agents
-  and syncable from a source connector (PM-tool ships as one).
+  and syncable from a source connector (the PM-tool, Teams meeting notes and GitHub
+  repository docs ship as three).
 - **MCP servers** (`/mcp`) — what agents can reach. Remote servers are declared in
   `HUB_REMOTE_MCP_SERVERS`; the agent-scoped `memory` server is resolved in code.
   `microsoft365` gives the secretary agent read-only mail and calendar — it cannot

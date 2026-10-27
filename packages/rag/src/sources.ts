@@ -18,6 +18,13 @@ export interface KnowledgeSource {
   readonly type: string; // matches documents.source_type
   readonly label: string;
   readonly configured: boolean; // whether the required env/credentials are present
+  /**
+   * Where this source's documents are filed when the sync names no
+   * collection. A source that is one repository or one space knows which
+   * drawer it belongs in; a person syncing it from /knowledge should not have
+   * to remember.
+   */
+  readonly defaultCollection?: string;
   fetch(): Promise<SourceDocument[]>;
 }
 
@@ -25,24 +32,43 @@ export interface SourceInfo {
   type: string;
   label: string;
   configured: boolean;
+  defaultCollection?: string;
 }
 
 // Factories so `configured` is re-evaluated (env may change) on every read.
 const factories = new Map<string, () => KnowledgeSource>();
 
+// A family is several sources declared by one env var — one per repository,
+// say — whose number and names are not known until the env is read. Evaluated
+// on every read for the same reason the factories are: a cached parse makes a
+// config change in dev look ignored.
+const families: (() => KnowledgeSource[])[] = [];
+
 export function registerSource(type: string, factory: () => KnowledgeSource): void {
   factories.set(type, factory);
 }
 
+export function registerSourceFamily(factory: () => KnowledgeSource[]): void {
+  families.push(factory);
+}
+
+function allSources(): KnowledgeSource[] {
+  return [...[...factories.values()].map((f) => f()), ...families.flatMap((f) => f())];
+}
+
 export function getSource(type: string): KnowledgeSource | undefined {
-  return factories.get(type)?.();
+  const direct = factories.get(type)?.();
+  if (direct) return direct;
+  return families.flatMap((f) => f()).find((s) => s.type === type);
 }
 
 export function listSources(): SourceInfo[] {
-  return [...factories.values()].map((f) => {
-    const s = f();
-    return { type: s.type, label: s.label, configured: s.configured };
-  });
+  return allSources().map((s) => ({
+    type: s.type,
+    label: s.label,
+    configured: s.configured,
+    ...(s.defaultCollection ? { defaultCollection: s.defaultCollection } : {}),
+  }));
 }
 
 export interface SyncResult {
@@ -63,6 +89,7 @@ export async function syncSource(
   if (!source.configured) throw new Error(`${source.label} is not configured.`);
 
   const docs = await source.fetch();
+  const collection = opts.collection ?? source.defaultCollection;
   let chunks = 0;
   for (const d of docs) {
     await deleteDocumentsBySource(type, d.externalId);
@@ -71,7 +98,7 @@ export async function syncSource(
       content: d.content,
       source: d.externalId,
       sourceType: type,
-      collection: opts.collection,
+      collection,
       metadata: d.metadata,
     });
     chunks += r.chunks;
@@ -435,3 +462,179 @@ export function teamsNotesSource(): KnowledgeSource {
 }
 
 registerSource("teams-notes", teamsNotesSource);
+
+// ── GitHub repository docs ──────────────────────────────────────────────────
+//
+// The design record of a product we build lives in its repository: docs/,
+// README, CLAUDE.md. An agent that owns a product has to know that record, and
+// the only honest way is to index it from the repository itself — a copy
+// pasted into /knowledge is wrong by the next merge.
+//
+// Configured per repository, so each one files into its own collection and a
+// product owner is scoped to exactly its product:
+//
+//   HUB_GITHUB_SOURCES='{
+//     "hub":   { "repo": "thor1033/ai-consultancy-hub", "ref": "master",
+//                "paths": ["docs", "README.md", "CLAUDE.md"], "collection": "hub-product" },
+//     "atlas": { "repo": "thor1033/pm-tool", "paths": ["README.md", "AGENTS.md"], "collection": "atlas-product" }
+//   }'
+//   GITHUB_TOKEN=…   a fine-grained token, Contents: read, on those repositories only
+//
+// Each entry is a source of type `github:<key>`. Fails closed like every other
+// env-declared registry: malformed JSON ⇒ no sources at all, and a missing token
+// ⇒ declared but not connected, never an unauthenticated read that happens to
+// work on a public repository and stops the day it goes private.
+//
+// What is indexed is a snapshot, and it says so: every document carries the
+// commit it was read at. The agent reads the current file through the GitHub
+// MCP server when exactness matters; retrieval is for finding, not for quoting
+// the latest line.
+
+interface GithubSourceEntry {
+  repo: string;
+  ref?: string;
+  paths?: string[];
+  collection?: string;
+}
+
+/** Fine-grained personal access token: Contents (read) on the listed repositories. */
+export const GITHUB_TOKEN_ENV = "GITHUB_TOKEN";
+
+const GITHUB_API = () => (process.env.GITHUB_API_BASE_URL?.replace(/\/+$/, "") || "https://api.github.com");
+
+/** Only prose. Code and configuration are read live, never embedded. */
+const GITHUB_DOC_EXTENSIONS = /\.(md|mdx|markdown|txt)$/i;
+
+/** A file this large is a log or a dump, not a document anyone wrote. */
+const GITHUB_MAX_FILE_BYTES = 256 * 1024;
+
+/** Enough for a docs/ folder; a repository with more is a wiki, and a sync cap keeps the embedder bill bounded. */
+const GITHUB_MAX_FILES = 300;
+
+function loadGithubEntries(): Record<string, GithubSourceEntry> {
+  const raw = process.env.HUB_GITHUB_SOURCES;
+  if (!raw) return {};
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    console.warn("[rag] HUB_GITHUB_SOURCES is not valid JSON — no GitHub sources configured.");
+    return {};
+  }
+  const out: Record<string, GithubSourceEntry> = {};
+  if (!parsed || typeof parsed !== "object") return out;
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    const e = asRecord(value);
+    // owner/name, nothing else: the value is spliced into an API path.
+    if (!/^[a-z0-9_.-]+$/i.test(key) || !/^[\w.-]+\/[\w.-]+$/.test(asString(e.repo))) continue;
+    out[key] = {
+      repo: asString(e.repo),
+      ref: asString(e.ref) || undefined,
+      paths: Array.isArray(e.paths) ? e.paths.filter((p): p is string => typeof p === "string" && p.trim() !== "") : undefined,
+      collection: asString(e.collection) || undefined,
+    };
+  }
+  return out;
+}
+
+/** Is `file` one of the configured paths, or inside one of them? */
+function underPaths(file: string, paths: string[]): boolean {
+  return paths.some((p) => {
+    const clean = p.replace(/^\/+|\/+$/g, "");
+    return file === clean || file.startsWith(`${clean}/`);
+  });
+}
+
+/** The document's title: its first heading, else the file name. */
+function markdownTitle(path: string, content: string): string {
+  const heading = content.match(/^#\s+(.+?)\s*$/m)?.[1]?.trim();
+  return heading || path.split("/").pop()!.replace(GITHUB_DOC_EXTENSIONS, "");
+}
+
+async function githubJson(token: string, path: string, accept = "application/vnd.github+json"): Promise<Response> {
+  const res = await fetch(`${GITHUB_API()}${path}`, {
+    headers: { authorization: `Bearer ${token}`, accept, "x-github-api-version": "2022-11-28" },
+  });
+  if (!res.ok) {
+    const text = (await res.text()).slice(0, 200);
+    throw new Error(
+      `GitHub ${res.status} on ${path}: ${text}` +
+        (res.status === 404 ? " (a private repository the token cannot see answers 404, not 403)" : ""),
+    );
+  }
+  return res;
+}
+
+export function githubDocsSource(key: string, entry: GithubSourceEntry): KnowledgeSource {
+  const token = process.env[GITHUB_TOKEN_ENV] || "";
+  const ref = entry.ref || "HEAD";
+  const paths = entry.paths?.length ? entry.paths : ["docs", "README.md"];
+
+  return {
+    type: `github:${key}`,
+    label: `GitHub — ${entry.repo}`,
+    configured: Boolean(token),
+    defaultCollection: entry.collection,
+    async fetch(): Promise<SourceDocument[]> {
+      if (!token) {
+        throw new Error(`GitHub is not connected: set ${GITHUB_TOKEN_ENV} (a fine-grained token with Contents: read on ${entry.repo}).`);
+      }
+      // Pin the whole read to one commit, so a push in the middle of a sync
+      // cannot produce an index that is half one version and half another.
+      const head = (await (await githubJson(token, `/repos/${entry.repo}/commits/${encodeURIComponent(ref)}`)).json()) as {
+        sha?: string;
+        commit?: { committer?: { date?: string } };
+      };
+      const sha = asString(head.sha);
+      if (!sha) throw new Error(`GitHub returned no commit for ${entry.repo}@${ref}.`);
+
+      const tree = (await (await githubJson(token, `/repos/${entry.repo}/git/trees/${sha}?recursive=1`)).json()) as {
+        truncated?: boolean;
+        tree?: { path?: string; type?: string; size?: number }[];
+      };
+      // A truncated tree would index some of the docs and present them as all
+      // of them, which is the one failure a reader cannot see.
+      if (tree.truncated) throw new Error(`${entry.repo} is too large to list in one call; narrow "paths" or index a smaller repository.`);
+
+      const files = (tree.tree ?? []).filter(
+        (t) => t.type === "blob" && typeof t.path === "string" && GITHUB_DOC_EXTENSIONS.test(t.path) && underPaths(t.path, paths),
+      );
+      if (files.length > GITHUB_MAX_FILES) {
+        throw new Error(`${entry.repo} has ${files.length} documents under ${paths.join(", ")}; the cap is ${GITHUB_MAX_FILES}. Narrow "paths".`);
+      }
+
+      const docs: SourceDocument[] = [];
+      for (const f of files) {
+        const path = f.path!;
+        if ((f.size ?? 0) > GITHUB_MAX_FILE_BYTES) continue;
+        const content = (
+          await (await githubJson(token, `/repos/${entry.repo}/contents/${path.split("/").map(encodeURIComponent).join("/")}?ref=${sha}`, "application/vnd.github.raw+json")).text()
+        ).trim();
+        if (!content) continue;
+        const title = markdownTitle(path, content);
+        docs.push({
+          externalId: `github:${entry.repo}:${path}`,
+          // The path is in the body because chunks are retrieved without the
+          // title, and "Setup" alone does not say whose setup.
+          title: `${title} (${path})`,
+          content: `${title} — ${entry.repo}/${path}\n\n${content}`,
+          metadata: {
+            repo: entry.repo,
+            path,
+            ref,
+            sha,
+            committedAt: head.commit?.committer?.date,
+            url: `https://github.com/${entry.repo}/blob/${sha}/${path}`,
+          },
+        });
+      }
+      return docs;
+    },
+  };
+}
+
+export function githubDocsSources(): KnowledgeSource[] {
+  return Object.entries(loadGithubEntries()).map(([key, entry]) => githubDocsSource(key, entry));
+}
+
+registerSourceFamily(githubDocsSources);

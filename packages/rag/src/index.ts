@@ -17,13 +17,16 @@ export type {
 } from "./ingest";
 export {
   registerSource,
+  registerSourceFamily,
   getSource,
   listSources,
   syncSource,
   confluenceSource,
   pmToolSource,
   teamsNotesSource,
+  githubDocsSources,
   TEAMS_NOTES_COLLECTION,
+  GITHUB_TOKEN_ENV,
 } from "./sources";
 export type {
   KnowledgeSource,

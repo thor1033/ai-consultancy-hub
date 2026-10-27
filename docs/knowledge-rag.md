@@ -121,3 +121,28 @@ duplicate, and a retrieval round-trip.
 > `Retry-After`), which makes the sync correct but slow — a 7-document sync took
 > 16 retries. Adding a payment method removes the cap; the free token allowance
 > still applies.
+
+### Phase 5 — GitHub repository docs  ✅
+
+`githubDocsSources()` in `packages/rag/src/sources.ts`: one source per
+repository declared in `HUB_GITHUB_SOURCES`, typed `github:<key>`, indexing
+the prose under its `paths` (docs/, README, CLAUDE.md) **at one commit** and
+filing it under the entry's own collection. It is what a product owner's
+knowledge is made of ([product-owner.md](product-owner.md)), and it settled
+two things the seam had not needed yet:
+
+**A family of sources from one variable.** `registerSourceFamily()` sits beside
+`registerSource()`: a factory that returns however many sources the env
+declares, re-evaluated on every read like the others. `listSources()` and
+`getSource()` see both.
+
+**A source can know its drawer.** `KnowledgeSource.defaultCollection`, used by
+`syncSource()` when the caller names none, so syncing from `/knowledge` files
+a repository where its agent reads without the person remembering the name.
+A collection named at sync time still wins.
+
+Code is never indexed; it is read live through the `github` MCP server. The
+same token serves both. Setup, limits and what a sync refuses: [github.md](github.md).
+Verify with `npm run verify:github -w @ai-hub/rag` — 25 checks, no token, no
+network, against a throwaway GitHub.
+

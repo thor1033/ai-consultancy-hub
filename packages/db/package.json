@@ -13,7 +13,8 @@
     "migrate": "node migrate.mjs",
     "verify:agents": "node verify-agents.mjs",
     "verify:schedules": "node verify-schedules.mjs",
-    "seed:secretary": "node seed-secretary.mjs"
+    "seed:secretary": "node seed-secretary.mjs",
+    "seed:product-owner": "node --experimental-transform-types seed-product-owner.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",
