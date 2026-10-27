@@ -58,9 +58,11 @@ export const PROJECT_ID = "ca4749f1-624f-437c-9552-6031da90c5f9";
  * told to fetch it live.
  *
  * Defined once and interpolated into both the skill template and the seeded
- * memories below, so the two can never drift apart.
+ * memories below, so the two can never drift apart. BOARD_FACTS is the half
+ * every agent on the board needs (the Project Manager's seed imports it); the
+ * write-surface notes below it are the Secretary's own.
  */
-const PM_TOOL_REFERENCE = `
+export const BOARD_FACTS = `
 ### The project
 
     projectId  ${PROJECT_ID}   ("AI Consultancy")
@@ -87,7 +89,9 @@ the field; assign one only when the meeting says who is doing it.
 ### Field values
 
     status   backlog | inprogress | done     (default: backlog)
-    dates    start, end — ISO YYYY-MM-DD
+    dates    start, end — ISO YYYY-MM-DD`;
+
+const PM_TOOL_REFERENCE = `${BOARD_FACTS}
 
 ### What the write surface can and cannot change
 
