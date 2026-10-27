@@ -1,8 +1,10 @@
 # The Product Owner
 
-One definition, one agent per product we build. The first is the hub's own:
-**Product Owner — AI Hub** (`product-owner-hub`). The second will be Atlas's,
-and it is a second `ProductDefinition`, not a second file.
+One definition, one agent per product we build: **Product Owner — AI Hub**
+(`product-owner-hub`) and **Product Owner — Atlas (PM-tool)**
+(`product-owner-atlas`). Each is a `ProductDefinition` in
+`packages/db/src/seeds/product-owner.ts`; the brief, the skills and the
+memories are generated from it.
 
 ## Why this agent
 
@@ -106,16 +108,25 @@ nothing about the deployment. Then on the deployment:
 3. ask the agent for the overview, audience founders. If it cites commits and
    pull request numbers, the three sources are connected.
 
-## Adding the second product
+## The second product: Atlas
 
-`PRODUCTS` in `packages/db/src/seeds/product-owner.ts` takes a second
-`ProductDefinition` — Atlas: its repository, default branch (`main`), the
-paths to index (`README.md`, `AGENTS.md`, `PARITY-NOTES.md`), its collection
-(`atlas-product`), its principles, its tracks on the board — and a second
-entry in `HUB_GITHUB_SOURCES`. Then `--product atlas`. The brief, the skills
-and the memories are generated from the definition; the Atlas owner's
-principles are the part worth writing carefully, because they are what it
-judges by.
+`ATLAS_PRODUCT` is the same shape with different facts: repository
+`thor1033/pm-tool`, default branch `main`, the paths to index (`README.md`,
+`AGENTS.md`, `PARITY-NOTES.md` — the last is Atlas's decision log, and the
+most useful of the three), collection `atlas-product`, the `PM tool` track on
+the board, and eight principles drawn from Atlas's own README and notes:
+one workspace per engagement; tenant isolation explicit in the query;
+Track/Task vocabulary fixed; the MCP endpoint as a product surface; sign in
+once; parity before novelty; not the Next.js you know; prose indexed, board
+live. Its skills are `atlas-product-overview`, `atlas-does-this-fit`,
+`atlas-release-notes`, `atlas-backlog-triage`.
+
+Provision with `--product atlas`, add the `atlas` entry to
+`HUB_GITHUB_SOURCES` ([github.md](github.md)), sync it from `/knowledge`.
+
+A third product is a third definition. The principles are the part worth
+writing carefully, because they are what the owner judges by; everything else
+is facts a tool could almost look up.
 
 ## Deliberately not done
 

@@ -28,7 +28,7 @@ import type { SkillInput } from "../skills";
 /**
  * The PM-tool server this agent is given.
  *
- * Deliberately NOT the `pm-tool` entry the delivery lead uses. That one carries
+ * Deliberately NOT the `pm-tool` entry the project manager uses. That one carries
  * a read+write token, and an agent holding it can call pm_create_task in the
  * middle of its own tool loop — which is exactly the thing a human is supposed
  * to approve first. PM-tool omits the write tools from the tool list for a
