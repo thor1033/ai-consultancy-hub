@@ -1,0 +1,144 @@
+import { getSql } from "./client";
+
+/*
+ * Proposals — a held tool call, waiting for a person (docs/approvals.md).
+ *
+ * The store is deliberately dumb: it records what was held and what was
+ * decided. Which calls are held, and who may decide, is policy and lives in
+ * apps/web/src/lib/approvals.ts, next to the code that executes them.
+ */
+
+export type ProposalStatus = "pending" | "approved" | "executed" | "failed" | "rejected";
+
+export interface Proposal {
+  id: string;
+  agentId: string | null;
+  runId: string | null;
+  principalId: string | null;
+  server: string;
+  tool: string;
+  args: Record<string, unknown>;
+  description: string;
+  status: ProposalStatus;
+  decidedBy: string | null;
+  decidedAt: string | null;
+  note: string | null;
+  result: string | null;
+  error: string | null;
+  createdAt: string;
+  /** Joined for display. */
+  agentName: string | null;
+  agentSlug: string | null;
+  principalName: string | null;
+  runPrompt: string | null;
+}
+
+export interface ProposalInput {
+  agentId?: string | null;
+  runId?: string | null;
+  principalId?: string | null;
+  server: string;
+  tool: string;
+  args: Record<string, unknown>;
+  description?: string;
+}
+
+const COLUMNS = `
+  p.id, p.agent_id as "agentId", p.run_id as "runId", p.principal_id as "principalId",
+  p.server, p.tool, p.args, p.description, p.status,
+  p.decided_by as "decidedBy", p.decided_at as "decidedAt", p.note, p.result, p.error,
+  p.created_at as "createdAt",
+  a.name as "agentName", a.slug as "agentSlug",
+  pr.display_name as "principalName",
+  s.prompt as "runPrompt"
+`;
+const JOINS = `
+  from proposals p
+  left join agents a on a.id = p.agent_id
+  left join principals pr on pr.id = p.principal_id
+  left join agent_sessions s on s.id = p.run_id
+`;
+
+export async function createProposal(input: ProposalInput): Promise<Proposal> {
+  const sql = getSql();
+  const [row] = await sql<{ id: string }[]>`
+    insert into proposals (agent_id, run_id, principal_id, server, tool, args, description)
+    values (${input.agentId ?? null}, ${input.runId ?? null}, ${input.principalId ?? null},
+            ${input.server}, ${input.tool},
+            ${sql.json((input.args ?? {}) as Parameters<typeof sql.json>[0])},
+            ${(input.description ?? "").slice(0, 2000)})
+    returning id
+  `;
+  return (await getProposal(row.id))!;
+}
+
+export async function getProposal(id: string): Promise<Proposal | null> {
+  const sql = getSql();
+  const rows = await sql<Proposal[]>`select ${sql.unsafe(COLUMNS)} ${sql.unsafe(JOINS)} where p.id = ${id}`;
+  return rows[0] ?? null;
+}
+
+export interface ProposalFilter {
+  status?: ProposalStatus | ProposalStatus[];
+  /** Only proposals whose run acted as this principal. */
+  principalId?: string;
+  runId?: string;
+  agentId?: string;
+  limit?: number;
+}
+
+export async function listProposals(filter: ProposalFilter = {}): Promise<Proposal[]> {
+  const sql = getSql();
+  const statuses = filter.status === undefined ? null : Array.isArray(filter.status) ? filter.status : [filter.status];
+  return sql<Proposal[]>`
+    select ${sql.unsafe(COLUMNS)} ${sql.unsafe(JOINS)}
+     where ${statuses ? sql`p.status = any(${statuses}::text[])` : sql`true`}
+       and ${filter.principalId ? sql`p.principal_id = ${filter.principalId}` : sql`true`}
+       and ${filter.runId ? sql`p.run_id = ${filter.runId}` : sql`true`}
+       and ${filter.agentId ? sql`p.agent_id = ${filter.agentId}` : sql`true`}
+     order by p.created_at desc
+     limit ${filter.limit ?? 50}
+  `;
+}
+
+export async function pendingProposalCount(principalId?: string): Promise<number> {
+  const sql = getSql();
+  const [row] = await sql<{ n: number }[]>`
+    select count(*)::int as n from proposals
+     where status = 'pending'
+       and ${principalId ? sql`principal_id = ${principalId}` : sql`true`}
+  `;
+  return row?.n ?? 0;
+}
+
+/**
+ * Take a pending proposal for execution. Conditional on `pending`, so two
+ * people approving at the same second produce one execution, not two.
+ */
+export async function claimProposal(id: string, decidedBy: string): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`
+    update proposals set status = 'approved', decided_by = ${decidedBy}, decided_at = now()
+     where id = ${id} and status = 'pending'
+  `;
+  return rows.count > 0;
+}
+
+export async function finishProposal(id: string, outcome: { result: string } | { error: string }): Promise<void> {
+  const sql = getSql();
+  if ("result" in outcome) {
+    await sql`update proposals set status = 'executed', result = ${outcome.result.slice(0, 20000)} where id = ${id}`;
+  } else {
+    await sql`update proposals set status = 'failed', error = ${outcome.error.slice(0, 2000)} where id = ${id}`;
+  }
+}
+
+export async function rejectProposal(id: string, decidedBy: string, note?: string): Promise<boolean> {
+  const sql = getSql();
+  const rows = await sql`
+    update proposals set status = 'rejected', decided_by = ${decidedBy}, decided_at = now(),
+                         note = ${(note ?? "").slice(0, 2000) || null}
+     where id = ${id} and status = 'pending'
+  `;
+  return rows.count > 0;
+}

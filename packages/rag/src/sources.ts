@@ -1,4 +1,4 @@
-import { connectMcpServers, remoteServerConfig, type ConnectedMcp } from "@ai-hub/mcp";
+import { builtinServerConfig, connectMcpServers, remoteServerConfig, type ConnectedMcp } from "@ai-hub/mcp";
 import { ingestDocument, deleteDocumentsBySource } from "./ingest";
 
 // Pluggable knowledge sources (docs/knowledge-rag.md, Phase 3). A source fetches
@@ -356,3 +356,82 @@ export function pmToolSource(): KnowledgeSource {
 }
 
 registerSource("pm-tool", pmToolSource);
+
+// ── Teams meeting notes ─────────────────────────────────────────────────────
+//
+// The notes an agent saved with teams_notes_save, indexed so any agent scoped
+// to the collection can answer "when did we decide X?" across every meeting.
+// SharePoint is the record and this is its index: the files are read back
+// through the read-only `teams` server — the same Graph code and the same
+// Sites.Selected fence the agents use — rather than a second Graph client.
+
+/** Where filed meeting notes go. Agents read them by being scoped to it. */
+export const TEAMS_NOTES_COLLECTION = "meetings";
+
+/** teams_file_read answers with a few header lines, a blank line, then the text. */
+function fileBody(answer: string): string {
+  const at = answer.indexOf("\n\n");
+  return at < 0 ? "" : answer.slice(at + 2);
+}
+
+export function teamsNotesSource(): KnowledgeSource {
+  const folder = process.env.M365_TEAMS_NOTES_FOLDER?.trim() ?? "";
+  const configured = Boolean(
+    folder &&
+      process.env.M365_TEAMS_SITE_URL &&
+      process.env.M365_TENANT_ID &&
+      process.env.M365_CLIENT_ID &&
+      process.env.M365_CLIENT_SECRET,
+  );
+
+  return {
+    type: "teams-notes",
+    label: "Teams meeting notes",
+    configured,
+    async fetch(): Promise<SourceDocument[]> {
+      if (!configured) {
+        throw new Error(
+          "Teams meeting notes are not configured. Set M365_TEAMS_SITE_URL and M365_TEAMS_NOTES_FOLDER (docs/teams.md).",
+        );
+      }
+      const mcp = await connectMcpServers([builtinServerConfig("teams")!]);
+      try {
+        const listing = await mcp.execute("teams_files_list", { path: folder });
+        // No folder yet means no notes yet: the first save creates it.
+        if (listing.startsWith("Nothing in") || (listing.startsWith("Tool error:") && /itemNotFound|404/.test(listing))) {
+          return [];
+        }
+        if (listing.startsWith("Tool error:")) throw new Error(`Could not list ${folder}: ${listing}`);
+        const items = (JSON.parse(listing) as { items?: { itemId: string; name: string; kind: string; path?: string; webUrl?: string; modified?: string }[] }).items ?? [];
+
+        const docs: SourceDocument[] = [];
+        for (const item of items.filter((i) => i.kind === "file" && /\.md$/i.test(i.name))) {
+          // Read every page: a note is short, but a cut-off one would be indexed
+          // as if it were the whole meeting.
+          let content = "";
+          let offset = 0;
+          for (let page = 0; page < 20; page++) {
+            const answer = await mcp.execute("teams_file_read", { itemId: item.itemId, ...(offset ? { offset } : {}) });
+            if (answer.startsWith("Tool error:")) throw new Error(`Could not read ${item.name}: ${answer}`);
+            content += fileBody(answer);
+            const next = answer.match(/call again with offset=(\d+)/);
+            if (!next) break;
+            offset = Number(next[1]);
+          }
+          if (!content.trim()) continue;
+          docs.push({
+            externalId: `teams-notes:${item.itemId}`,
+            title: item.name.replace(/\.md$/i, ""),
+            content,
+            metadata: { path: item.path, url: item.webUrl, modified: item.modified },
+          });
+        }
+        return docs;
+      } finally {
+        await mcp.close();
+      }
+    },
+  };
+}
+
+registerSource("teams-notes", teamsNotesSource);

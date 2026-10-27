@@ -42,6 +42,7 @@ export interface SkillWithAgent extends Skill {
   agentSlug: string;
   agentName: string;
   agentEnabled: boolean;
+  agentPlacement: "hub" | "local" | "both";
 }
 
 const SKILL_COLUMNS = `
@@ -83,7 +84,8 @@ export async function listRunnableSkills(): Promise<SkillWithAgent[]> {
            s.updated_at      as "updatedAt",
            a.slug            as "agentSlug",
            a.name            as "agentName",
-           a.enabled         as "agentEnabled"
+           a.enabled         as "agentEnabled",
+           a.placement       as "agentPlacement"
       from agent_skills s
       join agents a on a.id = s.agent_id
      where s.enabled and a.enabled
@@ -107,7 +109,8 @@ export async function getSkill(slugOrId: string): Promise<SkillWithAgent | null>
            s.updated_at      as "updatedAt",
            a.slug            as "agentSlug",
            a.name            as "agentName",
-           a.enabled         as "agentEnabled"
+           a.enabled         as "agentEnabled",
+           a.placement       as "agentPlacement"
       from agent_skills s
       join agents a on a.id = s.agent_id
      where s.slug = ${slugOrId}

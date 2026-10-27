@@ -32,6 +32,15 @@ export interface RetrievedRow {
   preview: string; // first slice of the chunk, for inspection
 }
 
+export interface KnowledgeContext {
+  /** Visible collections an admin has marked restricted. */
+  restricted: string[];
+  /** Agents whose retrieval is scoped to a visible collection. */
+  scopes: { name: string; slug: string; collection: string }[];
+  /** How a collection nobody has classified is treated. */
+  defaultVisibility: "open" | "restricted";
+}
+
 export interface SourceRow {
   type: string;
   label: string;

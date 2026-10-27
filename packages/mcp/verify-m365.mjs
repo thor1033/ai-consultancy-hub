@@ -146,12 +146,20 @@ const http = createServer(async (req, res) => {
     return json(401, { error: { code: "InvalidAuthenticationToken", message: "Access token is empty." } });
   }
 
-  const base = `/users/${encodeURIComponent(MAILBOX)}`;
-  const rest = url.pathname.startsWith(base) ? url.pathname.slice(base.length) : null;
-  if (rest === null) return json(404, { error: { code: "ResourceNotFound", message: "No such mailbox." } });
+  // Any mailbox is served and echoed back, so the per-agent check below can
+  // tell that the server asked Graph for the AGENT's mailbox, not the default.
+  const m = url.pathname.match(/^\/users\/([^/]+)(.*)$/);
+  if (!m) return json(404, { error: { code: "ResourceNotFound", message: "No such mailbox." } });
+  const mailbox = decodeURIComponent(m[1]);
+  const rest = m[2];
 
+  // The user object is refused, as it is in a tenant that granted only
+  // Mail.Read and Calendars.Read: a whoami that read it would 403 there.
   if (rest === "") {
-    return json(200, { displayName: "Secretary", mail: MAILBOX, userPrincipalName: MAILBOX });
+    return json(403, { error: { code: "Authorization_RequestDenied", message: "Insufficient privileges to complete the operation." } });
+  }
+  if (rest === "/mailFolders/inbox") {
+    return json(200, { id: "inbox", displayName: "Inbox", totalItemCount: MESSAGES.length, unreadItemCount: MESSAGES.filter((m) => !m.isRead).length });
   }
   if (rest === "/calendarView") {
     const from = new Date(url.searchParams.get("startDateTime"));
@@ -196,7 +204,7 @@ Object.assign(process.env, {
 });
 
 const { connectMcpServers } = await import("./src/manager.ts");
-const { builtinServerConfig } = await import("./src/servers.ts");
+const { builtinServerConfig, BUILTIN_SERVER_INFO, BUILTIN_SERVER_NAMES } = await import("./src/servers.ts");
 
 const parse = (text) => {
   try {
@@ -214,6 +222,18 @@ try {
   const mcp = await connectMcpServers([cfg]);
   try {
     const names = mcp.tools.map((t) => t.name).sort();
+    const info = BUILTIN_SERVER_INFO.find((s) => s.name === "microsoft365");
+    check(
+      "it registers its own description, and the description does not promise writes it cannot make",
+      Boolean(info?.label && info.description) && /read-only/.test(info.description) && !/draft/i.test(info.description) &&
+        BUILTIN_SERVER_NAMES.every((n) => BUILTIN_SERVER_INFO.some((s) => s.name === n)),
+      info?.description,
+    );
+    check(
+      "every tool declares readOnlyHint: true, so the hub's approval gate waves it through",
+      mcp.details.length === names.length && mcp.details.every((t) => t.annotations?.readOnlyHint === true),
+      mcp.details.filter((t) => t.annotations?.readOnlyHint !== true).map((t) => t.name).join(", ") || "all declared",
+    );
     check("the server connects over stdio and lists its tools", names.length === 5, names.join(", "));
 
     // ── read-only is the whole safety story, so assert it rather than trust it.
@@ -224,6 +244,16 @@ try {
     const who = parse(await mcp.execute("m365_whoami", {}));
     check("m365_whoami reports the mailbox it is reading", who.mailbox === MAILBOX, who.mailbox ?? String(who).slice(0, 60));
     check("and reports itself as read-only", who.access === "read-only", who.access);
+    check(
+      "it counts the inbox instead of reading the user object (no User.Read.All needed)",
+      who.inbox?.total === MESSAGES.length && who.inbox?.unread === MESSAGES.filter((m) => !m.isRead).length,
+      JSON.stringify(who.inbox),
+    );
+    check(
+      "and never asks Graph for the user object",
+      !requests.some((r) => /^\/users\/[^/]+$/.test(r.path)),
+      requests.map((r) => r.path).join(" "),
+    );
 
     const auth = lastRequest("/users/")?.headers.authorization;
     check("Graph is called with the token from the client-credentials grant", auth === `Bearer ${ACCESS_TOKEN}`);
@@ -344,6 +374,41 @@ try {
   } finally {
     await mcp.close();
   }
+
+  // ── one deployment, several mailboxes ──────────────────────────────────────
+  // The credentials are the deployment's; which mailbox an agent reads is on
+  // its own server entry. A second agent must reach a second mailbox without
+  // a second app registration.
+  const { builtinOptionsFrom } = await import("./src/servers.ts");
+  check(
+    "an entry without a mailbox leaves the deployment default alone",
+    builtinServerConfig("microsoft365").env === undefined && Object.keys(builtinOptionsFrom({ name: "microsoft365" })).length === 0,
+  );
+  check(
+    "a junk mailbox value is dropped, never forwarded",
+    Object.keys(builtinOptionsFrom({ name: "microsoft365", mailbox: 42 })).length === 0 &&
+      Object.keys(builtinOptionsFrom({ name: "microsoft365", mailbox: "   " })).length === 0 &&
+      Object.keys(builtinOptionsFrom("microsoft365")).length === 0,
+  );
+  const OTHER = "delivery-lead@example.com";
+  const perAgent = await connectMcpServers([
+    builtinServerConfig("microsoft365", builtinOptionsFrom({ name: "microsoft365", mailbox: ` ${OTHER} ` })),
+  ]);
+  try {
+    const whoElse = parse(await perAgent.execute("m365_whoami", {}));
+    check("an agent's own mailbox overrides the deployment default", whoElse.mailbox === OTHER, whoElse.mailbox);
+    check(
+      "and Graph is asked for that mailbox",
+      lastRequest("/users/")?.path.includes(encodeURIComponent(OTHER)),
+      lastRequest("/users/")?.path,
+    );
+  } finally {
+    await perAgent.close();
+  }
+  check(
+    "the default is untouched for the next run",
+    process.env.M365_MAILBOX === MAILBOX && builtinServerConfig("microsoft365").env === undefined,
+  );
 
   // ── it must refuse to run unconfigured ─────────────────────────────────────
   // Otherwise a deployment missing its secret gets an agent that appears to work

@@ -15,12 +15,15 @@ import {
   listAgents,
   listRunnableSkills,
   getRunStatus,
-  listMemories,
-  rememberMemory,
-  setMemoryActive,
-  forgetMemory,
-  searchMemories,
+  runsOnHub,
+  disabledMcpServerNames,
+  listProposals,
 } from "@ai-hub/db";
+import { approve, reject } from "@/lib/approvals";
+import { registerDeckTools } from "@/lib/mcp/deckTools";
+import { remoteServerConfig, remoteServerInfo } from "@ai-hub/mcp";
+import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
+import { registerProxiedTools } from "@/lib/mcp/proxyTools";
 import {
   retrieveChunks,
   listCollections,
@@ -50,16 +53,10 @@ import {
  * hub that is a cross-client read, not a demo bug.
  */
 
-const text = (value: unknown) => ({
-  content: [
-    {
-      type: "text" as const,
-      text: typeof value === "string" ? value : JSON.stringify(value, null, 2),
-    },
-  ],
-});
-
-export async function buildHubMcpServer(principal: Principal): Promise<McpServer> {
+export async function buildHubMcpServer(
+  principal: Principal,
+  opts: { baseUrl?: string } = {},
+): Promise<McpServer> {
   const may = async (action: Parameters<typeof authorize>[1]) =>
     authorize(principal, action);
 
@@ -86,6 +83,25 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
   // who is offered no skill has no argument to split.
   const canRunAgents = await may("agent:run");
 
+  // The remote systems this person can reach through the hub: the entries
+  // that opted in to receiving a person's token (forwardIdentity), one per
+  // URL — pm-tool and pm-tool-read are the same endpoint behind two of the
+  // hub's tokens, and with the person's token forwarded that distinction is
+  // theirs to make, not the hub's. The least restrictive entry for a URL wins.
+  // Only for a person: a credential or a schedule has no identity to forward,
+  // and the hub's shared token is not something to hand out as a tool.
+  const reachable = new Map<string, { name: string; readOnly: boolean }>();
+  if (principal.accessToken) {
+    const disabled = await disabledMcpServerNames();
+    for (const info of remoteServerInfo()) {
+      if (disabled.has(info.name) || !info.forwardIdentity) continue;
+      const prev = reachable.get(info.url);
+      if (!prev || (prev.readOnly && !info.readOnly)) {
+        reachable.set(info.url, { name: info.name, readOnly: info.readOnly });
+      }
+    }
+  }
+
   const server = new McpServer(
     { name: "ai-hub", version: "0.1.0" },
     {
@@ -97,6 +113,12 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         "this repository. Prefer it over guessing, and cite the document titles " +
         "it returns." +
         (canRunAgents ? ` ${LARGE_ARG_RULE}` : "") +
+        (reachable.size
+          ? " The organisation's own systems are also served here" +
+            ` (${[...reachable.values()].map((r) => r.name).join(", ")}), under your own ` +
+            "identity: what you do with their tools is done as you, and shows as you in " +
+            "their audit trail."
+          : "") +
         (boundAgent
           ? ` This token also carries the memory of the agent "${boundAgent.name}". ` +
             "Call hub_memory_list at the start of a conversation: it returns the " +
@@ -252,128 +274,7 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
   // Memory: gated on the token naming an agent that exists, not on a role alone.
   // `boundAgent` is already null unless the principal may agent:run, so a viewer
   // token with a binding gets nothing.
-  if (boundAgent) {
-    const agentId = boundAgent.id;
-
-    const memoryRow = (m: { key: string; content: string; updatedAt: string }) => ({
-      key: m.key,
-      content: m.content,
-      updatedAt: m.updatedAt,
-    });
-
-    server.registerTool(
-      "hub_memory_list",
-      {
-        description:
-          "List your active memories (work in flight), most recently updated " +
-          "first, plus a count of inactive ones. Call this at the start of a " +
-          "conversation.",
-        inputSchema: {
-          include_inactive: z
-            .boolean()
-            .optional()
-            .describe("Also return inactive memories (finished, paused or background work)."),
-        },
-      },
-      async ({ include_inactive }) => {
-        const rows = await listMemories(agentId);
-        if (!rows.length) return text("You have no memories yet.");
-        const active = rows.filter((m) => m.active).map(memoryRow);
-        const inactive = rows.filter((m) => !m.active).map(memoryRow);
-        if (include_inactive) return text({ active, inactive });
-        return text({ active, inactiveCount: inactive.length });
-      },
-    );
-
-    server.registerTool(
-      "hub_memory_search",
-      {
-        description:
-          "Search all your memories, active and inactive, by keyword in the key " +
-          "or the content. Each result says whether it is active.",
-        inputSchema: {
-          query: z.string().min(1).describe("Keyword or phrase to look for."),
-          limit: z
-            .number()
-            .int()
-            .min(1)
-            .max(50)
-            .optional()
-            .describe("How many memories to return (default 20)."),
-        },
-      },
-      async ({ query, limit }) => {
-        const rows = await searchMemories(agentId, query, limit ?? 20);
-        if (!rows.length) return text(`No memories matched "${query}".`);
-        return text(rows.map((m) => ({ ...memoryRow(m), active: m.active })));
-      },
-    );
-
-    server.registerTool(
-      "hub_memory_write",
-      {
-        description:
-          "Record a durable fact under a short key. Writing an existing key " +
-          "replaces it, so correcting yourself does not leave two contradictory " +
-          "memories. New and rewritten memories are active unless you say otherwise.",
-        inputSchema: {
-          key: z
-            .string()
-            .min(1)
-            .describe("A short stable name for this fact, e.g. \"weekly-review-day\"."),
-          content: z.string().min(1).describe("The fact, written so it reads on its own later."),
-          active: z
-            .boolean()
-            .optional()
-            .describe("False to file it straight away as inactive (finished or background work). Default true."),
-        },
-      },
-      async ({ key, content, active }) => {
-        const saved = await rememberMemory(agentId, key, content, active ?? true);
-        return text({
-          saved: saved.key,
-          content: saved.content,
-          active: saved.active,
-          updatedAt: saved.updatedAt,
-        });
-      },
-    );
-
-    server.registerTool(
-      "hub_memory_set_active",
-      {
-        description:
-          "Mark a memory active (work in flight) or inactive (finished, paused or " +
-          "background) without changing what it says.",
-        inputSchema: {
-          key: z.string().min(1).describe("The key to move."),
-          active: z.boolean().describe("True for active work, false to set it aside."),
-        },
-      },
-      async ({ key, active }) => {
-        const moved = await setMemoryActive(agentId, key, active);
-        return text(
-          moved
-            ? `Marked "${key}" ${active ? "active" : "inactive"}.`
-            : `Nothing was stored under "${key}".`,
-        );
-      },
-    );
-
-    server.registerTool(
-      "hub_memory_forget",
-      {
-        description: "Forget the fact stored under a key, when it is wrong or no longer true.",
-        inputSchema: {
-          key: z.string().min(1).describe("The key to forget."),
-        },
-      },
-      async ({ key }) => {
-        const gone = await forgetMemory(agentId, key);
-        return text(gone ? `Forgot "${key}".` : `Nothing was stored under "${key}".`);
-      },
-    );
-  }
+  if (boundAgent) registerMemoryTools(server, boundAgent.id);
 
   // --- Agents as tools ------------------------------------------------------
   //
@@ -389,7 +290,11 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
   // is all it takes. Clients cache tool lists, so a new agent appears on the
   // next reconnect rather than instantly.
   if (canRunAgents) {
-    const agents = (await listAgents().catch(() => [])).filter((a) => a.enabled);
+    // A local-only agent runs in someone's Claude Code session, not here, so it
+    // is offered no hub_agent_* tool — one would only ever answer with a refusal.
+    const agents = (await listAgents().catch(() => [])).filter(
+      (a) => a.enabled && runsOnHub(a.placement),
+    );
 
     for (const summary of agents) {
       server.registerTool(
@@ -510,7 +415,9 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
     // so the work an expert did once becomes something anyone can invoke from
     // their own editor without being told how. That is skillification in the
     // shape that fits a tool list, rather than a saved transcript nobody reruns.
-    const skills = await listRunnableSkills().catch(() => []);
+    const skills = (await listRunnableSkills().catch(() => [])).filter((sk) =>
+      runsOnHub(sk.agentPlacement),
+    );
     for (const skill of skills) {
       server.registerTool(
         toolNameForSkill(skill.slug),
@@ -587,24 +494,130 @@ export async function buildHubMcpServer(principal: Principal): Promise<McpServer
         // own output, so someone else's id must not resolve here.
         const run = await getRunStatus(runId, principal.id);
         if (!run) return text(`No run ${runId} belongs to you.`);
+        // Writes the run wanted to make and could not: the caller is the one
+        // who can approve them, so they travel with the status.
+        const held = (await listProposals({ runId, status: "pending" })).map((p) => ({
+          proposal: p.id,
+          tool: p.tool,
+          server: p.server,
+          args: p.args,
+        }));
+        const heldNote = held.length
+          ? { heldForApproval: held, hint: "Approve or reject each with hub_decide_proposal, or on the hub's Approvals page." }
+          : {};
         if (run.status === "running") {
           return text({
             status: "running",
             startedAt: run.startedAt,
             hint: "Still working. Check again in a few seconds.",
+            ...heldNote,
           });
         }
         if (run.status === "failed") {
-          return text({ status: "failed", error: run.error ?? "The run failed." });
+          return text({ status: "failed", error: run.error ?? "The run failed.", ...heldNote });
         }
         return text({
           status: run.status,
           output: run.output,
           toolsUsed: run.toolsUsed,
           finishedAt: run.finishedAt,
+          ...heldNote,
         });
       },
     );
+
+    // --- The approval gate, from a client -----------------------------------
+    //
+    // An agent's write is held as a proposal (lib/approvals.ts). The person it
+    // acted as, or an admin, decides; a credential bound to an agent cannot,
+    // because an agent approving its own writes is no gate at all.
+    server.registerTool(
+      "hub_list_proposals",
+      {
+        description:
+          "Writes that agents wanted to make and are waiting for a person's approval. " +
+          "Yours: the ones from runs that acted as you (all of them, for an admin). " +
+          "Nothing listed here has happened yet.",
+        inputSchema: {
+          status: z
+            .enum(["pending", "executed", "failed", "rejected"])
+            .optional()
+            .describe("Default: pending."),
+        },
+      },
+      async ({ status }) => {
+        const admin = await may("admin:manage");
+        const rows = await listProposals({
+          status: status ?? "pending",
+          ...(admin ? {} : { principalId: principal.id }),
+          limit: 50,
+        });
+        if (!rows.length) return text(`No ${status ?? "pending"} proposals.`);
+        return text(
+          rows.map((p) => ({
+            proposal: p.id,
+            agent: p.agentSlug,
+            tool: p.tool,
+            server: p.server,
+            args: p.args,
+            description: p.description,
+            status: p.status,
+            createdAt: p.createdAt,
+            ...(p.result ? { result: p.result.slice(0, 2000) } : {}),
+            ...(p.error ? { error: p.error } : {}),
+          })),
+        );
+      },
+    );
+
+    server.registerTool(
+      "hub_decide_proposal",
+      {
+        description:
+          "Approve or reject a held write. Approving runs the exact call that was held, " +
+          "with the arguments shown by hub_list_proposals, and returns what the tool said. " +
+          "Only a person may decide: ask them before calling this on their behalf.",
+        inputSchema: {
+          proposal: z.string().min(1).describe("The proposal id."),
+          decision: z.enum(["approve", "reject"]),
+          note: z.string().max(2000).optional().describe("For a rejection: why, if you want it recorded."),
+        },
+      },
+      async ({ proposal, decision, note }) => {
+        const res = decision === "approve" ? await approve(proposal, principal) : await reject(proposal, principal, note);
+        if ("error" in res) return { ...text(res.error), isError: true };
+        const p = res.proposal;
+        return text({
+          proposal: p.id,
+          tool: p.tool,
+          status: p.status,
+          ...(p.result ? { result: p.result } : {}),
+          ...(p.error ? { error: p.error } : {}),
+        });
+      },
+    );
+
+    registerDeckTools(server, principal, opts.baseUrl);
+  }
+
+  // --- The person's own systems, through the one door ----------------------
+  //
+  // Dialled with the person's access token, never the hub's: a PM-tool write
+  // made from Claude Code through the hub reads as theirs in the PM-tool's
+  // audit trail, and the PM-tool offers exactly what they may do there. A
+  // read-only entry still drops writes on the hub side (proxyTools.ts).
+  if (principal.accessToken) {
+    const taken = new Set<string>();
+    for (const { name, readOnly } of reachable.values()) {
+      const config = remoteServerConfig(name, { bearer: principal.accessToken });
+      if (!config) continue;
+      await registerProxiedTools(server, {
+        config,
+        dropWrites: readOnly,
+        taken,
+        onUnavailable: (err) => console.warn(`[hub-mcp] "${name}" unavailable:`, err),
+      });
+    }
   }
 
   return server;

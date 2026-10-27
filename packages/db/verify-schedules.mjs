@@ -51,6 +51,7 @@ const {
   schedulesToConsider, claimSchedule, runDueSchedules,
 } = await import("./src/schedules.ts");
 const { createAgent, deleteAgent, updateAgent } = await import("./src/agents.ts");
+const { createSkill } = await import("./src/skills.ts");
 const { upsertPrincipal, setPrincipalEnabled } = await import("./src/credentials.ts");
 const { getSql } = await import("./src/client.ts");
 
@@ -179,6 +180,37 @@ try {
   check("an interval of 0 is refused", Boolean(badInterval.error), badInterval.error);
 
   check("listSchedules finds it for the agent", (await listSchedules(agent.id)).length === 1);
+
+  // ── a schedule that runs a skill ──────────────────────────────────────────
+  // The morning brief: no prompt of its own, the skill's template filled from
+  // skill_args at fire time, so the schedule and a by-hand run share one prompt.
+  const brief = await createSkill({
+    agentId: agent.id, slug: `verify-brief-${stamp}`, name: "Verify brief",
+    promptTemplate: "Prepare {{day}}.", parameters: [{ name: "day", required: true }],
+  });
+  const onSkill = await createSchedule({
+    agentId: agent.id, name: "Morning brief", agentSkillId: brief.id, skillArgs: { day: "today" },
+    kind: "daily", atMinute: 7 * 60, weekdays: [1, 2, 3, 4, 5], timezone: "Europe/Copenhagen", ownerPrincipalId: principalId,
+  });
+  check("a skill schedule needs no prompt of its own", Boolean(onSkill?.id), onSkill?.error ?? "");
+  check(
+    "it stores the skill and its arguments, and a readable line in prompt",
+    onSkill.agentSkillId === brief.id && onSkill.skillArgs?.day === "today" && onSkill.prompt === "Morning brief",
+    JSON.stringify({ skill: onSkill.agentSkillId === brief.id, args: onSkill.skillArgs, prompt: onSkill.prompt }),
+  );
+  const stillNoPrompt = await createSchedule({ agentId: agent.id, name: "x", kind: "every", intervalMinutes: 5, ownerPrincipalId: principalId });
+  check("without a skill, a prompt is still required", Boolean(stillNoPrompt.error), stillNoPrompt.error);
+  await sql`update agent_schedules set last_run_at = null where id = ${onSkill.id}`;
+  let handed = null;
+  await runDueSchedules(async (s) => { if (s.id === onSkill.id) handed = s; return { runId: null }; }, new Date("2026-10-22T05:00:00Z"));
+  check(
+    "a tick hands the runner the skill and its arguments",
+    handed?.agentSkillId === brief.id && handed?.skillArgs?.day === "today",
+    handed ? JSON.stringify(handed.skillArgs) : "not fired",
+  );
+  await deleteSchedule(onSkill.id);
+  const removed = await sql`delete from agent_skills where id = ${brief.id}`;
+  check("deleting the skill takes its schedule with it", removed.count === 1 && (await getSchedule(onSkill.id)) === null);
 
   // ── the claim ─────────────────────────────────────────────────────────────
   // Two containers ticking at the same second must not both fire one schedule.

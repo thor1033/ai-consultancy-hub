@@ -10,14 +10,29 @@ import {
   listMemories,
   forgetMemory,
   setMemoryActive,
+  isPlacement,
+  runsOnHub,
   type AgentInput,
+  type McpEntry,
+  knowledgeScope,
+  retrievalScope,
+  createSchedule,
+  listSchedules,
+  getSchedule,
+  setScheduleEnabled,
+  deleteSchedule,
+  getSkill,
+  type Schedule,
+  type ScheduleKind,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
 import { MAX_ITERATIONS_CEILING, type ModelId } from "@ai-hub/agent";
 import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
 import { listSkills, createSkill, updateSkill, deleteSkill, type SkillParameter } from "@ai-hub/db";
-import { undeclaredPlaceholders } from "@/lib/skillPrompt";
+import { fillTemplate, undeclaredPlaceholders } from "@/lib/skillPrompt";
+import { runAgentForPrincipal, runSkillForPrincipal } from "@/lib/agentRuns";
+import { MAILBOX_SERVERS, serverWritesAllowed } from "./models";
 import { isUniqueViolation } from "@/lib/apiError";
 
 // Server actions for the agents console. Each one checks the signed-in user's
@@ -51,10 +66,50 @@ export async function saveAgentAction(
 
   const slug = toSlug(input.slug?.trim() || name);
   if (!slug) return { error: "That name does not make a usable slug — use some letters." };
+  // /agents/new is the builder, so an agent with that slug could never be opened.
+  if (slug === "new") return { error: `"new" is reserved — give the agent a more specific name.` };
 
-  const servers = (input.mcpServers ?? []).filter(
-    (e) => typeof (e as { name?: unknown }).name === "string" && isKnownServer(String((e as { name: string }).name)),
+  // A server this agent already has is kept even if this deployment does not
+  // declare it right now — otherwise saving any other field would silently cut
+  // the agent off from it. New ones must be known; runSession skips undeclared
+  // names at run time either way.
+  const existing = id ? await getAgent(id) : null;
+  const already = new Set(
+    (existing?.mcpServers ?? []).map((e) => String((e as { name?: unknown }).name ?? "")),
   );
+  // Letting an agent write without approval widens what it may do unattended,
+  // so turning it on is admin-only; an entry that already has it keeps it.
+  const alreadyAllowed = new Set(serverWritesAllowed(existing?.mcpServers ?? []));
+  const admin = await sessionCan("admin:manage");
+  // Rebuilt field by field rather than stored as sent. An entry is read back
+  // at run time and a setting in it lands in a server's environment, so only
+  // the settings a server is known to take get through, each checked.
+  const servers: McpEntry[] = [];
+  for (const e of input.mcpServers ?? []) {
+    const name = (e as { name?: unknown }).name;
+    if (typeof name !== "string" || !(isKnownServer(name) || already.has(name))) continue;
+    const entry: McpEntry = { name };
+    const mailbox = (e as { mailbox?: unknown }).mailbox;
+    if (typeof mailbox === "string" && mailbox.trim()) {
+      if (!MAILBOX_SERVERS.has(name)) return { error: `"${name}" does not take a mailbox.` };
+      const clean = mailbox.trim().toLowerCase();
+      if (clean.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
+        return { error: `"${mailbox.trim()}" is not a mailbox address.` };
+      }
+      entry.mailbox = clean;
+    }
+    const writes = (e as { writes?: unknown }).writes;
+    if (writes !== undefined && writes !== "ask" && writes !== "allow") {
+      return { error: `"${name}": writes must be "ask" or "allow".` };
+    }
+    if (writes === "allow") {
+      if (!alreadyAllowed.has(name) && !admin) {
+        return { error: `Only an admin can let an agent write through "${name}" without approval.` };
+      }
+      entry.writes = "allow";
+    }
+    servers.push(entry);
+  }
 
   // A server action is a public endpoint, so the number is validated here and
   // not only by the <input type="number"> that usually produces it. Anything
@@ -66,15 +121,57 @@ export async function saveAgentAction(
       ? null
       : Math.min(Math.max(Math.trunc(Number(raw)), 1), MAX_ITERATIONS_CEILING);
 
+  // Where an agent runs decides where its instructions are copied to and who
+  // reaches its tools from outside the hub, so changing it is admin-only even
+  // if agent:manage is one day granted more widely. `existing` is the lookup
+  // the server list above already paid for.
+  // Collection names are matched exactly against documents, so they are
+  // checked for shape here; whether one exists is not an error (a drawer can
+  // be named before anything is filed in it), and whether the asker may read
+  // it is decided at retrieval time, never here.
+  const knowledgeCollections: string[] = [];
+  for (const raw of input.knowledgeCollections ?? []) {
+    if (typeof raw !== "string") continue;
+    const name = raw.trim();
+    if (!name) continue;
+    if (name.length > 120) return { error: `"${name.slice(0, 40)}…" is too long for a collection name.` };
+    if (!knowledgeCollections.includes(name)) knowledgeCollections.push(name);
+  }
+  if (knowledgeCollections.length > 50) return { error: "An agent can work from at most 50 collections." };
+  const knowledgeAll = input.knowledgeAll === true;
+
+  const placement = input.placement ?? existing?.placement ?? "hub";
+  if (!isPlacement(placement)) return { error: "Unknown placement." };
+  if (placement !== (existing?.placement ?? "hub") && !(await sessionCan("admin:manage"))) {
+    return { error: "Only an admin can change where an agent runs." };
+  }
+
   try {
     if (id) {
-      const updated = await updateAgent(id, { ...input, name, mcpServers: servers, maxIterations });
+      const updated = await updateAgent(id, {
+        ...input,
+        name,
+        mcpServers: servers,
+        knowledgeCollections,
+        knowledgeAll,
+        maxIterations,
+        placement,
+      });
       if (!updated) return { error: "That agent no longer exists." };
       revalidatePath("/agents");
       revalidatePath(`/agents/${updated.slug}`);
       return { ok: true, slug: updated.slug };
     }
-    const created = await createAgent({ ...input, name, slug, mcpServers: servers, maxIterations });
+    const created = await createAgent({
+      ...input,
+      name,
+      slug,
+      mcpServers: servers,
+      knowledgeCollections,
+      knowledgeAll,
+      maxIterations,
+      placement,
+    });
     revalidatePath("/agents");
     return { ok: true, slug: created.slug };
   } catch (e) {
@@ -162,6 +259,9 @@ export async function sendAgentMessageAction(
   const agent = await getAgent(slug);
   if (!agent) return { error: "That agent no longer exists." };
   if (!agent.enabled) return { error: `${agent.name} is disabled.` };
+  if (!runsOnHub(agent.placement)) {
+    return { error: `${agent.name} runs locally, in Claude Code. Switch it to "Hub" or "Both" to talk to it here.` };
+  }
 
   const clean = (messages ?? []).filter(
     (m) =>
@@ -181,8 +281,8 @@ export async function sendAgentMessageAction(
   // Best-effort retrieval: an agent scoped to a collection answers from it, but
   // a missing embedder or empty index must not take the conversation down.
   //
-  // Retrieved as the PERSON ASKING, not as the agent. An agent's
-  // knowledgeCollection is curation — which drawer it works out of — and never a
+  // Retrieved as the PERSON ASKING, not as the agent. An agent's knowledge
+  // scope is curation — which drawers it works out of — and never a
   // permission of its own. If it were, asking an agent scoped to a restricted
   // collection would be the way for anyone to read that collection, with the
   // agent as the deputy. The two are ANDed in retrieveChunks: a collection the
@@ -190,11 +290,10 @@ export async function sendAgentMessageAction(
   // answers from material its operator cannot open.
   let context: string | undefined;
   let sources = 0;
-  if (agent.knowledgeCollection) {
+  const scope = retrievalScope(knowledgeScope(agent));
+  if (scope) {
     try {
-      const chunks = await retrieveChunks(last.content, await sessionKnowledgeAccess(), 5, {
-        collection: agent.knowledgeCollection,
-      });
+      const chunks = await retrieveChunks(last.content, await sessionKnowledgeAccess(), 5, scope);
       if (chunks.length) {
         context = chunksToContext(chunks);
         sources = chunks.length;
@@ -213,6 +312,7 @@ export async function sendAgentMessageAction(
       model: (agent.model as ModelId) ?? undefined,
       effort: effortOf(agent.effort),
       servers,
+      serverEntries: agent.mcpServers,
       agentId: agent.id,
       principalId: principal.id,
     });
@@ -334,4 +434,121 @@ export async function deleteSkillAction(id: string, agentId: string) {
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Delete failed." };
   }
+}
+
+// --- Schedules: the agent's clock ------------------------------------------
+//
+// Any agent, any skill or prompt, any person with agent:run. A schedule is
+// OWNED by whoever creates it and runs with their reach (docs/schedules.md), so
+// creating one is not an admin act; taking someone else's away is, unless it is
+// your own.
+
+export interface ScheduleDraft {
+  agentId: string;
+  name: string;
+  /** Exactly one of these: a skill (with its arguments) or a prompt. */
+  skillId?: string | null;
+  skillArgs?: Record<string, unknown>;
+  prompt?: string;
+  kind: ScheduleKind;
+  intervalMinutes?: number | null;
+  atMinute?: number | null;
+  weekdays?: number[];
+  timezone?: string;
+}
+
+async function scheduleList(agentId: string): Promise<{ schedules: Schedule[] }> {
+  return { schedules: await listSchedules(agentId) };
+}
+
+export async function createScheduleAction(input: ScheduleDraft): Promise<{ schedules: Schedule[] } | { error: string }> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { error: "You are not permitted to run agents." };
+  const agent = await getAgent(input.agentId);
+  if (!agent) return { error: "That agent no longer exists." };
+  if (!runsOnHub(agent.placement)) {
+    return { error: `"${agent.name}" runs in Claude Code only, so the hub has no clock for it. Set it to "Hub" or "Both" first.` };
+  }
+
+  let prompt = (input.prompt ?? "").trim();
+  let agentSkillId: string | null = null;
+  let skillArgs: Record<string, unknown> = {};
+  if (input.skillId) {
+    const skill = await getSkill(input.skillId);
+    if (!skill || skill.agentId !== agent.id) return { error: "That skill does not belong to this agent." };
+    if (!skill.enabled) return { error: `"${skill.name}" is switched off.` };
+    // Filled once here so a schedule that could never run is refused at the
+    // door, not discovered at 07:00 as a failed run nobody was watching.
+    const args = input.skillArgs && typeof input.skillArgs === "object" ? input.skillArgs : {};
+    const filled = fillTemplate(skill.promptTemplate, skill.parameters ?? [], args);
+    if ("error" in filled) return { error: `${skill.name}: ${filled.error}` };
+    agentSkillId = skill.id;
+    skillArgs = Object.fromEntries(
+      (skill.parameters ?? [])
+        .map((p) => [p.name, args[p.name]] as const)
+        .filter(([, v]) => v !== undefined && v !== null && v !== ""),
+    );
+    const shown = Object.entries(skillArgs).map(([k, v]) => `${k} = ${String(v)}`).join(", ");
+    prompt = `Run the skill "${skill.name}"${shown ? ` with ${shown}` : ""}.`;
+  }
+
+  const created = await createSchedule({
+    agentId: agent.id,
+    name: input.name,
+    prompt,
+    agentSkillId,
+    skillArgs,
+    kind: input.kind,
+    intervalMinutes: input.intervalMinutes ?? null,
+    atMinute: input.atMinute ?? null,
+    weekdays: input.weekdays ?? [],
+    timezone: input.timezone?.trim() || process.env.HUB_TIMEZONE?.trim() || "UTC",
+    ownerPrincipalId: principal.id,
+  });
+  if ("error" in created) return { error: created.error };
+  revalidatePath(`/agents/${agent.slug}`);
+  return scheduleList(agent.id);
+}
+
+/** The owner, or an admin. Anyone else may look. */
+async function ownedSchedule(id: string): Promise<Schedule | { error: string }> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { error: "You are not permitted to run agents." };
+  const schedule = await getSchedule(id);
+  if (!schedule) return { error: "That schedule no longer exists." };
+  if (schedule.ownerPrincipalId !== principal.id && !(await sessionCan("admin:manage"))) {
+    return { error: "Only the person who set this schedule up, or an admin, can change it." };
+  }
+  return schedule;
+}
+
+export async function setScheduleEnabledAction(id: string, enabled: boolean): Promise<{ schedules: Schedule[] } | { error: string }> {
+  const schedule = await ownedSchedule(id);
+  if ("error" in schedule) return schedule;
+  await setScheduleEnabled(id, enabled);
+  return scheduleList(schedule.agentId);
+}
+
+export async function deleteScheduleAction(id: string): Promise<{ schedules: Schedule[] } | { error: string }> {
+  const schedule = await ownedSchedule(id);
+  if ("error" in schedule) return schedule;
+  await deleteSchedule(id);
+  return scheduleList(schedule.agentId);
+}
+
+/**
+ * Run a schedule's work now, as the viewer rather than the owner: a person
+ * pressing a button is a person asking, so the run has their reach and lands
+ * in Recent runs like any other. Returns once the run has an id.
+ */
+export async function runScheduleNowAction(id: string): Promise<{ ok: true; runId: string; running: boolean } | { error: string }> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { error: "You are not permitted to run agents." };
+  const schedule = await getSchedule(id);
+  if (!schedule) return { error: "That schedule no longer exists." };
+  const outcome = schedule.agentSkillId
+    ? await runSkillForPrincipal({ skillRef: schedule.agentSkillId, args: schedule.skillArgs ?? {}, principal, deadlineMs: 3000 })
+    : await runAgentForPrincipal({ agentRef: schedule.agentId, prompt: schedule.prompt, principal, deadlineMs: 3000 });
+  if (outcome.kind === "error") return { error: outcome.message };
+  return { ok: true, runId: outcome.runId, running: outcome.kind === "running" };
 }

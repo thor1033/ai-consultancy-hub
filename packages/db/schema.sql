@@ -92,11 +92,32 @@ create table if not exists agents (
   model        text,
   effort       text,
   mcp_servers  jsonb not null default '[]'::jsonb,  -- [{"name":"pm-tool"}, …]
-  knowledge_collection text,                  -- curation: RAG scope for this agent
+  knowledge_collection text,                  -- superseded by knowledge_collections (below); dropped by drop-legacy.sql
   enabled      boolean not null default true,
   created_at   timestamptz not null default now(),
   updated_at   timestamptz not null default now()
 );
+
+-- What an agent reads: curation, never permission (docs/knowledge-access.md).
+--
+--   knowledge_all = true            retrieve from everything the CALLER may read
+--   knowledge_collections = {a, b}  retrieve from these collections only
+--   neither                         no retrieval: memory and tools only
+--
+-- A set rather than one name because real agents work out of a few drawers
+-- (a client's material plus the delivery playbook). A document still sits in
+-- exactly one collection: that is the unit people are granted, and it stays
+-- simple enough to audit. Names are not foreign keys because a collection may
+-- exist only as a label on documents, with no row in `collections` yet.
+alter table agents add column if not exists knowledge_collections text[] not null default '{}';
+alter table agents add column if not exists knowledge_all boolean not null default false;
+-- Carry the old single value over, once. Clearing the old column as it is
+-- copied is what makes this safe to re-run: an agent later set back to "no
+-- knowledge" is not re-scoped from a stale value on the next migrate.
+update agents
+   set knowledge_collections = array[knowledge_collection],
+       knowledge_collection = null
+ where knowledge_collection is not null and knowledge_collection <> '';
 
 -- What an agent remembers between conversations.
 --
@@ -119,6 +140,9 @@ create index if not exists agent_memories_agent_idx
 -- from; inactive ones (finished, paused, background) are kept and searchable
 -- but not loaded by default. Defaults to true so existing memories keep loading.
 alter table agent_memories add column if not exists active boolean not null default true;
+-- Where a memory sits on the Context page's map: projects | people | rules |
+-- routines. Null means untagged; the page places those around the agent.
+alter table agent_memories add column if not exists region text;
 
 -- ---------------------------------------------------------------------------
 -- Identity and credentials (increment 01: OAuth 2.1 with WorkOS as the
@@ -356,3 +380,126 @@ create table if not exists agent_schedules (
 );
 create index if not exists agent_schedules_due_idx on agent_schedules (enabled, last_run_at);
 create index if not exists agent_schedules_agent_idx on agent_schedules (agent_id);
+
+-- A schedule may run a SKILL instead of a free-text prompt: the skill's
+-- template is filled from skill_args at fire time, so the morning brief and a
+-- brief asked for by hand are the same prompt from the same place. `prompt`
+-- stays as the human-readable line for such a schedule. The cascade is
+-- deliberate: deleting a skill ends its clock rather than leaving a schedule
+-- that fires into nothing.
+alter table agent_schedules add column if not exists agent_skill_id uuid
+  references agent_skills(id) on delete cascade;
+alter table agent_schedules add column if not exists skill_args jsonb not null default '{}'::jsonb;
+create index if not exists agent_schedules_skill_idx on agent_schedules (agent_skill_id);
+
+-- Where an agent runs (see docs/local-agents.md).
+--
+--   hub    the hub's own runtime: hub_agent_<slug>, the /agents console, schedules
+--   local  synced into Claude Code as a sub-agent; the hub never runs it itself
+--   both   both of the above
+--
+-- Defaults to 'hub' so every existing agent keeps doing exactly what it did.
+-- Changing it is admin-only (agents/actions.ts): it changes where an agent's
+-- instructions are copied to and who reaches its tools.
+alter table agents add column if not exists placement text not null default 'hub'
+  check (placement in ('hub', 'local', 'both'));
+
+-- What a local agent did through the hub.
+--
+-- A local agent's model runs in someone's Claude Code session, so the hub never
+-- sees a prompt, a transcript or a cost — only the tool calls that come back
+-- through /api/mcp/agents/<slug>. That is what is recorded, one row per call,
+-- and deliberately NOT in agent_sessions: a row there claims a run the hub
+-- performed and priced, and the ROI report would count these as such.
+create table if not exists agent_local_calls (
+  id           uuid primary key default gen_random_uuid(),
+  agent_id     uuid not null references agents(id) on delete cascade,
+  principal_id text,
+  tool         text not null,
+  ok           boolean not null,
+  latency_ms   int,
+  at           timestamptz not null default now()
+);
+create index if not exists agent_local_calls_agent_idx on agent_local_calls (agent_id, at desc);
+
+-- ---------------------------------------------------------------------------
+-- Proposals: the approval gate (docs/approvals.md).
+--
+-- An agent's call to a tool that WRITES is not executed; it is written here
+-- and the model is told it was held. A person approves it on /approvals (or
+-- through the hub's MCP tools), and the hub executes the very call that was
+-- held, with the arguments that were shown. Nothing is re-derived at approval
+-- time: what the approver saw is what runs.
+--
+-- Which calls are held is decided per agent, per server entry
+-- (`"writes": "allow"` lets an entry write unattended; the default asks).
+-- A tool is a write unless its server says readOnlyHint: true — "not proven
+-- read-only" is the safe reading, as it is for dropWrites in proxyTools.ts.
+-- The agent's own memory is exempt: it never leaves the hub.
+--
+--   pending   held, nobody has decided
+--   approved  claimed by an approver, being executed (transient)
+--   executed  ran; `result` holds what the tool returned
+--   failed    approved, but the tool call failed; `error` says why
+--   rejected  a person said no; `note` may say why
+-- ---------------------------------------------------------------------------
+create table if not exists proposals (
+  id            uuid primary key default gen_random_uuid(),
+  agent_id      uuid references agents(id) on delete cascade,
+  run_id        uuid references agent_sessions(id) on delete set null,
+  -- Whose reach the run had. Null for a workbench session with no principal.
+  principal_id  text references principals(id) on delete cascade,
+  server        text not null,
+  tool          text not null,
+  args          jsonb not null default '{}'::jsonb,
+  description   text not null default '',      -- the tool's own description, for the reader
+  status        text not null default 'pending'
+                check (status in ('pending', 'approved', 'executed', 'failed', 'rejected')),
+  decided_by    text,
+  decided_at    timestamptz,
+  note          text,
+  result        text,
+  error         text,
+  created_at    timestamptz not null default now()
+);
+create index if not exists proposals_status_idx on proposals (status, created_at desc);
+create index if not exists proposals_run_idx on proposals (run_id);
+create index if not exists proposals_principal_idx on proposals (principal_id, status);
+
+-- ---------------------------------------------------------------------------
+-- Decks: presentations the hub renders and that change while they are shown
+-- (docs/decks.md).
+--
+-- A deck is data, not a file. `slides` is an ordered array of structured
+-- slides (a kind plus fields; validated in apps/web/src/lib/decks), each with
+-- an id, a status and who made it:
+--
+--   live     part of the deck, shown in order
+--   pending  in the presenter's tray: drafted by an agent (or asked for from
+--            the question box) while the deck is being presented, never on
+--            the audience's screen until a person puts it there
+--
+-- One row per deck, the slides as one array, so an ordering change and the
+-- version bump are one atomic write. Every change bumps `version`; the views
+-- poll it and redraw when it moves, and writers update conditionally on it,
+-- so a presenter and an agent writing at the same second both land.
+--
+-- `collection` names the knowledge this deck is about. It is curation and a
+-- fence at once: a deck about a restricted client collection is visible only
+-- to people who may read that collection, and a slide drafted from the
+-- question box retrieves from it.
+-- ---------------------------------------------------------------------------
+create table if not exists decks (
+  id                 uuid primary key default gen_random_uuid(),
+  title              text not null,
+  owner_principal_id text references principals(id) on delete set null,
+  collection         text,
+  slides             jsonb not null default '[]'::jsonb,
+  -- The slide on screen while presenting (a slide id), so every view follows.
+  position           text,
+  presenting         boolean not null default false,
+  version            int not null default 0,
+  created_at         timestamptz not null default now(),
+  updated_at         timestamptz not null default now()
+);
+create index if not exists decks_updated_idx on decks (updated_at desc);

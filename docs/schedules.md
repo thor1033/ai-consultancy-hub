@@ -5,10 +5,10 @@
 Until this existed, every agent run in the hub began with a person: a chat turn,
 an API call, a tool call from Claude Code. That makes an agent a window you open,
 not a worker. A **schedule** is a standing instruction to run one agent, with one
-prompt, on a clock.
+prompt or one skill, on a clock.
 
 ```
-agent_schedules                       agent, prompt, when, owner
+agent_schedules                       agent, prompt or skill + args, when, owner
   └── runDueSchedules()               @ai-hub/db — which are due, who claims one
         └── tick()                    apps/web/lib/scheduler.ts — runs it
               └── runAgentForPrincipal(… as the OWNER …)
@@ -62,6 +62,23 @@ will not fire hours late: a briefing delivered at lunchtime reads as current.
 **Missed runs are not made up.** If the container is down from 07:00 to 08:00,
 that day's 07:30 run does not happen.
 
+## Setting one up
+
+On an agent's page, **Schedules → Add a schedule**: a name; what runs (one of
+the agent's skills with its arguments filled in, or a prompt); when (a time of
+day on chosen weekdays in a timezone, or every N minutes). Anyone with
+`agent:run` can add one, and it is theirs: it runs as them, and only they or an
+admin can switch it off or delete it. **Run now, as you** runs the same work
+immediately as whoever presses it, which is how you check a schedule does what
+you meant before leaving it to the clock.
+
+A skill schedule stores the skill and its arguments (`agent_skill_id`,
+`skill_args`) and the tick fills the template at fire time, so editing the
+skill edits the schedule and deleting the skill ends its clock. The arguments
+are filled once at creation too, so a schedule that could never run is refused
+at the door rather than found as a failed run nobody was watching. An agent
+placed in Claude Code only has no clock here: the hub does not run it.
+
 ## Running it
 
 The ticker lives in `apps/web/src/instrumentation.ts`, Next's server-start hook —
@@ -84,7 +101,7 @@ the run finishes in the container afterwards — the same racing-a-deadline shap
 
 | Command | Covers |
 | --- | --- |
-| `npm run verify:schedules -w @ai-hub/db` | the whole truth table of `isDue` against a fixed clock — both clock changes included — plus the store, validation, and that two simultaneous claims produce exactly one run |
+| `npm run verify:schedules -w @ai-hub/db` | the whole truth table of `isDue` against a fixed clock — both clock changes included — plus the store, validation, that two simultaneous claims produce exactly one run, and that a skill schedule needs no prompt, hands the runner the skill and its arguments, and goes when the skill is deleted |
 | `npm run verify:scheduler -w web` | the real `tick()`: that a run lands in `agent_sessions` as the *owner*, that an owner who may not run agents is refused and the refusal recorded, and that revoking the owner stops it |
 
 Neither spends anything. The scheduler one stands up a throwaway HTTP server in
@@ -93,15 +110,12 @@ reach the live PM-tool; both need `DATABASE_URL` and clean up after themselves.
 
 ## What this deliberately does not do yet
 
-- **No UI.** Schedules are created through `@ai-hub/db` (or SQL); there is no
-  panel on `/agents/[slug]` yet. Nothing about the shape below the UI changes
-  when one arrives.
-- **Nothing to gate.** The natural next step for a secretary is *drafting* a
-  reply, and that is the point where an approval step has to exist. Right now
-  there is nothing to approve: the Microsoft 365 server has no tool that writes
-  ([secretary-agent.md](secretary-agent.md)), so a scheduled run can read and
-  report and nothing else. Keep that order — the gate must land with the first
-  write tool, not after it.
+- **No editing.** A schedule is created, switched on or off, run by hand and
+  deleted from its agent's page; changing its time means making it again.
+- **Writes still wait for a person.** A scheduled run's writes are held like
+  any other agent's ([approvals.md](approvals.md)); the owner finds them on
+  `/approvals`. Nothing wakes the owner up: a morning run that proposed three
+  changes sits there until they look.
 - **No webhook.** A schedule is a clock, not a subscription. Reacting to mail as
   it arrives means a Graph change notification endpoint, which is its own
   increment.

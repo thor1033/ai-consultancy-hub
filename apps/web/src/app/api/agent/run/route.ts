@@ -9,7 +9,7 @@ export const runtime = "nodejs";
 export const maxDuration = 60;
 
 // Normalizes the requested MCP servers. Accepts a string[] of names in `servers`,
-// or the legacy `mcp: "sample"` single-flag form.
+// or the legacy `mcp: "<name>"` single-flag form.
 function requestedServers(b: Record<string, unknown>): string[] {
   if (Array.isArray(b.servers)) {
     return b.servers.filter((s): s is string => typeof s === "string");

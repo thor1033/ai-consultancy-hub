@@ -5,8 +5,11 @@ export {
   setMcpServerEnabled,
   deleteMcpServer,
   disabledMcpServerNames,
+  serverUsage,
+  toolCallCounts,
+  listServerRuns,
 } from "./mcpServers";
-export type { McpServerRow } from "./mcpServers";
+export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun } from "./mcpServers";
 export { recordSession, listSessions, getSession, startRun, finishRun, failRun, getRunStatus } from "./sessions";
 export type {
   SessionSummary,
@@ -14,7 +17,7 @@ export type {
   RecordSessionInput,
   StartRunInput,
   FinishRunInput,
-  RunStatus,
+  RunStatus
 } from "./sessions";
 export {
   listAgents,
@@ -25,10 +28,64 @@ export {
   listMemories,
   rememberMemory,
   setMemoryActive,
+  setMemoryRegion,
+  MEMORY_REGIONS,
+  listAgentKnowledgeScopes,
+  agentRoster,
+  hubActivity,
+  listRecentRuns,
+  listAgentRuns,
   forgetMemory,
   searchMemories,
+  isPlacement,
+  runsOnHub,
+  runsLocally,
+  PLACEMENTS,
+  recordLocalCall,
+  localActivity,
+  knowledgeScope,
+  retrievalScope,
+  knowledgeLabel,
 } from "./agents";
-export type { AgentSummary, Agent, AgentMemory, AgentInput } from "./agents";
+export type {
+  McpEntry,
+  KnowledgeScope,
+  AgentSummary,
+  Agent,
+  AgentMemory,
+  AgentInput,
+  Placement,
+  LocalCallInput,
+  LocalActivity,
+  MemoryRegion,
+  AgentRosterRow,
+  AgentRun,
+  HubDay,
+  HubRun,
+} from "./agents";
+export { contextSnapshot } from "./context";
+export { createDeck, getDeck, deckVersion, listDecks, saveDeck, deleteDeck } from "./decks";
+export type { Deck, StoredSlide } from "./decks";
+export {
+  createProposal,
+  getProposal,
+  listProposals,
+  pendingProposalCount,
+  claimProposal,
+  finishProposal,
+  rejectProposal,
+} from "./proposals";
+export type { Proposal, ProposalInput, ProposalFilter, ProposalStatus } from "./proposals";
+export type {
+  ContextSnapshot,
+  ContextAgent,
+  ContextMemory,
+  ContextSkill,
+  ContextServer,
+  ContextPerson,
+  ContextSchedule,
+  ContextActivity,
+} from "./context";
 export {
   listPrincipals,
   getPrincipal,

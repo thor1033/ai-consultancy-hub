@@ -16,13 +16,16 @@ export interface RetrievedChunk {
 }
 
 export interface RetrieveOptions {
-  // Curation (docs/knowledge-rag.md): scope retrieval to one collection, so an
-  // agent draws from its curated set instead of the whole index. Omit for global.
+  // Curation (docs/knowledge-rag.md): scope retrieval to one collection or a
+  // set of them, so an agent draws from its curated drawers instead of the
+  // whole index. Omit for global. An empty set matches nothing — scoped to no
+  // drawer is not the same as unscoped, and a caller that meant "everything"
+  // omits the option.
   //
   // This is *curation*, not permission, and the two are enforced separately: a
   // caller naming a collection they may not read gets nothing, because `access`
   // is ANDed with it rather than overridden by it.
-  collection?: string;
+  collection?: string | readonly string[];
 }
 
 /**
@@ -49,9 +52,10 @@ export async function retrieveChunks(
   const qv = toVector(vec);
 
   const permitted = accessPredicate(access);
-  const curated = opts.collection
-    ? sql`and d.collection = ${opts.collection}`
-    : sql``;
+  const names =
+    opts.collection === undefined ? null : typeof opts.collection === "string" ? [opts.collection] : [...opts.collection];
+  const curated =
+    names === null ? sql`` : names.length === 0 ? sql`and false` : sql`and d.collection = any(${names}::text[])`;
 
   return sql<RetrievedChunk[]>`
     select dc.content,

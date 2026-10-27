@@ -23,5 +23,27 @@
       "Bash(git push origin master:*)",
       "Bash(flyctl deploy:*)"
     ]
+  },
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/sync-hub-agents.mjs\" --hook",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
   }
 }

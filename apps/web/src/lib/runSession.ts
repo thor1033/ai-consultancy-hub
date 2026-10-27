@@ -1,8 +1,9 @@
 import { runAgent, type ModelId, type RunAgentResult } from "@ai-hub/agent";
+import type { McpEntry } from "@ai-hub/db";
 import {
   connectMcpServers,
-  sampleMcpConfig,
   builtinServerConfig,
+  builtinOptionsFrom,
   memoryServerConfig,
   remoteServerConfig,
   remoteServerNames,
@@ -11,9 +12,11 @@ import {
   type McpServerConfig,
 } from "@ai-hub/mcp";
 import { recordSession, finishRun, disabledMcpServerNames } from "@ai-hub/db";
+import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
+import { gatedExecutor } from "@/lib/approvals";
 
-// The code-owned servers: the sample server plus the investment-firm demo servers.
-const LOCAL_SERVERS = ["sample", ...BUILTIN_SERVER_NAMES] as const;
+// The code-owned servers the hub starts itself.
+const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
 
 /**
  * The selectable MCP servers for a workbench session — the code-owned ones plus
@@ -28,15 +31,24 @@ export function isKnownServer(name: string): boolean {
   return knownServers().includes(name);
 }
 
+/** The server an agent's stored entry names — a bare string, or `{ name, … }`. */
+export const entryName = (entry: McpEntry | string): string =>
+  typeof entry === "string" ? entry : String((entry as { name?: unknown }).name ?? "");
+
 /**
  * `agentId` opens the memory server for that agent. It is not resolvable by
  * name alone — memory is scoped to one agent, and that scope must come from the
  * caller, never from something the model can say.
  */
-export function resolveServer(name: string, agentId?: string): McpServerConfig | null {
-  if (name === "sample") return sampleMcpConfig();
+export function resolveServer(
+  name: string,
+  agentId?: string,
+  remoteBearer?: string,
+  /** The agent's own entry for this server, for per-agent settings such as a mailbox. */
+  entry?: McpEntry,
+): McpServerConfig | null {
   if (name === "memory") return agentId ? memoryServerConfig(agentId) : null;
-  return builtinServerConfig(name) ?? remoteServerConfig(name);
+  return builtinServerConfig(name, builtinOptionsFrom(entry)) ?? remoteServerConfig(name, { bearer: remoteBearer });
 }
 
 export interface RunSessionInput {
@@ -59,6 +71,18 @@ export interface RunSessionInput {
   /** Who asked, recorded on the session so a run has an owner. */
   principalId?: string;
   /**
+   * The asker's own access token, when they arrived by OAuth. Remote servers
+   * are dialled with it instead of the hub's token, so what the agent does in
+   * the PM-tool is done as this person. Absent for schedules and credentials.
+   */
+  remoteBearer?: string;
+  /**
+   * The agent's stored server entries, as declared. `servers` says which to
+   * connect; this is where a per-agent setting lives (a mailbox, today), so it
+   * reaches the server's environment without becoming a tool argument.
+   */
+  serverEntries?: McpEntry[];
+  /**
    * An already-started run row to complete, instead of inserting a finished
    * one. The asynchronous path creates the row first so the caller has an id to
    * poll while the work is still going.
@@ -70,6 +94,18 @@ export interface RunSessionOutput {
   sessionId: string;
   servers: string[];
   result: RunAgentResult;
+}
+
+async function fileMeetingNotes(): Promise<string> {
+  try {
+    const r = await syncSource("teams-notes", { collection: TEAMS_NOTES_COLLECTION });
+    return `\n\n_Filed in the knowledge base: ${r.documents} meeting note(s) in the "${TEAMS_NOTES_COLLECTION}" collection._`;
+  } catch (err) {
+    return (
+      `\n\n**The notes were saved to Teams but not filed in the knowledge base:** ` +
+      `${err instanceof Error ? err.message : String(err)}`
+    );
+  }
 }
 
 // Runs one ad-hoc agent session (the practitioner's workflow) with the chosen MCP
@@ -86,9 +122,11 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
   if (input.agentId && !servers.includes("memory")) servers.push("memory");
 
   let mcp: ConnectedMcp | undefined;
+  const held = new Set<string>();
   try {
+    const entryFor = (name: string) => input.serverEntries?.find((e) => entryName(e) === name);
     const configs = servers
-      .map((name) => resolveServer(name, input.agentId))
+      .map((name) => resolveServer(name, input.agentId, input.remoteBearer, entryFor(name)))
       .filter((c): c is McpServerConfig => c !== null);
     if (configs.length > 0) mcp = await connectMcpServers(configs);
 
@@ -101,11 +139,30 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       effort: input.effort,
       maxIterations: input.maxIterations,
       tools: mcp?.tools,
-      toolExecutor: mcp?.execute,
+      // Writes are held for a person (lib/approvals.ts); reads pass through.
+      toolExecutor: mcp
+        ? gatedExecutor(mcp, {
+            agentId: input.agentId,
+            runId: input.runId,
+            principalId: input.principalId,
+            entries: input.serverEntries,
+            held,
+          })
+        : undefined,
       metadata: input.agentId
         ? { source: "agent", agentId: input.agentId, servers }
         : { source: "workbench", servers },
     });
+
+    // A note saved to Teams is filed in the knowledge base in the same run, so
+    // "write up the meeting" leaves it searchable with no second step. The
+    // outcome goes into the answer itself: a filing that failed quietly would
+    // leave a person believing agents can find a meeting they cannot. Not when
+    // the save was held for approval: nothing was written, so there is nothing
+    // to file; the next sync of the notes source picks it up once approved.
+    if (result.toolsUsed.includes("teams_notes_save") && !held.has("teams_notes_save")) {
+      result.text += await fileMeetingNotes();
+    }
 
     let sessionId: string;
     if (input.runId) {

@@ -25,6 +25,22 @@ export interface RemoteServerInfo {
   url: string;
   /** False when the server is declared but its credential is missing. */
   configured: boolean;
+  /** This entry is meant to read only — see remoteServerReadOnly(). */
+  readOnly: boolean;
+  /** A signed-in person's token may be forwarded here — see RemoteEntry.forwardIdentity. */
+  forwardIdentity: boolean;
+}
+
+/**
+ * How to dial a remote server for one call.
+ *
+ * `bearer` is the signed-in person's access token. It replaces the entry's own
+ * token ONLY for an entry that opts in with `forwardIdentity`; everywhere else
+ * it is ignored and the entry's token is used, so a server nobody vouched for
+ * never receives a token that is valid at the hub itself.
+ */
+export interface RemoteDialOptions {
+  bearer?: string;
 }
 
 interface RemoteEntry {
@@ -37,6 +53,25 @@ interface RemoteEntry {
   tokenEnv?: string;
   /** Extra headers merged after the Authorization header. */
   headers?: Record<string, string>;
+  /**
+   * The entry exists to read, never to change anything. With the entry's own
+   * token that is already enforced upstream (a read-scoped token is offered
+   * no write tools); with a person's token forwarded instead, the upstream
+   * offers whatever the person may do, and this is what tells the hub to
+   * drop the write tools itself. Defaults to true for a name ending in
+   * `-read`, so the existing pm-tool / pm-tool-read pair needs no change.
+   */
+  readOnly?: boolean;
+  /**
+   * The hub may hand this server a signed-in person's own access token, so
+   * the server sees the person rather than the hub. OFF unless set, and the
+   * reason is what that token is: it is valid at the hub's own /api/mcp, and
+   * at any system that trusts the hub's audience. A server that receives it
+   * could act as the person at both. So forwarding is a statement of trust in
+   * the server, made per entry by whoever configures the deployment — the
+   * PM-tool, which we run — and never implied by a server merely being listed.
+   */
+  forwardIdentity?: boolean;
 }
 
 // Parsed per call rather than cached: the map is tiny, and a cached parse makes
@@ -77,16 +112,28 @@ export function isRemoteServer(name: string): boolean {
  * the hub's own API). Phase 2 mints a short-lived per-run JWT carrying the
  * principal + org + scope here instead — callers don't change.
  */
-export function remoteServerConfig(name: string): McpHttpConfig | null {
+export function remoteServerConfig(name: string, options: RemoteDialOptions = {}): McpHttpConfig | null {
   const entry = loadEntries()[name];
   if (!entry?.url) return null;
 
-  const token = bearerToken(entry);
+  const token = options.bearer && entry.forwardIdentity === true ? options.bearer : bearerToken(entry);
   const headers: Record<string, string> = {
     ...(token ? { authorization: `Bearer ${token}` } : {}),
     ...(entry.headers ?? {}),
   };
   return { name, url: entry.url, headers };
+}
+
+/** Whether an entry is meant to read only; see RemoteEntry.readOnly. */
+export function remoteServerReadOnly(name: string): boolean {
+  const entry = loadEntries()[name];
+  if (!entry) return false;
+  return entry.readOnly ?? /-read$/.test(name);
+}
+
+/** Whether a person's token may be forwarded to this entry; see RemoteEntry.forwardIdentity. */
+export function remoteServerForwardsIdentity(name: string): boolean {
+  return loadEntries()[name]?.forwardIdentity === true;
 }
 
 /** Declared remote servers, for the admin/registry view. */
@@ -97,5 +144,7 @@ export function remoteServerInfo(): RemoteServerInfo[] {
     description: entry.description ?? "",
     url: entry.url!,
     configured: Boolean(bearerToken(entry)) || Boolean(entry.headers),
+    readOnly: remoteServerReadOnly(name),
+    forwardIdentity: entry.forwardIdentity === true,
   }));
 }

@@ -43,8 +43,11 @@ if (!process.env.DATABASE_URL) {
 
 const {
   createAgent, getAgent, listAgents, updateAgent, deleteAgent,
-  rememberMemory, listMemories, searchMemories, forgetMemory, setMemoryActive,
+  rememberMemory, listMemories, searchMemories, forgetMemory, setMemoryActive, setMemoryRegion,
 } = await import("./src/agents.ts");
+const { contextSnapshot } = await import("./src/context.ts");
+const { agentRoster, listAgentRuns, hubActivity, listRecentRuns, knowledgeScope, retrievalScope } = await import("./src/agents.ts");
+const { serverUsage, toolCallCounts, listServerRuns } = await import("./src/mcpServers.ts");
 const { getSql } = await import("./src/client.ts");
 
 const slug = `verify-agents-${Date.now()}`;
@@ -58,8 +61,10 @@ try {
     description: "Temporary.",
     instructions: "Be brief.",
     model: "claude-opus-4-8",
-    mcpServers: [{ name: "sample" }],
-    knowledgeCollection: "verify-collection",
+    mcpServers: [{ name: "pm-tool" }],
+    // Untrimmed and repeated on purpose: names are matched exactly against
+    // documents.collection, so the store must clean them.
+    knowledgeCollections: ["verify-collection", " verify-playbook ", "verify-collection"],
     maxIterations: 25,
   });
   check("createAgent returns the stored row", Boolean(agent?.id), agent?.id?.slice(0, 8));
@@ -67,8 +72,9 @@ try {
     agent.slug === slug &&
     agent.instructions === "Be brief." &&
     agent.model === "claude-opus-4-8" &&
-    agent.knowledgeCollection === "verify-collection" &&
-    Array.isArray(agent.mcpServers) && agent.mcpServers[0]?.name === "sample" &&
+    JSON.stringify(agent.knowledgeCollections) === JSON.stringify(["verify-collection", "verify-playbook"]) &&
+    agent.knowledgeAll === false &&
+    Array.isArray(agent.mcpServers) && agent.mcpServers[0]?.name === "pm-tool" &&
     agent.maxIterations === 25,
     JSON.stringify(agent.mcpServers),
   );
@@ -90,21 +96,46 @@ try {
     renamed.name === "Renamed" &&
       renamed.instructions === "Be brief." &&
       renamed.model === "claude-opus-4-8" &&
-      renamed.knowledgeCollection === "verify-collection" &&
+      JSON.stringify(renamed.knowledgeCollections) === JSON.stringify(["verify-collection", "verify-playbook"]) &&
       renamed.maxIterations === 25,
-    `model=${renamed.model} collection=${renamed.knowledgeCollection} maxIterations=${renamed.maxIterations}`,
+    `model=${renamed.model} collections=${renamed.knowledgeCollections} maxIterations=${renamed.maxIterations}`,
+  );
+
+  // An agent reading "everything" keeps its list but the scope says all; back
+  // to a list, the scope names the list; emptied, it reads nothing.
+  const everything = await updateAgent(agent.id, { knowledgeAll: true });
+  check(
+    "knowledgeAll is stored and wins over the list",
+    everything.knowledgeAll === true && knowledgeScope(everything).kind === "all" && everything.knowledgeCollections.length === 2,
+  );
+  const listed2 = await updateAgent(agent.id, { knowledgeAll: false });
+  check(
+    "switched back, the scope is the list",
+    knowledgeScope(listed2).kind === "collections" && knowledgeScope(listed2).names.length === 2,
+    JSON.stringify(knowledgeScope(listed2)),
+  );
+  check(
+    "retrievalScope: all ⇒ unscoped, a list ⇒ that list, none ⇒ null",
+    JSON.stringify(retrievalScope({ kind: "all" })) === "{}" &&
+      JSON.stringify(retrievalScope({ kind: "collections", names: ["a"] })) === JSON.stringify({ collection: ["a"] }) &&
+      retrievalScope({ kind: "none" }) === null,
   );
 
   // The case a coalesce-based update gets wrong: null means clear it.
   const cleared = await updateAgent(agent.id, {
     model: null,
-    knowledgeCollection: null,
+    knowledgeCollections: [],
     maxIterations: null,
   });
   check(
     "an explicit null clears a nullable field",
-    cleared.model === null && cleared.knowledgeCollection === null && cleared.maxIterations === null,
-    `model=${cleared.model} collection=${cleared.knowledgeCollection} maxIterations=${cleared.maxIterations}`,
+    cleared.model === null && cleared.maxIterations === null,
+    `model=${cleared.model} maxIterations=${cleared.maxIterations}`,
+  );
+  check(
+    "an emptied collection list means the agent reads nothing",
+    cleared.knowledgeCollections.length === 0 && knowledgeScope(cleared).kind === "none",
+    JSON.stringify(cleared.knowledgeCollections),
   );
   // Null is not a gap in the data: it is how an agent says "use the runtime
   // default", which is what agentRuns passes through as undefined.
@@ -162,6 +193,78 @@ try {
 
   const counted = await getAgent(agent.id);
   check("the agent's memoryCount reflects the store", counted.memoryCount === 1, String(counted.memoryCount));
+
+  // ── context map ───────────────────────────────────────────────────────────
+  const [{ updatedAt: before }] = await getSql()`
+    select updated_at as "updatedAt" from agent_memories where agent_id = ${agent.id} and key = 'cadence'
+  `;
+  check("setMemoryRegion files a memory", (await setMemoryRegion(agent.id, "cadence", "routines")) === true);
+  let snap = await contextSnapshot();
+  const filed = snap.memories.find((m) => m.agentId === agent.id && m.key === "cadence");
+  check("the context snapshot carries the region", filed?.region === "routines", String(filed?.region));
+  check("filing is not an edit: updated_at is unchanged", filed && Date.parse(filed.updatedAt) === new Date(before).getTime());
+  check("setMemoryRegion with null untags it", (await setMemoryRegion(agent.id, "cadence", null)) === true);
+  snap = await contextSnapshot();
+  check("an untagged memory has a null region",
+    snap.memories.find((m) => m.agentId === agent.id && m.key === "cadence")?.region === null);
+  check("setMemoryRegion on an absent key is false", (await setMemoryRegion(agent.id, "never-existed", "people")) === false);
+  const mine = snap.agents.find((a) => a.id === agent.id);
+  check("the snapshot lists the agent with its brief", mine?.brief === "Be brief.", mine?.brief);
+  check("the snapshot's activity is newest first and capped",
+    snap.activity.length <= 10 && snap.activity.every((e, i, all) => i === 0 || all[i - 1].at >= e.at));
+  // ── roster and runs ───────────────────────────────────────────────────────
+  await getSql()`
+    insert into agent_sessions (prompt, status, agent_id, started_at, cost_usd)
+    values ('verify run ok', 'succeeded', ${agent.id}, now() - interval '1 hour', 0.25),
+           ('verify run failed', 'failed', ${agent.id}, now() - interval '2 hours', 0.05),
+           ('verify run old', 'succeeded', ${agent.id}, now() - interval '20 days', 9)
+  `;
+  const row = (await agentRoster()).find((r) => r.id === agent.id);
+  check("the roster lists the agent", Boolean(row));
+  check("the roster counts runs and failures in the last 7 days only",
+    row?.runs7d === 2 && row?.failed7d === 1, `${row?.runs7d} runs, ${row?.failed7d} failed`);
+  check("the roster sums 7-day spend as a number",
+    typeof row?.spend7d === "number" && Math.abs(row.spend7d - 0.3) < 1e-9, String(row?.spend7d));
+  check("runsByDay has 7 days and today's runs",
+    row?.runsByDay?.length === 7 && row.runsByDay[6] >= 1, JSON.stringify(row?.runsByDay));
+  check("the roster's last run is the newest", row?.lastRunStatus === "succeeded");
+  const runs = await listAgentRuns(agent.id, 2);
+  check("listAgentRuns is newest first and limited",
+    runs.length === 2 && runs[0].prompt === "verify run ok" && runs[1].status === "failed");
+  check("run cost comes back as a number", typeof runs[0].costUsd === "number");
+  const days = await hubActivity(14);
+  const today = days[days.length - 1];
+  check("hubActivity fills every day, oldest first",
+    days.length === 14 && days[0].day < today.day, `${days[0]?.day} … ${today?.day}`);
+  check("hubActivity counts today's runs and failures",
+    today.runs >= 2 && today.failed >= 1 && typeof today.spend === "number", JSON.stringify(today));
+  const recent = await listRecentRuns(50);
+  const ours = recent.filter((r) => r.agentSlug === slug);
+  check("listRecentRuns names the agent behind each run",
+    ours.length === 3 && ours[0].agentName === "Renamed" && ours[0].prompt === "verify run ok",
+    JSON.stringify(ours.map((r) => [r.prompt, r.agentName])));
+  // ── server and tool usage ─────────────────────────────────────────────────
+  const srv = `verify-srv-${Date.now()}`;
+  const tool = `verify_tool_${Date.now()}`;
+  await getSql()`
+    insert into agent_sessions (prompt, status, agent_id, started_at, mcp_servers, tools_used)
+    values ('verify srv new', 'succeeded', ${agent.id}, now() - interval '1 hour',
+            ${getSql().json([srv])}, ${getSql().json([tool, tool])}),
+           ('verify srv old', 'succeeded', ${agent.id}, now() - interval '40 days',
+            ${getSql().json([srv])}, ${getSql().json([tool])})
+  `;
+  const usage = (await serverUsage(7)).find((u) => u.name === srv);
+  check("serverUsage counts only runs in the window but remembers the last use",
+    usage?.runs === 1 && Boolean(usage?.lastUsedAt), JSON.stringify(usage));
+  const calls = (await toolCallCounts(30)).find((t) => t.tool === tool);
+  check("toolCallCounts counts every call in the window", calls?.calls === 2, JSON.stringify(calls));
+  const srvRuns = await listServerRuns(srv, 5);
+  check("listServerRuns finds the runs that connected to a server, newest first",
+    srvRuns.length === 2 && srvRuns[0].prompt === "verify srv new" && Array.isArray(srvRuns[0].toolsUsed));
+  check("listServerRuns ignores other servers", (await listServerRuns(`${srv}-none`, 5)).length === 0);
+  await getSql()`delete from agent_sessions where agent_id = ${agent.id}`;
+  check("knowledge counts are numbers",
+    Number.isInteger(snap.knowledge.documents) && Number.isInteger(snap.knowledge.collections));
 
   // ── delete cascades ───────────────────────────────────────────────────────
   const agentId = agent.id;

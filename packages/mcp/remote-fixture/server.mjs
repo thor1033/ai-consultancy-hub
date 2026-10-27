@@ -1,6 +1,5 @@
-// A remote (Streamable HTTP) MCP server for local testing — the HTTP sibling of
-// sample-server/server.mjs. It stands in for the PM-tool's future /api/mcp
-// endpoint so the hub's remote path can be exercised without running PM-tool.
+// A remote (Streamable HTTP) MCP server for local testing. It stands in for the
+// PM-tool's future /api/mcp endpoint so the hub's remote path can be exercised without running PM-tool.
 //
 //   npm run mcp:remote-fixture -w @ai-hub/mcp     # listens on :8790
 //
@@ -33,12 +32,28 @@ const TASKS = {
 
 const json = (value) => ({ content: [{ type: "text", text: JSON.stringify(value, null, 2) }] });
 
-function buildServer() {
+// Mirrors the real endpoint's tool annotations: reads say so, writes do not.
+const READ = { readOnlyHint: true };
+const WRITE = { readOnlyHint: false, destructiveHint: false };
+
+/**
+ * `bearer` is whatever credential reached the fixture. It is handed back by
+ * pm_whoami so a test can prove WHOSE token the hub forwarded — the hub's own
+ * machine token, or a signed-in person's — which is the whole point of the
+ * identity pass-through.
+ */
+function buildServer(bearer) {
   const s = new McpServer({ name: "pm-tool-fixture", version: "0.1.0" });
 
   s.registerTool(
+    "pm_whoami",
+    { description: "Who the PM-tool thinks is calling.", inputSchema: {}, annotations: READ },
+    async () => json({ kind: bearer === TOKEN ? "machine" : "person", bearer }),
+  );
+
+  s.registerTool(
     "pm_list_projects",
-    { description: "List the projects in the workspace.", inputSchema: {} },
+    { description: "List the projects in the workspace.", inputSchema: {}, annotations: READ },
     async () => json(PROJECTS),
   );
 
@@ -47,6 +62,7 @@ function buildServer() {
     {
       description: "Get one project's working set (board, risks, scope, business case).",
       inputSchema: { projectId: z.string().describe("The project id, e.g. p-helios.") },
+      annotations: READ,
     },
     async ({ projectId }) => {
       const p = PROJECTS.find((x) => x.id === projectId);
@@ -63,11 +79,24 @@ function buildServer() {
         projectId: z.string(),
         status: z.string().optional().describe("todo | doing | done"),
       },
+      annotations: READ,
     },
     async ({ projectId, status }) => {
       const rows = TASKS[projectId] ?? [];
       return json(status ? rows.filter((t) => t.status === status) : rows);
     },
+  );
+
+  // A write, so the hub's read-only filtering has something to drop. Echoes
+  // rather than mutates: the fixture's data is shared across requests.
+  s.registerTool(
+    "pm_create_task",
+    {
+      description: "Create a task on a project.",
+      inputSchema: { projectId: z.string(), title: z.string() },
+      annotations: WRITE,
+    },
+    async ({ projectId, title }) => json({ created: { projectId, title, by: bearer } }),
   );
 
   return s;
@@ -87,8 +116,12 @@ const readBody = (req) =>
   });
 
 createServer(async (req, res) => {
-  // The guard the real endpoint will have: fail closed, before any MCP handling.
-  if ((req.headers.authorization ?? "") !== `Bearer ${TOKEN}`) {
+  // Fail closed on no credential at all, as the real endpoint does. Any bearer
+  // is otherwise accepted and reported back (pm_whoami): the real endpoint
+  // verifies a person's token against WorkOS, which a fixture cannot, and what
+  // the hub's tests need to prove is which token the hub chose to send.
+  const bearer = (req.headers.authorization ?? "").match(/^Bearer\s+(.+)$/i)?.[1];
+  if (!bearer) {
     res.writeHead(401, { "content-type": "application/json" });
     res.end(JSON.stringify({ error: "Unauthorized" }));
     return;
@@ -99,7 +132,7 @@ createServer(async (req, res) => {
     enableJsonResponse: true,
   });
   res.on("close", () => transport.close());
-  await buildServer().connect(transport);
+  await buildServer(bearer).connect(transport);
   await transport.handleRequest(req, res, body);
 }).listen(PORT, "127.0.0.1", () => {
   console.log(`remote MCP fixture listening on http://127.0.0.1:${PORT}/mcp`);

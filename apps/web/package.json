@@ -10,7 +10,11 @@
     "verify:hub-memory": "node --experimental-transform-types --env-file=.env.local verify-hub-memory.mjs",
     "verify:agent-tools": "node --experimental-transform-types --env-file=.env.local verify-agent-tools.mjs",
     "verify:scheduler": "node --experimental-transform-types --env-file=.env.local verify-scheduler.mjs",
-    "verify:large-args": "node --experimental-transform-types verify-large-args.mjs"
+    "verify:large-args": "node --experimental-transform-types verify-large-args.mjs",
+    "verify:local-agents": "node --experimental-transform-types --env-file=.env.local verify-local-agents.mjs",
+    "verify:identity": "node --experimental-transform-types --env-file=.env.local verify-identity.mjs",
+    "verify:approvals": "node --experimental-transform-types --env-file=.env.local verify-approvals.mjs",
+    "verify:decks": "node --experimental-transform-types --env-file=.env.local verify-decks.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",
@@ -24,7 +28,9 @@
     "next-themes": "^0.4.6",
     "react": "^19",
     "react-dom": "^19",
+    "react-markdown": "^10.1.0",
     "recharts": "^3.10.1",
+    "remark-gfm": "^4.0.1",
     "zod": "^4.4.3"
   },
   "devDependencies": {

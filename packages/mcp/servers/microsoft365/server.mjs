@@ -180,7 +180,15 @@ const server = new McpServer(
   },
 );
 
-server.registerTool(
+// Every tool here reads. Saying so on each one (readOnlyHint) is what lets
+// the hub's approval gate wave them through: a tool that does not declare
+// itself read-only is held for a person, so an unannotated server would have
+// its calendar lookups waiting for approval. A write tool, when one comes,
+// registers with readOnlyHint: false and is held — which is the point.
+const readOnly = (name, config, handler) =>
+  server.registerTool(name, { ...config, annotations: { readOnlyHint: true, ...(config.annotations ?? {}) } }, handler);
+
+readOnly(
   "m365_whoami",
   {
     description:
@@ -189,20 +197,23 @@ server.registerTool(
   },
   async () =>
     attempt(async () => {
-      // Only fields Mail.Read + Calendars.Read already cover: asking for
-      // mailboxSettings here would need MailboxSettings.Read and 403 the one
-      // tool whose job is to tell you the connection is fine.
-      const me = await graph("", { $select: "displayName,mail,userPrincipalName" });
+      // Probe the inbox folder, not the user object: GET /users/{mailbox}
+      // needs User.Read.All, a directory permission a mail-reading app has no
+      // business holding, and asking for it 403'd the one tool whose job is
+      // to say the connection is fine. The folder is covered by Mail.Read,
+      // the same grant the mail tools run on, so this probe fails exactly
+      // when they would.
+      const inbox = await graph("/mailFolders/inbox", { $select: "totalItemCount,unreadItemCount" });
       return text({
-        mailbox: me.mail ?? me.userPrincipalName ?? MAILBOX,
-        displayName: me.displayName,
+        mailbox: MAILBOX,
+        inbox: { total: inbox.totalItemCount ?? null, unread: inbox.unreadItemCount ?? null },
         timezone: TIMEZONE,
         access: "read-only",
       });
     }),
 );
 
-server.registerTool(
+readOnly(
   "m365_calendar_list",
   {
     description:
@@ -245,7 +256,7 @@ server.registerTool(
     }),
 );
 
-server.registerTool(
+readOnly(
   "m365_calendar_get",
   {
     description:
@@ -267,7 +278,7 @@ server.registerTool(
     }),
 );
 
-server.registerTool(
+readOnly(
   "m365_mail_list",
   {
     description:
@@ -315,7 +326,7 @@ server.registerTool(
     }),
 );
 
-server.registerTool(
+readOnly(
   "m365_mail_get",
   {
     description:

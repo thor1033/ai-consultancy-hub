@@ -106,6 +106,50 @@ signed in: an admin creates the row with an email, and the first token that
 arrives binds the WorkOS user id to it permanently. Once bound, the binding wins
 over the address — so a re-assigned email address cannot inherit anyone's access.
 
+## Signing in once
+
+The goal: a person adds the hub to Claude Code, signs in in the browser, and
+everything works — the hub's knowledge and agents, and the PM-tool as
+themselves. Two pieces make that true.
+
+**Naming the person.** A WorkOS access token carries no email — only `sub`
+([token claims](https://workos.com/docs/authkit/connect/token-claims)). After a
+first sign-in the row is bound to that id and matched by it alone. On the first
+sign-in the hub asks WorkOS who `sub` is (`packages/authz/src/directory.ts`,
+needs `WORKOS_API_KEY`) and matches the email against the rows an admin made;
+a token a JWT template has given an email claim skips the call. A person
+WorkOS cannot name is refused as `no_email`, distinct from `no_principal`, so
+the operator knows whether to fix the key or add the person.
+
+**Provisioning.** An OAuth sign-in from an email domain listed in
+`HUB_AUTO_PROVISION_DOMAINS` creates the person's `principals` row on the spot
+(id = their email, display name from WorkOS, role `analyst`, audit event
+`principal.provisioned`) instead of bouncing with `no_principal`. Off unless
+set; admin is never granted this way; a disabled row still refuses; roles
+afterwards come from the row, so an admin grant made later sticks. Everyone
+outside the listed domains is refused exactly as before.
+
+**Pass-through.** An OAuth principal carries their own access token
+(`Principal.accessToken`), and the hub dials remote servers that opted in with
+`forwardIdentity: true` using it instead of the hub's machine token — on
+`/api/mcp`, where those servers' tools are served directly under the person's
+identity, and on `/api/mcp/agents/<slug>` and in hub-run agent turns started by
+that person. Opt-in because the token is valid at the hub itself: a server that
+receives it could act as the person here, so only servers we vouch for — the
+PM-tool — get it, and a person sees no tools from one that does not. The PM-tool sees the person, offers
+what they may do there, and audits the call as theirs. A read-only entry
+(`pm-tool-read`) stays read-only: the hub keeps only tools the upstream marks
+`readOnlyHint: true` (`lib/mcp/proxyTools.ts`). The PM-tool has to accept
+tokens issued for the hub's resource — `MCP_TRUSTED_AUDIENCES` on its side.
+
+What keeps using the machine token, because there is no person to speak as: a
+`hub_sk_…` credential, a schedule, and (for now) the browser console's agent
+chat, whose WorkOS session token is for the web app rather than the MCP
+resource.
+
+`npm run verify:identity -w web` covers all of it against tokens the script
+signs itself (48 checks, no WorkOS).
+
 ## Credentials
 
 Issued from `/admin`, which is gated on the WorkOS session rather than on a

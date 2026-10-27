@@ -18,8 +18,9 @@
  *   fidelity to the record ... the evidence rule, in the brief and the skill
  *   knowing the people ....... agent_memories, seeded here and grown by use
  *   stamina for a queue ...... agents.max_iterations
- *   named expertise .......... agent_skills — `meeting-to-pm`
- *   a clock .................. agent_schedules (not yet — docs/schedules.md)
+ *   named expertise .......... agent_skills — `meeting-to-pm`, `meeting-prep`
+ *   a clock .................. agent_schedules — e.g. meeting-prep every
+ *                              morning, set up on its page (docs/schedules.md)
  */
 import type { AgentInput } from "../agents";
 import type { SkillInput } from "../skills";
@@ -39,6 +40,13 @@ import type { SkillInput } from "../skills";
  * Declared in HUB_REMOTE_MCP_SERVERS alongside `pm-tool`; see .env.example.
  */
 export const PM_TOOL_READ_SERVER = "pm-tool-read";
+
+// The secretary reads ONE shared mailbox — its own, never a person's. The
+// credentials behind it are the deployment's (M365_*), fenced to a group of
+// agent mailboxes by an Exchange access policy; this names which mailbox in
+// that group is this agent's. See docs/secretary-agent.md.
+export const MAILBOX_SERVER = "microsoft365";
+export const SECRETARY_MAILBOX = "secretary@teqneo.co";
 
 /** The one project this deployment tracks. */
 export const PROJECT_ID = "ca4749f1-624f-437c-9552-6031da90c5f9";
@@ -187,8 +195,9 @@ fetch it.`,
   // Careful work here comes from the evidence rules below, not from buying more
   // reasoning the budget cannot pay for.
   effort: "medium",
-  mcpServers: [{ name: PM_TOOL_READ_SERVER }],
-  knowledgeCollection: null,
+  mcpServers: [{ name: PM_TOOL_READ_SERVER }, { name: MAILBOX_SERVER, mailbox: SECRETARY_MAILBOX }],
+  knowledgeCollections: [],
+  knowledgeAll: false,
   // Ten rounds suits an agent that looks one thing up. This one reads its
   // memory, grounds against a ~114-task project, and may open several tasks
   // before it can call anything a diff.
@@ -332,6 +341,106 @@ and what you could not resolve.
 ## Reference
 ${PM_TOOL_REFERENCE}`,
     enabled: true,
+  },
+  {
+    slug: "meeting-prep",
+    name: "Meeting prep",
+    description:
+      "Prepare whoever is going into today's (or a named day's) meetings: for each meeting on the Secretary's calendar, who is coming, what has moved since last time in mail and the PM tool, what we still owe them, and the questions to settle. Read-only; it never contacts anyone.",
+    parameters: [
+      {
+        name: "day",
+        description:
+          'Which day to prepare for: "today", "tomorrow", or a date as YYYY-MM-DD. The clock line in your context says what today is.',
+        required: true,
+        type: "string",
+      },
+      {
+        name: "focus",
+        description:
+          "Only one meeting: a few words from its title or an attendee's name. Leave empty for every meeting that day.",
+        required: false,
+        type: "string",
+      },
+    ],
+    promptTemplate: `Prepare the meeting brief for: {{day}}.
+Focus, as given by the caller (blank means every meeting that day): {{focus}}
+
+You are writing for a colleague who has ten minutes before walking in. They
+will read this on a screen, so it must be scannable: short sections, tables
+where there is a list, nothing padded.
+
+## Step 1 — what is on
+
+Call \`memory_list\` first; it holds who the people are and what earlier
+meetings produced. Then work out the calendar window for the day asked for,
+from the "Today is" line in your context (never from your own sense of the
+date), and call \`m365_calendar_list\` with that day's start and end in the
+calendar's timezone. If a focus was given, keep only the meetings it matches.
+
+For each meeting, call \`m365_calendar_get\` for the attendees, the body and
+the response status. Tentative is worth saying out loud: the Secretary is on
+that calendar as a participant, and a meeting it has not accepted is one a
+person may not have accepted either.
+
+## Step 2 — what has moved since last time
+
+For each meeting, look for the recent thread with its people:
+
+- \`m365_mail_list\` with \`query\` set to the organizer's or an attendee's name,
+  and again with a distinctive word from the meeting title. Read the two or
+  three most relevant with \`m365_mail_get\`. Note what was asked, what was
+  promised, and by whom, with the date of the mail.
+- If the meeting is about the delivery project (the title, the attendees or
+  the body say so), call \`pm_get_project\` and pick out the tasks and
+  milestones that have changed status or date recently, and anything overdue
+  that the other side will ask about.
+- Memory: anything a past meeting with these people decided or left open.
+
+Do not search for things that are not there. A meeting with no mail trail and
+no project link gets a short brief that says so.
+
+## Step 3 — the brief
+
+Open with one line: the date, and how many meetings. If there is nothing on
+the calendar that day, say so in one sentence, list what is on in the next
+three days as a table, and stop.
+
+Then, for each meeting, in calendar order:
+
+### HH:MM–HH:MM · Meeting title
+| | |
+|---|---|
+| **Who** | attendees, and their role if memory knows it |
+| **Where** | Teams / room / unknown |
+| **Status** | accepted / tentative / declined, for the Secretary |
+
+**Since last time.** Three to five bullets. Each one is a fact with its
+source: a mail (sender, date, the key sentence quoted in its original
+language), a task or milestone (name, what changed, when), or a memory. No
+source, no bullet.
+
+**We owe them.** What we promised and have not visibly delivered. Quote the
+promise. If nothing, write "Nothing outstanding that I can see."
+
+**Questions to settle.** Two to four, phrased so a person can take them into
+the room as they stand.
+
+**Suggested shape.** Three bullets, at most, for how to run the meeting.
+
+Rules that hold throughout:
+
+- **Never invent.** No attendee, date, decision or status you did not read.
+  "I could not find" is a complete and useful sentence.
+- **Dates are absolute** ("Tue 21 Oct"), never "yesterday".
+- **English prose, original quotes.** Mails are often Danish; quote them as
+  written and add the gist in English if the meaning is not obvious.
+- **Do not act.** You cannot send, accept, or book, and this brief must not
+  suggest you did. If a response to an invitation looks needed, say so as a
+  question for the reader.
+- **Memory is for what accumulates.** Write a memory only if you learned
+  something durable about a person or a standing arrangement, never the brief
+  itself.`,
   },
 ];
 
