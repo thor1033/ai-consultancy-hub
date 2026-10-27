@@ -41,6 +41,22 @@
             "type": "command",
             "command": "node \"$CLAUDE_PROJECT_DIR/scripts/sync-hub-agents.mjs\" --hook",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hub-work-log.mjs\" --start",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$CLAUDE_PROJECT_DIR/scripts/hub-work-log.mjs\" --hook",
+            "timeout": 30
           }
         ]
       }
