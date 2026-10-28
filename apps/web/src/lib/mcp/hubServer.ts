@@ -501,6 +501,7 @@ export async function buildHubMcpServer(
           tool: p.tool,
           server: p.server,
           args: p.args,
+          reason: p.reason,
         }));
         const heldNote = held.length
           ? { heldForApproval: held, hint: "Approve or reject each with hub_decide_proposal, or on the hub's Approvals page." }
@@ -560,6 +561,7 @@ export async function buildHubMcpServer(
             tool: p.tool,
             server: p.server,
             args: p.args,
+            reason: p.reason,
             description: p.description,
             status: p.status,
             createdAt: p.createdAt,

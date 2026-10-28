@@ -32,9 +32,16 @@ flyctl launch --no-deploy --copy-config --name teqneo-ai-hub --region ams
 `--no-deploy` matters: the app must have its secrets and a migrated database
 before it first serves traffic.
 
-Then create a Neon project, enable the extension, and migrate. The migration runs
-from your machine, not from the image — the runner stage carries only the
-standalone server, not `migrate.mjs` or its dependencies.
+Then create a Neon project, enable the extension, and migrate once by hand so
+the first deploy finds a database it can start against. After that the schema
+is applied **by every release**: `fly.toml`'s `release_command` runs
+`node packages/db/migrate.mjs` on a throwaway machine with the app's secrets
+before the new version serves, and a failure there aborts the deploy with the
+old version still up. The runner image carries `migrate.mjs`, `schema.sql`
+and a link to the `postgres` package for exactly this. `schema.sql` is
+idempotent, so running it on every deploy costs a second and saves a step
+nobody remembers. The hand-run command still works and is still the way to
+migrate a laptop.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;

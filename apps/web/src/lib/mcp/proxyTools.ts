@@ -76,6 +76,8 @@ export interface ProxyOptions {
   taken: Set<string>;
   /** Wraps each handler — the endpoints use it to log calls and to hold writes. */
   wrap?: (name: string, fn: (args: unknown) => Promise<unknown>, tool: McpToolInfo) => (args: unknown) => Promise<unknown>;
+  /** Reshape a tool before it is registered — the gate adds its reason line to the ones it will hold. */
+  present?: (tool: McpToolInfo) => McpToolInfo;
   /** The upstream could not be reached; it is skipped rather than failing the endpoint. */
   onUnavailable?: (err: unknown) => void;
 }
@@ -104,11 +106,12 @@ export async function registerProxiedTools(server: McpServer, opts: ProxyOptions
     registered.push(tool.name);
 
     const config = opts.config;
+    const shown = opts.present ? opts.present(tool) : tool;
     server.registerTool(
       tool.name,
       {
-        description: tool.description,
-        inputSchema: schemaFrom(tool.inputSchema) as never,
+        description: shown.description,
+        inputSchema: schemaFrom(shown.inputSchema) as never,
         ...(tool.annotations ? { annotations: tool.annotations as never } : {}),
       },
       wrap(tool.name, async (args: unknown) => {

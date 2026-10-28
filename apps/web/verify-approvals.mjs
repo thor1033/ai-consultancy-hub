@@ -120,10 +120,20 @@ try {
   console.log("\n— a run's tool calls —");
   const entry = asks.mcpServers[0];
   const mcp = await connectMcpServers([resolveServer("verify-pm", asks.id, undefined, entry), memoryServerConfig(asks.id)]);
-  const exec = gate.gatedExecutor(mcp, { agentId: asks.id, principalId: OWNER.id, entries: asks.mcpServers });
+  const gated = gate.gate(mcp, { agentId: asks.id, principalId: OWNER.id, entries: asks.mcpServers });
+  const exec = gated.execute;
+  const shownWrite = gated.tools.find((t) => t.name === "pm_create_task");
+  const shownRead = gated.tools.find((t) => t.name === "pm_list_projects");
+  check(
+    "a tool that will be held asks the model for a reason, as a required argument",
+    shownWrite?.input_schema?.properties?.reason?.type === "string" && shownWrite.input_schema.required?.includes("reason") && shownWrite.input_schema.required?.includes("title"),
+    JSON.stringify(shownWrite?.input_schema?.required),
+  );
+  check("a read tool is shown as the upstream declared it", Boolean(shownRead) && !shownRead.input_schema?.properties?.reason);
+  check("the upstream's own schema is not changed by showing it", !mcp.tools.find((t) => t.name === "pm_create_task")?.input_schema?.properties?.reason);
   const listed = await exec("pm_list_projects", {});
   check("a read passes straight through to the upstream", /projects|Aurora|\[/.test(listed), listed.slice(0, 60));
-  const held = await exec("pm_create_task", { projectId: "p1", title: "Held task" });
+  const held = await exec("pm_create_task", { projectId: "p1", title: "Held task", reason: "Agreed at 00:19:27: \"så prøver jeg at få det færdigt tæt på mandag\"." });
   const heldId = held.match(/proposal ([0-9a-f-]{36})/)?.[1];
   check("a write is held, and the model is told so in plain words", /HELD FOR APPROVAL/.test(held) && /NOT executed/.test(held) && Boolean(heldId), held.slice(0, 80));
   check("and told not to retry or assume it happened", /do not retry/.test(held) && /awaits approval/.test(held));
@@ -135,6 +145,12 @@ try {
     JSON.stringify(proposal?.args),
   );
   check("with the tool's own description, for the reader", /Create a task/.test(proposal?.description ?? ""), proposal?.description);
+  check("the reason is stored on the proposal, and taken out of the arguments the upstream will get", /tæt på mandag/.test(proposal?.reason ?? "") && !("reason" in (proposal?.args ?? {})), proposal?.reason);
+  const silent = await exec("pm_create_task", { projectId: "p1", title: "No reason given" });
+  const silentId = silent.match(/proposal ([0-9a-f-]{36})/)?.[1];
+  const silentProposal = silentId ? await db.getProposal(silentId) : null;
+  check("a write without a reason is still held, with no reason recorded", silentProposal?.status === "pending" && silentProposal.reason === null);
+  if (silentId) await db.rejectProposal(silentId, ADMIN.id, "test");
   const mem = await exec("memory_write", { key: "verify-gate", content: "remembered" });
   check("memory writes are not held: the agent's notebook never leaves the hub", !/HELD/.test(mem) && !/error/i.test(mem), mem.slice(0, 60));
   await mcp.close();
@@ -158,6 +174,7 @@ try {
   check("and the proposal is still pending", (await db.getProposal(heldId))?.status === "pending");
 
   const approved = await gate.approve(heldId, OWNER);
+  check("the call that ran carried no reason argument", !/reason/.test(approved.proposal?.result ?? ""), approved.proposal?.result?.slice(0, 80));
   check(
     "approving runs the held call and records what the tool returned",
     !("error" in approved) && approved.proposal.status === "executed" && /Held task/.test(approved.proposal.result ?? ""),
@@ -186,11 +203,20 @@ try {
   console.log("\n— the per-agent endpoint —");
   await db.updateAgent(asks.id, { placement: "both" });
   const local = await connect(await buildAgentMcpServer(OWNER, (await db.getAgent(asks.id))));
-  const viaLocal = await call(local, "pm_create_task", { projectId: "p1", title: "From Claude Code" });
+  const localTools = (await local.listTools()).tools;
+  const localWrite = localTools.find((t) => t.name === "pm_create_task");
+  const localRead = localTools.find((t) => t.name === "pm_list_projects");
+  check(
+    "a local agent's held tool asks for the reason too; its reads do not",
+    Boolean(localWrite?.inputSchema?.properties?.reason) && localWrite.inputSchema.required?.includes("reason") && !localRead?.inputSchema?.properties?.reason,
+    JSON.stringify(localWrite?.inputSchema?.required),
+  );
+  const viaLocal = await call(local, "pm_create_task", { projectId: "p1", title: "From Claude Code", reason: "Asked for in the session." });
   const localId = String(viaLocal.text).match(/proposal ([0-9a-f-]{36})/)?.[1];
   check("a local agent's write is held the same way", /HELD FOR APPROVAL/.test(viaLocal.text) && Boolean(localId), viaLocal.text.slice(0, 60));
   const localProposal = localId ? await db.getProposal(localId) : null;
   check("and recorded against the agent and the person it acted as", localProposal?.agentId === asks.id && localProposal?.principalId === OWNER.id && localProposal?.args?.title === "From Claude Code");
+  check("with its reason, and the arguments clean", localProposal?.reason === "Asked for in the session." && !("reason" in (localProposal?.args ?? {})));
   const viaLocalRead = await call(local, "pm_list_projects", {});
   check("its reads still pass through", !viaLocalRead.isError && !/HELD/.test(viaLocalRead.text));
   await local.close();
@@ -200,6 +226,7 @@ try {
   const hubOwner = await connect(await buildHubMcpServer(OWNER));
   const mine = await call(hubOwner, "hub_list_proposals", {});
   check("hub_list_proposals shows the person their pending writes", Array.isArray(mine.body) && mine.body.some((p) => p.proposal === localId), mine.text.slice(0, 80));
+  check("with the reason beside the arguments", Array.isArray(mine.body) && mine.body.find((p) => p.proposal === localId)?.reason === "Asked for in the session.");
   const hubOther = await connect(await buildHubMcpServer(OTHER));
   const theirs = await call(hubOther, "hub_list_proposals", {});
   check("and nothing of anyone else's", /No pending proposals/.test(theirs.text), theirs.text.slice(0, 60));

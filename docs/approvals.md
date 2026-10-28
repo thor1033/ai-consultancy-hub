@@ -51,9 +51,15 @@ The tool result, instead of the upstream's answer:
 > its effect, and tell the reader exactly what you proposed and that it awaits
 > approval.
 
-The tool list is unchanged: the model may still ask for the write, and learns
-from the result that it was held. The run continues; its output should say what
-was proposed.
+The tool list differs in one way: every tool whose calls will be held carries
+one extra, required argument, **`reason`** — "for the person who approves this:
+one or two sentences saying what this changes and the evidence". The gate takes
+it off the arguments before the call is recorded, so the upstream never sees it
+and a proposal's `args` are exactly what the upstream will receive on approval;
+it is stored on the proposal and shown first on `/approvals`, above the
+arguments. A call without one is still held, and the page says the agent gave
+no reason. An upstream tool that declares its own `reason` argument keeps it,
+untouched. The run continues; its output should say what was proposed.
 
 ## Who decides
 

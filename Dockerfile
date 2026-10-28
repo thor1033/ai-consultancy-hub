@@ -58,6 +58,14 @@ COPY --from=builder /app/apps/web/public ./apps/web/public
 # standalone server and is exactly what the tracer decided it needs.
 COPY --from=proddeps /app/node_modules ./packages/mcp/node_modules
 
+# The migration, for fly.toml's release_command. It needs only `postgres`,
+# which the standalone tracer bundled into the server rather than keeping as a
+# package, so it is borrowed from the MCP servers' node_modules: an ES module
+# resolves imports by walking up from its own file, never from NODE_PATH, so
+# the link has to sit beside the script.
+COPY packages/db/migrate.mjs packages/db/schema.sql ./packages/db/
+RUN ln -s /app/packages/mcp/node_modules /app/packages/db/node_modules
+
 USER nextjs
 EXPOSE 3000
 CMD ["node", "apps/web/server.js"]

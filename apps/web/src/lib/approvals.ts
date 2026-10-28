@@ -32,7 +32,57 @@ import { entryName, resolveServer } from "@/lib/runSession";
  *
  * Two things are never held: the agent's own memory (it never leaves the
  * hub), and the hub's own hub_* tools (each decides for itself).
+ *
+ * THE REASON LINE. A held call shows the approver its tool and arguments —
+ * and `status: inprogress, taskId: t_ft87883` says nothing about why. So the
+ * gate adds one argument, `reason`, to the schema of every tool it will hold,
+ * described to the model as the line a person reads before approving. It is
+ * taken out of the arguments before the call is recorded, so the upstream
+ * never sees it and what runs on approval is exactly what the upstream
+ * declared; it is stored on the proposal and shown beside the arguments. A
+ * call without one is still held — the gate does not refuse a write for
+ * lacking a sentence — it just reads worse on /approvals.
  */
+
+export const REASON_ARG = "reason";
+const REASON_DESCRIPTION =
+  "For the person who approves this on the hub's Approvals page: one or two sentences saying what this changes and the evidence " +
+  "(a transcript time and quote, a commit, who asked). Required for every write. It is not sent to the tool.";
+
+type ToolDef = ConnectedMcp["tools"][number];
+
+/** Whether the upstream itself declares a `reason` argument, in which case the hub leaves it alone. */
+function upstreamOwnsReason(tool: Pick<McpToolInfo, "inputSchema">): boolean {
+  const props = (tool.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties;
+  return Boolean(props && Object.prototype.hasOwnProperty.call(props, REASON_ARG));
+}
+
+/** The JSON Schema of a held tool, with the reason line added and required. */
+export function withReasonSchema(schema: Record<string, unknown>): Record<string, unknown> {
+  const props = ((schema.properties as Record<string, unknown> | undefined) ?? {});
+  if (Object.prototype.hasOwnProperty.call(props, REASON_ARG)) return schema;
+  const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
+  return {
+    ...schema,
+    type: "object",
+    properties: { ...props, [REASON_ARG]: { type: "string", description: REASON_DESCRIPTION } },
+    required: [...required, REASON_ARG],
+  };
+}
+
+/** The upstream tool, as the model should see it when its calls are held. */
+export function withReason(tool: McpToolInfo): McpToolInfo {
+  return upstreamOwnsReason(tool) ? tool : { ...tool, inputSchema: withReasonSchema(tool.inputSchema) };
+}
+
+/** Split the reason the gate asked for off the arguments the upstream declared. */
+export function takeReason(tool: Pick<McpToolInfo, "inputSchema">, input: unknown): { args: Record<string, unknown>; reason: string | null } {
+  const args = (input && typeof input === "object" ? { ...(input as Record<string, unknown>) } : {}) as Record<string, unknown>;
+  if (upstreamOwnsReason(tool)) return { args, reason: null };
+  const raw = args[REASON_ARG];
+  delete args[REASON_ARG];
+  return { args, reason: typeof raw === "string" && raw.trim() ? raw.trim() : null };
+}
 
 export type WritesPolicy = "ask" | "allow";
 
@@ -77,36 +127,56 @@ export interface GateContext {
 }
 
 /**
- * A tool executor that holds writes.
+ * The tool list the model sees, and the executor behind it.
  *
- * Wraps a connected set of servers: read tools pass straight through, writes
- * become proposals. The tool list the model sees is unchanged — it may still
- * ask for the write, and learns from the result that it was held.
+ * Read tools pass straight through, writes become proposals, and every tool
+ * whose calls will be held carries the reason line in its schema — the two
+ * halves agree because they are decided by the same `needsApproval`.
  */
-export function gatedExecutor(mcp: ConnectedMcp, ctx: GateContext): ConnectedMcp["execute"] {
+export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; execute: ConnectedMcp["execute"] } {
   const byName = new Map(mcp.details.map((t) => [t.name, t]));
   const entryFor = (server: string) => ctx.entries?.find((e) => entryName(e) === server);
-  return async (name, input) => {
+  const isHeld = (tool: McpToolInfo | undefined) => Boolean(tool && needsApproval(tool, entryFor(tool.server)));
+
+  const tools = mcp.tools.map((t) => {
+    const detail = byName.get(t.name);
+    if (!isHeld(detail) || upstreamOwnsReason(detail!)) return t;
+    return { ...t, input_schema: withReasonSchema(t.input_schema as Record<string, unknown>) as ToolDef["input_schema"] };
+  });
+
+  const execute: ConnectedMcp["execute"] = async (name, input) => {
     const tool = byName.get(name);
-    if (tool && needsApproval(tool, entryFor(tool.server))) {
+    if (tool && isHeld(tool)) {
       const proposal = await hold(tool, input, ctx);
       ctx.held?.add(tool.name);
       return heldText(proposal);
     }
     return mcp.execute(name, input);
   };
+  return { tools, execute };
 }
 
-/** Record a held call. Exported for the per-agent endpoint, which wraps calls itself. */
+/** The executor alone; the tool list is unchanged, so a held tool has no reason line. */
+export function gatedExecutor(mcp: ConnectedMcp, ctx: GateContext): ConnectedMcp["execute"] {
+  return gate(mcp, ctx).execute;
+}
+
+/**
+ * Record a held call. Exported for the per-agent endpoint, which wraps calls
+ * itself. The reason is taken off the arguments here, so a proposal's `args`
+ * are always exactly what the upstream will receive.
+ */
 export async function hold(tool: McpToolInfo, input: unknown, ctx: GateContext): Promise<Proposal> {
+  const { args, reason } = takeReason(tool, input);
   return createProposal({
     agentId: ctx.agentId ?? null,
     runId: ctx.runId ?? null,
     principalId: ctx.principalId ?? null,
     server: tool.server,
     tool: tool.name,
-    args: (input && typeof input === "object" ? input : {}) as Record<string, unknown>,
+    args,
     description: tool.description,
+    reason,
   });
 }
 
