@@ -26,6 +26,10 @@ export interface AgentFormValues {
   servers: string[];
   enabled: boolean;
   placement: Placement;
+  /** Where it sits on the org chart: Delivery, Product, Legal & Compliance, … */
+  functionName: string;
+  /** Who answers for it. */
+  owner: string;
   /** Per-server mailbox, for the servers in MAILBOX_SERVERS. Blank = the deployment default. */
   mailboxes: Record<string, string>;
   /** Servers this agent may write through WITHOUT a person approving each call. */
@@ -86,6 +90,8 @@ export function AgentForm({
   canSetPlacement,
   canAllowWrites,
   localFiles,
+  functions = [],
+  owners = [],
 }: {
   initial: AgentFormValues;
   tools: ToolOption[];
@@ -98,6 +104,9 @@ export function AgentForm({
   canAllowWrites: boolean;
   /** What a sync writes for the SAVED agent, if it is placed local or both. */
   localFiles: { path: string; content: string }[];
+  /** Functions and owners other agents already use, offered as suggestions. */
+  functions?: string[];
+  owners?: string[];
 }) {
   const router = useRouter();
   const creating = initial.id === null;
@@ -140,6 +149,8 @@ export function AgentForm({
         }),
         enabled: v.enabled,
         placement: v.placement,
+        functionName: v.functionName,
+        owner: v.owner,
       });
       if ("error" in res) {
         setMessage({ text: res.error, error: true });
@@ -182,6 +193,44 @@ export function AgentForm({
                 onChange={(e) => set("description", e.target.value)}
                 placeholder="Tracks client delivery and says what is late"
               />
+            </label>
+          </div>
+          <div className="mt-4 grid gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--muted)]">Function</span>
+              <input
+                className="field"
+                list="agent-functions"
+                value={v.functionName}
+                onChange={(e) => set("functionName", e.target.value)}
+                placeholder="Delivery"
+              />
+              <datalist id="agent-functions">
+                {functions.map((f) => (
+                  <option key={f} value={f} />
+                ))}
+              </datalist>
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                The part of the company it works in. Agents in the same function sit together on the org chart.
+              </span>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--muted)]">Reports to</span>
+              <input
+                className="field"
+                list="agent-owners"
+                value={v.owner}
+                onChange={(e) => set("owner", e.target.value)}
+                placeholder="Ditlev Brygmann"
+              />
+              <datalist id="agent-owners">
+                {owners.map((o) => (
+                  <option key={o} value={o} />
+                ))}
+              </datalist>
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                The person who answers for it, and who is asked when it misbehaves.
+              </span>
             </label>
           </div>
           {!creating && (

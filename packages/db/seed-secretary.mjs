@@ -249,13 +249,14 @@ if (skillsOnly && !existing) {
 }
 // An existing row keeps what a deployment tuned on the agent's page — model,
 // effort, knowledge scope, placement — and takes from the definition only what
-// the definition owns: the brief, the servers, the stamina. updateAgent leaves
-// an omitted field alone, so that is a matter of what is passed.
-const { slug, name, description, instructions, mcpServers, maxIterations } = SECRETARY_AGENT;
+// the definition owns: the brief, the servers, the stamina, its place on the
+// org chart. updateAgent leaves an omitted field alone, so that is a matter of
+// what is passed.
+const { slug, name, description, instructions, mcpServers, maxIterations, functionName, owner } = SECRETARY_AGENT;
 const agent = skillsOnly
   ? existing
   : existing
-    ? await updateAgent(existing.id, { slug, name, description, instructions, mcpServers, maxIterations })
+    ? await updateAgent(existing.id, { slug, name, description, instructions, mcpServers, maxIterations, functionName, owner })
     : await createAgent(SECRETARY_AGENT);
 console.log(`${skillsOnly ? "kept   " : existing ? "updated" : "created"}  agent   ${agent.slug}  (${agent.id})`);
 

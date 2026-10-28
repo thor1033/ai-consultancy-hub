@@ -142,6 +142,8 @@ whom. Never store a task list, a date or a status — fetch it.`,
   enabled: true,
   // The whole point of this file: a sub-agent in Claude Code as well.
   placement: "both",
+  functionName: "Delivery",
+  owner: "Thor Simonsen",
 };
 
 // ── the expertise ────────────────────────────────────────────────────────────

@@ -32,6 +32,7 @@ export {
   MEMORY_REGIONS,
   listAgentKnowledgeScopes,
   agentRoster,
+  agentOrgLabels,
   hubActivity,
   listRecentRuns,
   listAgentRuns,
