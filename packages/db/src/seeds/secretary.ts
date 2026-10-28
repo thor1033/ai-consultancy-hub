@@ -229,6 +229,9 @@ fetch it.`,
   // dozen writes before it can call anything a follow-up.
   maxIterations: 30,
   enabled: true,
+  // Where it sits in the company. Re-asserted on every seed, like the brief.
+  functionName: "Office of the founders",
+  owner: "Ditlev Brygmann",
 };
 
 // ── the expertise ────────────────────────────────────────────────────────────

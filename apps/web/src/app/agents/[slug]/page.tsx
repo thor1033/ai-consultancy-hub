@@ -2,6 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 import { headers } from "next/headers";
 import {
+  agentOrgLabels,
   agentRoster,
   getAgent,
   listAgentRuns,
@@ -46,7 +47,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
   const writesAllowed = serverWritesAllowed(agent.mcpServers);
   // Everything below is display; a failure in one source must not take the
   // page (and with it the only way to fix the agent) down.
-  const [memories, collections, skills, runs, schedules, roster, tools, canManage, activity, admin, viewer] =
+  const [memories, collections, skills, runs, schedules, roster, tools, canManage, activity, admin, viewer, orgLabels] =
     await Promise.all([
     listMemories(agent.id),
     sessionKnowledgeAccess()
@@ -64,6 +65,8 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
     sessionCan("admin:manage"),
     // Who is looking, so the schedules panel can tell "yours" from "theirs".
     sessionPrincipal(),
+    // Functions and owners already in use, as the form's suggestions.
+    agentOrgLabels().catch(() => ({ functions: [], owners: [] })),
   ]);
   const baseUrl = appBaseUrl(await headers()) ?? "https://hub.example.com";
 
@@ -309,9 +312,13 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           servers: named,
           enabled: agent.enabled,
           placement: agent.placement,
+          functionName: agent.functionName,
+          owner: agent.owner,
           mailboxes,
           writesAllowed,
         }}
+        functions={orgLabels.functions}
+        owners={orgLabels.owners}
         tools={tools}
         collections={collections}
         defaultMaxIterations={DEFAULT_MAX_ITERATIONS}

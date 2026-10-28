@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
+import { agentOrgLabels } from "@ai-hub/db";
 import { listCollections } from "@ai-hub/rag";
 import { sessionCan, sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 import { AgentForm } from "../AgentForm";
@@ -11,13 +12,14 @@ export const dynamic = "force-dynamic";
 // agent:manage can save it — saveAgentAction checks again, so the notice below
 // is a courtesy, not the control.
 export default async function NewAgentPage() {
-  const [canManage, tools, collections, admin] = await Promise.all([
+  const [canManage, tools, collections, admin, orgLabels] = await Promise.all([
     sessionCan("agent:manage"),
     toolCatalog(),
     sessionKnowledgeAccess()
       .then((access) => listCollections(access))
       .catch(() => [] as string[]),
     sessionCan("admin:manage"),
+    agentOrgLabels().catch(() => ({ functions: [], owners: [] })),
   ]);
 
   return (
@@ -55,9 +57,13 @@ export default async function NewAgentPage() {
             servers: [],
             enabled: true,
             placement: "hub",
+            functionName: "",
+            owner: "",
             mailboxes: {},
             writesAllowed: [],
           }}
+          functions={orgLabels.functions}
+          owners={orgLabels.owners}
           tools={tools}
           collections={collections}
           defaultMaxIterations={DEFAULT_MAX_ITERATIONS}

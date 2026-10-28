@@ -66,6 +66,11 @@ try {
     // documents.collection, so the store must clean them.
     knowledgeCollections: ["verify-collection", " verify-playbook ", "verify-collection"],
     maxIterations: 25,
+    // Padded and doubled-spaced on purpose: the store keeps the labels as a
+    // person would type them, trimmed, so two "Delivery" columns cannot differ
+    // by a space.
+    functionName: "  Delivery ",
+    owner: "Thor Simonsen",
   });
   check("createAgent returns the stored row", Boolean(agent?.id), agent?.id?.slice(0, 8));
   check("it round-trips every field",
@@ -75,7 +80,9 @@ try {
     JSON.stringify(agent.knowledgeCollections) === JSON.stringify(["verify-collection", "verify-playbook"]) &&
     agent.knowledgeAll === false &&
     Array.isArray(agent.mcpServers) && agent.mcpServers[0]?.name === "pm-tool" &&
-    agent.maxIterations === 25,
+    agent.maxIterations === 25 &&
+    agent.functionName === "Delivery" &&
+    agent.owner === "Thor Simonsen",
     JSON.stringify(agent.mcpServers),
   );
   check("a new agent has no memories", agent.memoryCount === 0);
