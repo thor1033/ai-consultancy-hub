@@ -15,7 +15,8 @@
     "verify:schedules": "node verify-schedules.mjs",
     "seed:secretary": "node seed-secretary.mjs",
     "seed:product-owner": "node --experimental-transform-types seed-product-owner.mjs",
-    "seed:project-manager": "node --experimental-transform-types seed-project-manager.mjs"
+    "seed:project-manager": "node --experimental-transform-types seed-project-manager.mjs",
+    "seed:context-steward": "node --experimental-transform-types seed-context-steward.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import type { Proposal } from "@ai-hub/db";
 import { rel } from "@/lib/format";
+import { Markdown } from "@/components/Markdown";
 import { approveProposalAction, rejectProposalAction } from "./actions";
 
 export function ApprovalsView({ pending, decided, viewerId }: { pending: Proposal[]; decided: Proposal[]; viewerId: string }) {
@@ -106,6 +107,11 @@ function ProposalCard({ p, now, viewerId, live = false }: { p: Proposal; now: nu
       )}
       {p.description && <p className="mt-2 text-xs text-[var(--text-soft)]">{p.description}</p>}
 
+      {p.tool === "knowledge_file_document" && typeof p.args?.content === "string" ? (
+        // The steward's filing: the reviewer reads what will be retrievable,
+        // as a document, not as a JSON blob with a content field.
+        <FiledDocument args={p.args} />
+      ) : (
       <div className="md mt-3">
         <div className="md-table">
           <table>
@@ -138,6 +144,7 @@ function ProposalCard({ p, now, viewerId, live = false }: { p: Proposal; now: nu
           </table>
         </div>
       </div>
+      )}
 
       {p.runPrompt && (
         <details className="mt-2 text-xs text-[var(--muted)]">
@@ -185,5 +192,29 @@ function ProposalCard({ p, now, viewerId, live = false }: { p: Proposal; now: nu
         </p>
       )}
     </article>
+  );
+}
+
+function FiledDocument({ args }: { args: Record<string, unknown> }) {
+  const source = args.source && typeof args.source === "object" ? (args.source as { kind?: string; id?: string; detail?: string }) : null;
+  return (
+    <div className="mt-3 border border-[var(--border-strong)]">
+      <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 border-b border-[var(--border)] px-4 py-2.5 text-xs text-[var(--muted)]">
+        <span>
+          Files into <span className="mono text-[var(--text)]">{String(args.collection ?? "")}</span>
+        </span>
+        {source && (
+          <span>
+            From {source.kind === "chat" ? "a chat" : source.kind === "note" ? "a meeting note" : `${source.id}'s memory`}
+            {source.kind !== "memory" && source.id && <span className="mono"> {String(source.id).slice(0, 8)}</span>}
+            {source.detail ? `, ${source.detail}` : ""}
+          </span>
+        )}
+      </div>
+      <div className="px-4 py-3">
+        <h3 className="text-lg font-bold">{String(args.title ?? "")}</h3>
+        <Markdown className="mt-2">{String(args.content)}</Markdown>
+      </div>
+    </div>
   );
 }
