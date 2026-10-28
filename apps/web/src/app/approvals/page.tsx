@@ -1,6 +1,7 @@
 import { authorize } from "@ai-hub/authz";
 import { listProposals, type Proposal } from "@ai-hub/db";
 import { PageHeader } from "@/components/PageHeader";
+import { peopleToSendTo } from "@/lib/approvals";
 import { sessionCan } from "@/lib/sessionPrincipal";
 import { ApprovalsView } from "./ApprovalsView";
 
@@ -8,9 +9,9 @@ export const dynamic = "force-dynamic";
 
 /*
  * The Approvals page: every write an agent wanted to make and could not make
- * alone. A person reads the exact call — tool, server, arguments — and says
- * yes or no. An admin sees all of them; anyone else sees the ones whose runs
- * acted as them, since those are the writes they would have been making.
+ * alone. A person reads what it would change and why, and says yes, no, or
+ * "you decide" to a colleague. An admin sees all of them; anyone else sees
+ * their own runs' writes and the ones sent to them.
  */
 export default async function ApprovalsPage() {
   const principal = await sessionCan("agent:run");
@@ -25,35 +26,37 @@ export default async function ApprovalsPage() {
     );
   }
   const admin = await authorize(principal, "admin:manage");
-  const scope = admin ? {} : { principalId: principal.id };
+  const scope = admin ? {} : { visibleTo: principal.id };
 
   let pending: Proposal[] = [];
   let decided: Proposal[] = [];
+  let people: { id: string; name: string; email: string }[] = [];
   let error: string | null = null;
   try {
-    [pending, decided] = await Promise.all([
-      listProposals({ ...scope, status: ["pending", "approved"], limit: 100 }),
-      listProposals({ ...scope, status: ["executed", "failed", "rejected"], limit: 40 }),
+    [pending, decided, people] = await Promise.all([
+      listProposals({ ...scope, status: ["pending", "approved"], limit: 200 }),
+      listProposals({ ...scope, status: ["executed", "failed", "rejected"], limit: 100 }),
+      peopleToSendTo(principal),
     ]);
   } catch (e) {
     error = e instanceof Error ? e.message : "Failed to load the proposals.";
   }
 
   return (
-    <main className="mx-auto max-w-[80rem] px-5 py-7 lg:px-8">
-      <PageHeader
-        eyebrow="Approvals"
-        title="Approvals"
-        subtitle={
-          admin
-            ? "Every write an agent wanted to make. Nothing here has happened yet; approving runs the exact call shown."
-            : "Writes that agents wanted to make while acting as you. Nothing here has happened yet; approving runs the exact call shown."
-        }
-      />
+    <main className="mx-auto max-w-[80rem] px-5 pb-32 pt-7 lg:px-8">
       {error ? (
-        <div className="panel notice-warning p-4 text-sm text-[var(--warning)]">{error}</div>
+        <>
+          <PageHeader eyebrow="Approvals" title="Approvals" />
+          <div className="panel notice-warning p-4 text-sm text-[var(--warning)]">{error}</div>
+        </>
       ) : (
-        <ApprovalsView pending={pending} decided={decided} viewerId={principal.id} />
+        <ApprovalsView
+          pending={pending}
+          decided={decided}
+          people={people}
+          viewer={{ id: principal.id, admin }}
+          now={Date.now()}
+        />
       )}
     </main>
   );

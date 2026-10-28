@@ -91,12 +91,16 @@ const stamp = Date.now();
 const OWNER = { id: `verify-gate-owner-${stamp}`, roles: ["analyst"], source: "credential" };
 const OTHER = { id: `verify-gate-other-${stamp}`, roles: ["analyst"], source: "credential" };
 const ADMIN = { id: `verify-gate-admin-${stamp}`, roles: ["admin"], source: "credential" };
-const principals = [OWNER, OTHER, ADMIN];
+// A colleague a write can be sent to, one whose role cannot decide writes,
+// and a service identity with no email: only the first is someone to send to.
+const DITLEV = { id: `verify-gate-ditlev-${stamp}`, roles: ["analyst"], source: "oauth", email: `ditlev-${stamp}@verify.test` };
+const READER = { id: `verify-gate-reader-${stamp}`, roles: ["viewer"], source: "oauth", email: `reader-${stamp}@verify.test` };
+const principals = [OWNER, OTHER, ADMIN, DITLEV, READER];
 const agents = [];
 const runs = [];
 
 try {
-  for (const p of principals) await db.upsertPrincipal({ id: p.id, roles: p.roles, displayName: p.id });
+  for (const p of principals) await db.upsertPrincipal({ id: p.id, roles: p.roles, displayName: p.id, email: p.email ?? null });
   const asks = await db.createAgent({ slug: `verify-gate-asks-${stamp}`, name: "Verify asks", mcpServers: [{ name: "verify-pm" }] });
   const allows = await db.createAgent({ slug: `verify-gate-allows-${stamp}`, name: "Verify allows", mcpServers: [{ name: "verify-pm", writes: "allow" }] });
   agents.push(asks.id, allows.id);
@@ -199,6 +203,42 @@ try {
   );
   check("pendingProposalCount counts only what is waiting", (await db.pendingProposalCount(OWNER.id)) === 0);
 
+  // --- 3b. sending one on --------------------------------------------------
+  console.log("\n— sending one on —");
+  const people = await gate.peopleToSendTo(OWNER);
+  check(
+    "the people a write can be sent to: a colleague who can decide, not a viewer, not a service identity, not yourself",
+    people.some((x) => x.id === DITLEV.id) && !people.some((x) => x.id === READER.id || x.id === OTHER.id || x.id === OWNER.id),
+    people.filter((x) => x.id.includes(String(stamp))).map((x) => x.name).join(", "),
+  );
+  const toSend = await db.createProposal({ agentId: asks.id, principalId: OWNER.id, server: "verify-pm", tool: "pm_create_task", args: { projectId: "p1", title: "For Ditlev" }, reason: "Commercial: his call." });
+  check("before it is sent, the colleague may not decide it", !(await gate.mayDecide(DITLEV, toSend)));
+  const byStranger = await gate.sendOn(toSend.id, OTHER, DITLEV.id, "x");
+  check("someone who may not decide it cannot send it on", "error" in byStranger, byStranger.error);
+  const toReader = await gate.sendOn(toSend.id, OWNER, READER.id, "x");
+  check("it cannot be sent to someone whose role cannot decide writes", "error" in toReader && /cannot decide/.test(toReader.error), toReader.error);
+  const toSelf = await gate.sendOn(toSend.id, OWNER, OWNER.id, "x");
+  check("nor to yourself", "error" in toSelf, toSelf.error);
+  const sentOn = await gate.sendOn(toSend.id, OWNER, DITLEV.id, "Your call — commercial.");
+  check(
+    "sent to a colleague: recorded with who sent it, when, and the note",
+    !("error" in sentOn) && sentOn.proposal.assignedTo === DITLEV.id && sentOn.proposal.assignedBy === OWNER.id && Boolean(sentOn.proposal.assignedAt) && sentOn.proposal.assignNote === "Your call — commercial.",
+    JSON.stringify({ to: sentOn.proposal?.assignedTo, note: sentOn.proposal?.assignNote }),
+  );
+  check("the colleague may now decide it", await gate.mayDecide(DITLEV, sentOn.proposal));
+  check("and the person it was sent from still may — a handoff never strands a write", await gate.mayDecide(OWNER, sentOn.proposal));
+  check("an unrelated person still may not", !(await gate.mayDecide(OTHER, sentOn.proposal)));
+  const theirList = await db.listProposals({ visibleTo: DITLEV.id, status: "pending" });
+  check("it appears in the colleague's list", theirList.some((x) => x.id === toSend.id && x.assignedToName === DITLEV.id));
+  check("and counts as waiting on them, not on the sender", (await db.waitingOnCount(DITLEV.id)) === 1 && !(await db.listProposals({ visibleTo: OTHER.id, status: "pending" })).some((x) => x.id === toSend.id));
+  const back = await gate.sendOn(toSend.id, OWNER, null);
+  check("taking it back clears the handoff", !("error" in back) && back.proposal.assignedTo === null && back.proposal.assignNote === null);
+  await gate.sendOn(toSend.id, OWNER, DITLEV.id, "Again.");
+  const ditlevApproves = await gate.approve(toSend.id, DITLEV);
+  check("the colleague approves: the call runs, attributed to them", !("error" in ditlevApproves) && ditlevApproves.proposal.status === "executed" && ditlevApproves.proposal.decidedBy === DITLEV.id, ditlevApproves.proposal?.status ?? ditlevApproves.error);
+  const late = await gate.sendOn(toSend.id, OWNER, DITLEV.id, "too late");
+  check("a decided proposal cannot be sent on", "error" in late && /already executed/.test(late.error), late.error);
+
   // --- 4. the per-agent endpoint (a local agent in Claude Code) ------------
   console.log("\n— the per-agent endpoint —");
   await db.updateAgent(asks.id, { placement: "both" });
@@ -227,6 +267,12 @@ try {
   const mine = await call(hubOwner, "hub_list_proposals", {});
   check("hub_list_proposals shows the person their pending writes", Array.isArray(mine.body) && mine.body.some((p) => p.proposal === localId), mine.text.slice(0, 80));
   check("with the reason beside the arguments", Array.isArray(mine.body) && mine.body.find((p) => p.proposal === localId)?.reason === "Asked for in the session.");
+  const fromClaude = await db.createProposal({ agentId: asks.id, principalId: OWNER.id, server: "verify-pm", tool: "pm_create_task", args: { projectId: "p1", title: "Via Claude Code" } });
+  const viaTool = await call(hubOwner, "hub_send_proposal", { proposals: [fromClaude.id], to: DITLEV.email, note: "From the terminal." });
+  check("hub_send_proposal sends by email from Claude Code", !viaTool.isError && (await db.getProposal(fromClaude.id))?.assignedTo === DITLEV.id, viaTool.text.slice(0, 100));
+  const nobody = await call(hubOwner, "hub_send_proposal", { proposals: [fromClaude.id], to: "nobody-at-all" });
+  check("and names who you can send to when the name matches no one", nobody.isError && /People you can send to/.test(nobody.text), nobody.text.slice(0, 100));
+  await gate.reject(fromClaude.id, ADMIN, "test");
   const hubOther = await connect(await buildHubMcpServer(OTHER));
   const theirs = await call(hubOther, "hub_list_proposals", {});
   check("and nothing of anyone else's", /No pending proposals/.test(theirs.text), theirs.text.slice(0, 60));

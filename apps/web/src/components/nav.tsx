@@ -4,6 +4,23 @@
 
 import { Mark } from "./Mark";
 
+/**
+ * The count beside Approvals: what is waiting on the person looking — their
+ * own runs' writes plus anything a colleague sent them. Red, because it needs
+ * an action; absent at zero, because a badge that always shows is noise.
+ */
+export function WaitingBadge({ count }: { count: number }) {
+  if (count <= 0) return null;
+  return (
+    <span
+      className="mono ml-auto min-w-[1.25rem] bg-[var(--brand)] px-1.5 text-center text-[0.68rem] leading-[1.15rem] text-[var(--tk-paper)]"
+      aria-label={`${count} waiting`}
+    >
+      {count > 99 ? "99+" : count}
+    </span>
+  );
+}
+
 export interface NavItem {
   href: string;
   label: string;
