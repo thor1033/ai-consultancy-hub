@@ -15,7 +15,8 @@
     "verify:local-agents": "node --experimental-transform-types --env-file=.env.local verify-local-agents.mjs",
     "verify:identity": "node --experimental-transform-types --env-file=.env.local verify-identity.mjs",
     "verify:approvals": "node --experimental-transform-types --env-file=.env.local verify-approvals.mjs",
-    "verify:decks": "node --experimental-transform-types --env-file=.env.local verify-decks.mjs"
+    "verify:decks": "node --experimental-transform-types --env-file=.env.local verify-decks.mjs",
+    "verify:approval-images": "node --experimental-transform-types --env-file-if-exists=.env.local verify-approval-images.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",

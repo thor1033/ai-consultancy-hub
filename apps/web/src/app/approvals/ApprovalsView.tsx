@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import type { Proposal } from "@ai-hub/db";
+import type { Proposal, ProposalImageMeta } from "@ai-hub/db";
 import { rel } from "@/lib/format";
 import { approveProposalsAction, rejectProposalsAction, sendProposalsAction, type Outcome } from "./actions";
 import { present } from "./present";
@@ -348,6 +349,18 @@ function RunCard({ group, people, now, selected, toggle, actions, nameOf, sentVi
             <span>
               {group.items.length} {group.items.length === 1 ? "write" : "writes"}
             </span>
+            {(() => {
+              const n = group.items.reduce((sum, p) => sum + (p.images?.length ?? 0), 0);
+              return n > 0 ? (
+                <>
+                  <span aria-hidden>·</span>
+                  <span className="inline-flex items-center gap-1 text-[var(--text-soft)]">
+                    <ImageGlyph />
+                    {n} {n === 1 ? "image" : "images"}
+                  </span>
+                </>
+              ) : null;
+            })()}
           </div>
           <h2 className="mt-2 text-lg font-medium leading-snug">{group.title}</h2>
         </div>
@@ -437,10 +450,12 @@ function Row({
 }) {
   const [panel, setPanel] = useState<Panel>(null);
   const [open, setOpen] = useState(false);
+  const [viewing, setViewing] = useState<number | null>(null);
   const shown = present(p.tool, p.args ?? {});
   const short = shown.changes.filter((c) => !c.long);
   const long = shown.changes.filter((c) => c.long);
   const running = p.status === "approved";
+  const images = p.images ?? [];
 
   return (
     <li className="border-b border-[var(--border)] last:border-b-0">
@@ -472,6 +487,8 @@ function Row({
           ) : (
             <p className="mt-2 text-sm text-[var(--faint)]">No reason given — judge it from the call below, or reject it and ask.</p>
           )}
+
+          {images.length > 0 && <Evidence images={images} onOpen={setViewing} />}
 
           {short.length > 0 && (
             <dl className="mt-3 flex flex-wrap gap-2">
@@ -536,7 +553,278 @@ function Row({
           <ActionPanel panel={panel} people={people} actions={actions} close={() => setPanel(null)} />
         </div>
       )}
+
+      {viewing !== null && (
+        <Viewer
+          images={images}
+          start={viewing}
+          title={`${shown.verb}${shown.headline ? ` · ${shown.headline}` : ""}`}
+          agent={p.agentName}
+          onClose={() => setViewing(null)}
+          approve={
+            p.status === "pending"
+              ? {
+                  busy: actions.busy,
+                  run: () => {
+                    setViewing(null);
+                    actions.approve([p.id]);
+                  },
+                }
+              : undefined
+          }
+        />
+      )}
     </li>
+  );
+}
+
+// ── evidence ─────────────────────────────────────────────────────────────────
+//
+// What the agent attached for the approver to look at. Screenshots are shown
+// whole — object-contain on an inset ground, never cropped to fill a tile —
+// because the detail that matters is as likely to be in a corner as in the
+// middle. One image gets room to be read; several become an even strip. Every
+// tile opens the viewer, and the bytes come from the hub's own copy.
+
+const imageSrc = (id: string) => `/approvals/images/${id}`;
+
+/** Where an image came from, in a word: its host, or the agent. */
+function sourceLabel(source: string): string {
+  if (source === "inline") return "Attached by the agent";
+  try {
+    return `From ${new URL(source).hostname.replace(/^www\./, "")}`;
+  } catch {
+    return "Attached by the agent";
+  }
+}
+
+function ImageGlyph({ size = 12 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="square" aria-hidden>
+      <rect x="3" y="4" width="18" height="16" />
+      <path d="M3 16l5-5 4 4 3-3 6 6" />
+      <rect x="15" y="7" width="2.5" height="2.5" />
+    </svg>
+  );
+}
+
+function Evidence({ images, onOpen }: { images: ProposalImageMeta[]; onOpen: (i: number) => void }) {
+  if (images.length === 1) {
+    const img = images[0];
+    return (
+      <figure className="mt-3 max-w-[30rem]">
+        <Tile img={img} index={0} total={1} onOpen={onOpen} className="aspect-[16/10] w-full" />
+        <figcaption className="mt-1.5 flex flex-wrap items-baseline gap-x-2 text-xs">
+          {img.caption && <span className="text-[var(--text-soft)]">{img.caption}</span>}
+          <span className="text-[var(--faint)]">{sourceLabel(img.source)}</span>
+        </figcaption>
+      </figure>
+    );
+  }
+  return (
+    <ul className="-mx-1 mt-3 flex snap-x gap-2 overflow-x-auto px-1 pb-1" aria-label={`${images.length} images attached`}>
+      {images.map((img, i) => (
+        <li key={img.id} className="w-[11.5rem] shrink-0 snap-start">
+          <Tile img={img} index={i} total={images.length} onOpen={onOpen} className="aspect-[4/3] w-full" />
+          {img.caption && <p className="mt-1.5 line-clamp-2 text-xs leading-snug text-[var(--text-soft)]">{img.caption}</p>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function Tile({ img, index, total, onOpen, className }: { img: ProposalImageMeta; index: number; total: number; onOpen: (i: number) => void; className: string }) {
+  const [broken, setBroken] = useState(false);
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(index)}
+      aria-label={`Open image ${index + 1} of ${total}${img.caption ? `: ${img.caption}` : ""}`}
+      className={`group relative block cursor-zoom-in overflow-hidden border border-[var(--border-strong)] bg-[var(--panel-inset)] transition-colors hover:border-[var(--brand)] focus-visible:border-[var(--ai)] ${className}`}
+    >
+      {broken ? (
+        <span className="flex h-full w-full items-center justify-center p-3 text-center text-xs text-[var(--muted)]">This image could not be loaded.</span>
+      ) : (
+        // eslint-disable-next-line @next/next/no-img-element -- the hub's own authenticated bytes; next/image would proxy and cache them
+        <img
+          src={imageSrc(img.id)}
+          alt={img.caption ?? `Image ${index + 1} attached by the agent`}
+          loading="lazy"
+          decoding="async"
+          onError={() => setBroken(true)}
+          className="h-full w-full object-contain"
+        />
+      )}
+      <span
+        aria-hidden
+        className="absolute bottom-1.5 right-1.5 inline-flex items-center gap-1 bg-[var(--text)] px-1.5 py-0.5 text-[0.62rem] font-medium uppercase tracking-[0.14em] text-[var(--bg)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+      >
+        View
+      </span>
+    </button>
+  );
+}
+
+/**
+ * The viewer: the image as large as the screen allows, on the scrim. Arrow
+ * keys step through, Escape closes and hands focus back to the tile. When the
+ * write is still waiting, Approve sits beside the picture — the moment a
+ * person has looked at the evidence is the moment they decide.
+ *
+ * Portalled to <body>: the run cards animate in with a transform, and a
+ * transformed ancestor would make `fixed` mean "fixed to the card".
+ */
+function Viewer({
+  images,
+  start,
+  title,
+  agent,
+  onClose,
+  approve,
+}: {
+  images: ProposalImageMeta[];
+  start: number;
+  title: string;
+  agent: string | null;
+  onClose: () => void;
+  approve?: { busy: boolean; run: () => void };
+}) {
+  const [i, setI] = useState(start);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const opener = useRef<Element | null>(null);
+  const img = images[i];
+  const many = images.length > 1;
+
+  useEffect(() => {
+    opener.current = document.activeElement;
+    closeRef.current?.focus();
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      else if (e.key === "ArrowRight") setI((x) => (x + 1) % images.length);
+      else if (e.key === "ArrowLeft") setI((x) => (x - 1 + images.length) % images.length);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prevOverflow;
+      (opener.current as HTMLElement | null)?.focus?.();
+    };
+  }, [images.length, onClose]);
+
+  if (!img) return null;
+  const original = img.source !== "inline" ? img.source : null;
+
+  return createPortal(
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label={`Image ${i + 1} of ${images.length}: ${img.caption ?? title}`}
+      className="fixed inset-0 z-50 flex flex-col bg-[rgba(11,11,11,0.92)] text-[var(--tk-paper)]"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <header className="flex items-start gap-4 px-5 py-4 md:px-8">
+        <div className="min-w-0 flex-1">
+          <div className="text-[0.68rem] font-medium uppercase tracking-[0.24em] text-[var(--tk-ink-4)]">
+            {many ? `Image ${i + 1} of ${images.length}` : "Image"}
+            {agent && ` · from ${agent}`}
+          </div>
+          <div className="mt-1 truncate text-sm">{title}</div>
+        </div>
+        <button
+          ref={closeRef}
+          type="button"
+          onClick={onClose}
+          className="inline-flex min-h-10 items-center gap-2 border border-[rgba(241,235,221,0.3)] px-3 text-sm transition-colors hover:border-[var(--tk-red)] hover:text-[var(--tk-red)]"
+        >
+          Close <span className="mono text-[0.7rem] opacity-60">Esc</span>
+        </button>
+      </header>
+
+      <div
+        className="relative flex min-h-0 flex-1 items-center justify-center px-14 md:px-20"
+        onClick={(e) => {
+          if (e.target === e.currentTarget) onClose();
+        }}
+      >
+        {many && (
+          <NavButton side="left" onClick={() => setI((x) => (x - 1 + images.length) % images.length)} label="Previous image" />
+        )}
+        {/* eslint-disable-next-line @next/next/no-img-element -- the hub's own authenticated bytes */}
+        <img
+          key={img.id}
+          src={imageSrc(img.id)}
+          alt={img.caption ?? `Image ${i + 1} attached by the agent`}
+          className="fade-in max-h-full max-w-full bg-[var(--tk-paper)] object-contain shadow-[0_20px_60px_-20px_rgba(0,0,0,0.8)]"
+        />
+        {many && <NavButton side="right" onClick={() => setI((x) => (x + 1) % images.length)} label="Next image" />}
+      </div>
+
+      <footer className="flex flex-wrap items-end gap-x-6 gap-y-3 px-5 pb-5 pt-4 md:px-8">
+        <div className="min-w-0 flex-1">
+          {img.caption && <p className="max-w-[70ch] text-[0.95rem] leading-relaxed">{img.caption}</p>}
+          <p className="mt-1 flex flex-wrap gap-x-3 text-xs text-[var(--tk-ink-4)]">
+            <span>{sourceLabel(img.source)}</span>
+            <span>{(img.byteSize / 1024).toFixed(0)} KB</span>
+            <a href={imageSrc(img.id)} target="_blank" rel="noopener" className="underline underline-offset-2 hover:text-[var(--tk-red)]">
+              Full size
+            </a>
+            {original && (
+              <a href={original} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-[var(--tk-red)]">
+                Original source
+              </a>
+            )}
+          </p>
+          {many && (
+            <div className="mt-3 flex gap-2" role="tablist" aria-label="Images">
+              {images.map((m, j) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  role="tab"
+                  aria-selected={j === i}
+                  aria-label={`Image ${j + 1}${m.caption ? `: ${m.caption}` : ""}`}
+                  onClick={() => setI(j)}
+                  className={`h-11 w-16 overflow-hidden border bg-[var(--tk-paper)] transition-[border-color,opacity] ${
+                    j === i ? "border-[var(--tk-red)] opacity-100" : "border-transparent opacity-50 hover:opacity-90"
+                  }`}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- the hub's own authenticated bytes */}
+                  <img src={imageSrc(m.id)} alt="" className="h-full w-full object-cover" />
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+        {approve && (
+          <button
+            type="button"
+            disabled={approve.busy}
+            onClick={approve.run}
+            className="inline-flex min-h-11 items-center bg-[var(--tk-paper)] px-5 text-sm font-medium text-[var(--tk-black)] transition-colors hover:bg-[var(--tk-red)] hover:text-[var(--tk-paper)] disabled:opacity-40"
+          >
+            Approve this write
+          </button>
+        )}
+      </footer>
+    </div>,
+    document.body,
+  );
+}
+
+function NavButton({ side, onClick, label }: { side: "left" | "right"; onClick: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      className={`absolute top-1/2 ${side === "left" ? "left-3 md:left-6" : "right-3 md:right-6"} inline-flex h-12 w-10 -translate-y-1/2 items-center justify-center border border-[rgba(241,235,221,0.3)] text-lg transition-colors hover:border-[var(--tk-red)] hover:text-[var(--tk-red)]`}
+    >
+      <span aria-hidden>{side === "left" ? "←" : "→"}</span>
+    </button>
   );
 }
 
@@ -809,6 +1097,8 @@ function DecidedList({ proposals, now, nameOf }: { proposals: Proposal[]; now: n
 
 function DecidedRow({ p, now, nameOf }: { p: Proposal; now: number; nameOf: (id: string | null) => string }) {
   const [open, setOpen] = useState(false);
+  const [viewing, setViewing] = useState<number | null>(null);
+  const images = p.images ?? [];
   const shown = present(p.tool, p.args ?? {});
   const o = OUTCOME[p.status] ?? { label: p.status, color: "var(--muted)" };
   return (
@@ -836,11 +1126,31 @@ function DecidedRow({ p, now, nameOf }: { p: Proposal; now: number; nameOf: (id:
           {p.status === "rejected" && p.note && <span className="mt-1 block text-sm text-[var(--text-soft)]">“{p.note}”</span>}
           {p.status === "failed" && p.error && <span className="mt-1 block text-sm text-[var(--danger)]">{p.error}</span>}
         </span>
+        {images.length > 0 && (
+          <span className="mt-1 inline-flex items-center gap-1 text-xs text-[var(--muted)]" title={`${images.length} attached`}>
+            <ImageGlyph />
+            {images.length}
+          </span>
+        )}
         <span className="text-xs text-[var(--faint)]">{open ? "Less" : "More"}</span>
       </button>
       {open && (
         <div className="px-4 pb-4 pl-10">
           {p.reason && <p className="mb-3 max-w-[68ch] text-sm text-[var(--text-soft)]">{p.reason}</p>}
+          {images.length > 0 && (
+            <div className="mb-3">
+              <Evidence images={images} onOpen={setViewing} />
+            </div>
+          )}
+          {viewing !== null && (
+            <Viewer
+              images={images}
+              start={viewing}
+              title={`${present(p.tool, p.args ?? {}).verb} · ${OUTCOME[p.status]?.label ?? p.status}`}
+              agent={p.agentName}
+              onClose={() => setViewing(null)}
+            />
+          )}
           <ExactCall p={p} long={[]} />
           {p.status === "executed" && p.result && (
             <div className="inset mt-3 p-3">

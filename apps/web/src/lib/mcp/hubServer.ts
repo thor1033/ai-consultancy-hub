@@ -18,8 +18,10 @@ import {
   runsOnHub,
   disabledMcpServerNames,
   listProposals,
+  getProposal,
 } from "@ai-hub/db";
-import { approve, peopleToSendTo, reject, sendOn } from "@/lib/approvals";
+import { approve, mayAttach, peopleToSendTo, reject, sendOn } from "@/lib/approvals";
+import { attachImages } from "@/lib/proposalImages";
 import { registerDeckTools } from "@/lib/mcp/deckTools";
 import { remoteServerConfig, remoteServerInfo } from "@ai-hub/mcp";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
@@ -565,6 +567,7 @@ export async function buildHubMcpServer(
             description: p.description,
             status: p.status,
             createdAt: p.createdAt,
+            ...(p.images.length ? { images: p.images.map((i) => i.caption ?? "(no caption)") } : {}),
             ...(p.assignedTo
               ? { sentTo: p.assignedTo === principal.id ? "you" : p.assignedToName || p.assignedTo, sentBy: p.assignedByName || p.assignedBy, ...(p.assignNote ? { sentNote: p.assignNote } : {}) }
               : {}),
@@ -617,6 +620,31 @@ export async function buildHubMcpServer(
         }
         const failed = results.filter((r) => "error" in r).length;
         return { ...text(results), ...(failed === results.length ? { isError: true } : {}) };
+      },
+    );
+
+    server.registerTool(
+      "hub_attach_image",
+      {
+        description:
+          "Attach an image to a write that is waiting for approval, for the person deciding it to look at — a screenshot of the " +
+          "finished work, the chart or page the change rests on. Give an https `url` or base64 `data` (PNG, JPEG, GIF or WebP, " +
+          "at most 5 MB; for a large one, upload the base64 with hub_put_text and pass the @text: handle). Up to four per write. " +
+          "The hub stores a copy, so it is what the approver sees even if the source changes.",
+        inputSchema: {
+          proposal: z.string().min(1).describe("The proposal id, from hub_list_proposals or the held-call message."),
+          url: z.string().optional().describe("An https URL of the image."),
+          data: z.string().optional().describe("The image as base64, or an @text: handle."),
+          caption: z.string().max(300).optional().describe("What the image shows, in one line."),
+        },
+      },
+      async ({ proposal, url, data, caption }) => {
+        const p = await getProposal(proposal);
+        if (!p || !(await mayAttach(principal, p))) return { ...text(`No proposal ${proposal} that you may add to.`), isError: true };
+        if (!url && !data) return { ...text("Give the image as a `url` or as base64 `data`."), isError: true };
+        const out = await attachImages(p.id, [{ url, data, caption }], principal.id);
+        if (!out.attached.length) return { ...text(out.notes.join(" ") || "The image was not attached."), isError: true };
+        return text({ proposal: p.id, attached: out.attached.map((i) => ({ image: i.id, caption: i.caption, bytes: i.byteSize })) });
       },
     );
 
