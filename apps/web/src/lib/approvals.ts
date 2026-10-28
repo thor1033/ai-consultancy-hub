@@ -16,6 +16,7 @@ import {
 } from "@ai-hub/db";
 import { connectMcpServers, type ConnectedMcp, type McpToolInfo } from "@ai-hub/mcp";
 import { isReadOnlyTool } from "@/lib/mcp/proxyTools";
+import { attachImages, IMAGES_ARG, IMAGES_SCHEMA, readImageRequests } from "@/lib/proposalImages";
 import { entryName, resolveServer } from "@/lib/runSession";
 
 /*
@@ -46,6 +47,14 @@ import { entryName, resolveServer } from "@/lib/runSession";
  * declared; it is stored on the proposal and shown beside the arguments. A
  * call without one is still held — the gate does not refuse a write for
  * lacking a sentence — it just reads worse on /approvals.
+ *
+ * IMAGES. Beside the reason, the gate adds an optional `images` argument: up
+ * to four pictures the approver should look at (a screenshot of the finished
+ * work, the chart a change rests on). Taken off the arguments the same way,
+ * fetched or decoded and stored as bytes when the call is held
+ * (lib/proposalImages.ts), so the approver sees what the agent saw. An image
+ * that cannot be attached never stops the write from being held; the model is
+ * told which one and why.
  */
 
 export const REASON_ARG = "reason";
@@ -61,31 +70,54 @@ function upstreamOwnsReason(tool: Pick<McpToolInfo, "inputSchema">): boolean {
   return Boolean(props && Object.prototype.hasOwnProperty.call(props, REASON_ARG));
 }
 
-/** The JSON Schema of a held tool, with the reason line added and required. */
+/** Whether the upstream itself declares an `images` argument, in which case the hub leaves it alone. */
+function upstreamOwnsImages(tool: Pick<McpToolInfo, "inputSchema">): boolean {
+  const props = (tool.inputSchema as { properties?: Record<string, unknown> } | undefined)?.properties;
+  return Boolean(props && Object.prototype.hasOwnProperty.call(props, IMAGES_ARG));
+}
+
+/** The JSON Schema of a held tool: the reason line added and required, the optional images beside it. */
 export function withReasonSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const props = ((schema.properties as Record<string, unknown> | undefined) ?? {});
-  if (Object.prototype.hasOwnProperty.call(props, REASON_ARG)) return schema;
+  const ownsReason = Object.prototype.hasOwnProperty.call(props, REASON_ARG);
+  const ownsImages = Object.prototype.hasOwnProperty.call(props, IMAGES_ARG);
+  if (ownsReason && ownsImages) return schema;
   const required = Array.isArray(schema.required) ? (schema.required as string[]) : [];
   return {
     ...schema,
     type: "object",
-    properties: { ...props, [REASON_ARG]: { type: "string", description: REASON_DESCRIPTION } },
-    required: [...required, REASON_ARG],
+    properties: {
+      ...props,
+      ...(ownsReason ? {} : { [REASON_ARG]: { type: "string", description: REASON_DESCRIPTION } }),
+      ...(ownsImages ? {} : { [IMAGES_ARG]: IMAGES_SCHEMA }),
+    },
+    required: ownsReason ? required : [...required, REASON_ARG],
   };
 }
 
 /** The upstream tool, as the model should see it when its calls are held. */
 export function withReason(tool: McpToolInfo): McpToolInfo {
-  return upstreamOwnsReason(tool) ? tool : { ...tool, inputSchema: withReasonSchema(tool.inputSchema) };
+  return upstreamOwnsReason(tool) && upstreamOwnsImages(tool) ? tool : { ...tool, inputSchema: withReasonSchema(tool.inputSchema) };
 }
 
-/** Split the reason the gate asked for off the arguments the upstream declared. */
-export function takeReason(tool: Pick<McpToolInfo, "inputSchema">, input: unknown): { args: Record<string, unknown>; reason: string | null } {
+/** Split the reason and the images the gate asked for off the arguments the upstream declared. */
+export function takeReason(
+  tool: Pick<McpToolInfo, "inputSchema">,
+  input: unknown,
+): { args: Record<string, unknown>; reason: string | null; images: unknown } {
   const args = (input && typeof input === "object" ? { ...(input as Record<string, unknown>) } : {}) as Record<string, unknown>;
-  if (upstreamOwnsReason(tool)) return { args, reason: null };
-  const raw = args[REASON_ARG];
-  delete args[REASON_ARG];
-  return { args, reason: typeof raw === "string" && raw.trim() ? raw.trim() : null };
+  let reason: string | null = null;
+  let images: unknown = undefined;
+  if (!upstreamOwnsReason(tool)) {
+    const raw = args[REASON_ARG];
+    delete args[REASON_ARG];
+    reason = typeof raw === "string" && raw.trim() ? raw.trim() : null;
+  }
+  if (!upstreamOwnsImages(tool)) {
+    images = args[IMAGES_ARG];
+    delete args[IMAGES_ARG];
+  }
+  return { args, reason, images };
 }
 
 export type WritesPolicy = "ask" | "allow";
@@ -106,12 +138,18 @@ export function needsApproval(tool: Pick<McpToolInfo, "name" | "server" | "annot
 }
 
 /** What the model is told instead of a result. Explicit, so it does not retry or pretend. */
-export function heldText(proposal: Pick<Proposal, "id" | "tool" | "server">): string {
+export function heldText(proposal: Pick<Proposal, "id" | "tool" | "server"> & { images?: unknown[]; imageNotes?: string[] }): string {
+  const shown = proposal.images?.length ?? 0;
+  const notes = proposal.imageNotes ?? [];
   return (
     `HELD FOR APPROVAL. \`${proposal.tool}\` (${proposal.server}) was NOT executed. ` +
     `It is recorded as proposal ${proposal.id} and a person must approve it on the hub's Approvals page ` +
     `before it happens. Carry on as if it has not happened: do not retry it, do not assume its effect, ` +
-    `and tell the reader exactly what you proposed and that it awaits approval.`
+    `and tell the reader exactly what you proposed and that it awaits approval.` +
+    (shown ? ` ${shown} image${shown === 1 ? " is" : "s are"} attached for the approver.` : "") +
+    // Said to the model so it ends up in the answer a person reads: an image
+    // that silently failed would leave the approver deciding without it.
+    (notes.length ? ` Not every image could be attached: ${notes.join(" ")} You may attach a corrected one with hub_attach_image.` : "")
   );
 }
 
@@ -170,9 +208,9 @@ export function gatedExecutor(mcp: ConnectedMcp, ctx: GateContext): ConnectedMcp
  * itself. The reason is taken off the arguments here, so a proposal's `args`
  * are always exactly what the upstream will receive.
  */
-export async function hold(tool: McpToolInfo, input: unknown, ctx: GateContext): Promise<Proposal> {
-  const { args, reason } = takeReason(tool, input);
-  return createProposal({
+export async function hold(tool: McpToolInfo, input: unknown, ctx: GateContext): Promise<Proposal & { imageNotes: string[] }> {
+  const { args, reason, images } = takeReason(tool, input);
+  const proposal = await createProposal({
     agentId: ctx.agentId ?? null,
     runId: ctx.runId ?? null,
     principalId: ctx.principalId ?? null,
@@ -182,6 +220,12 @@ export async function hold(tool: McpToolInfo, input: unknown, ctx: GateContext):
     description: tool.description,
     reason,
   });
+  const { requests, notes } = readImageRequests(images);
+  if (!requests.length) return { ...proposal, imageNotes: notes };
+  // The write is held first and the images follow: an image that fails to
+  // fetch must never cost the person the write itself.
+  const outcome = await attachImages(proposal.id, requests, ctx.principalId ?? null);
+  return { ...((await getProposal(proposal.id)) ?? proposal), imageNotes: [...notes, ...outcome.notes] };
 }
 
 /**
@@ -201,6 +245,17 @@ export async function mayDecide(principal: Principal, proposal: Proposal): Promi
   if (await authorize(principal, "admin:manage")) return true;
   if (proposal.assignedTo && proposal.assignedTo === principal.id) return true;
   return Boolean(proposal.principalId) && proposal.principalId === principal.id;
+}
+
+/**
+ * Who may add an image to a waiting proposal: anyone who may decide it, and
+ * the agent that made it (through a credential bound to that agent) — adding
+ * evidence is not deciding, and the agent is usually the one holding the
+ * screenshot. Never another agent.
+ */
+export async function mayAttach(principal: Principal, proposal: Proposal): Promise<boolean> {
+  if (principal.agentId) return Boolean(proposal.agentId) && proposal.agentId === principal.agentId;
+  return mayDecide(principal, proposal);
 }
 
 /** A principal row as the policy engine sees a person. */

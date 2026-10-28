@@ -42,7 +42,25 @@ export interface Proposal {
   runPrompt: string | null;
   /** When the run that made it started — proposals are shown grouped by run. */
   runAt: string | null;
+  /** What the agent attached for the approver to look at, in order. Bytes are served separately. */
+  images: ProposalImageMeta[];
 }
+
+export interface ProposalImageMeta {
+  id: string;
+  mediaType: string;
+  caption: string | null;
+  source: string;
+  byteSize: number;
+}
+
+export interface ProposalImage extends ProposalImageMeta {
+  proposalId: string;
+  bytes: Uint8Array;
+}
+
+/** The most images one proposal carries. More is a slideshow, not evidence. */
+export const MAX_PROPOSAL_IMAGES = 4;
 
 export interface ProposalInput {
   agentId?: string | null;
@@ -67,7 +85,13 @@ const COLUMNS = `
   pt.display_name as "assignedToName",
   pb.display_name as "assignedByName",
   s.prompt as "runPrompt",
-  s.created_at as "runAt"
+  s.created_at as "runAt",
+  coalesce((
+    select json_agg(json_build_object(
+             'id', i.id, 'mediaType', i.media_type, 'caption', i.caption,
+             'source', i.source, 'byteSize', i.byte_size) order by i.position)
+      from proposal_images i where i.proposal_id = p.id
+  ), '[]'::json) as images
 `;
 const JOINS = `
   from proposals p
@@ -200,4 +224,50 @@ export async function rejectProposal(id: string, decidedBy: string, note?: strin
      where id = ${id} and status = 'pending'
   `;
   return rows.count > 0;
+}
+
+export interface ProposalImageInput {
+  mediaType: string;
+  bytes: Uint8Array;
+  caption?: string | null;
+  source?: string;
+}
+
+/**
+ * Attach an image to a proposal, after the ones it already has. Refused past
+ * the cap rather than truncated: the caller says which image did not fit.
+ * Conditional on the proposal still being pending — evidence added after the
+ * decision would be evidence nobody weighed.
+ */
+export async function addProposalImage(proposalId: string, img: ProposalImageInput): Promise<ProposalImageMeta | { error: string }> {
+  const sql = getSql();
+  const rows = await sql<ProposalImageMeta[]>`
+    insert into proposal_images (proposal_id, position, media_type, bytes, byte_size, caption, source)
+    select ${proposalId},
+           (select count(*) from proposal_images where proposal_id = ${proposalId}),
+           ${img.mediaType}, ${img.bytes}, ${img.bytes.byteLength},
+           ${img.caption?.trim().slice(0, 300) || null}, ${(img.source ?? "inline").slice(0, 500)}
+     where exists (select 1 from proposals where id = ${proposalId} and status = 'pending')
+       and (select count(*) from proposal_images where proposal_id = ${proposalId}) < ${MAX_PROPOSAL_IMAGES}
+    returning id, media_type as "mediaType", caption, source, byte_size as "byteSize"
+  `;
+  if (rows[0]) return rows[0];
+  const [state] = await sql<{ status: string; n: number }[]>`
+    select p.status, (select count(*)::int from proposal_images where proposal_id = p.id) as n
+      from proposals p where p.id = ${proposalId}
+  `;
+  if (!state) return { error: "No such proposal." };
+  if (state.status !== "pending") return { error: `The proposal is already ${state.status}; images can only be added while it waits.` };
+  return { error: `The proposal already has ${state.n} images, the most it can carry.` };
+}
+
+/** One image with its bytes, for serving. The caller checks the viewer may see its proposal. */
+export async function getProposalImage(id: string): Promise<ProposalImage | null> {
+  const sql = getSql();
+  const rows = await sql<ProposalImage[]>`
+    select id, proposal_id as "proposalId", media_type as "mediaType", caption, source,
+           byte_size as "byteSize", bytes
+      from proposal_images where id = ${id}
+  `;
+  return rows[0] ?? null;
 }

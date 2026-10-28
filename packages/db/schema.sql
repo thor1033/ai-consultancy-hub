@@ -489,6 +489,25 @@ create index if not exists proposals_assigned_idx on proposals (assigned_to, sta
 create index if not exists proposals_status_idx on proposals (status, created_at desc);
 create index if not exists proposals_run_idx on proposals (run_id);
 create index if not exists proposals_principal_idx on proposals (principal_id, status);
+-- What the agent wants the approver to look at: a screenshot of the finished
+-- work, the chart a change rests on, the page as it is now (docs/approvals.md,
+-- "Images"). Stored as bytes at hold time, never as a link to follow later, so
+-- the approver sees exactly what the agent saw even if the source changes or
+-- disappears. Sniffed and capped on the way in (apps/web/src/lib/proposalImages.ts);
+-- served only to someone who may see the proposal. Up to four per proposal.
+create table if not exists proposal_images (
+  id           uuid primary key default gen_random_uuid(),
+  proposal_id  uuid not null references proposals(id) on delete cascade,
+  position     int not null default 0,
+  media_type   text not null check (media_type in ('image/png', 'image/jpeg', 'image/gif', 'image/webp')),
+  bytes        bytea not null,
+  byte_size    int not null,
+  caption      text,
+  -- Where it came from: the https URL it was fetched from, or 'inline'.
+  source       text not null default 'inline',
+  created_at   timestamptz not null default now()
+);
+create index if not exists proposal_images_proposal_idx on proposal_images (proposal_id, position);
 
 -- ---------------------------------------------------------------------------
 -- Decks: presentations the hub renders and that change while they are shown

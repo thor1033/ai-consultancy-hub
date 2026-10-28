@@ -77,8 +77,11 @@ export {
   claimProposal,
   finishProposal,
   rejectProposal,
+  addProposalImage,
+  getProposalImage,
+  MAX_PROPOSAL_IMAGES,
 } from "./proposals";
-export type { Proposal, ProposalInput, ProposalFilter, ProposalStatus } from "./proposals";
+export type { Proposal, ProposalInput, ProposalFilter, ProposalStatus, ProposalImage, ProposalImageMeta, ProposalImageInput } from "./proposals";
 export type {
   ContextSnapshot,
   ContextAgent,

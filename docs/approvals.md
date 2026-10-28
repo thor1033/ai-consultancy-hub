@@ -116,6 +116,47 @@ From Claude Code, `hub_list_proposals` (with who sent what to whom),
 `hub_decide_proposal` and `hub_send_proposal` do the same, and `hub_run_status`
 names the writes a run left waiting.
 
+### Images
+
+A reason says why; sometimes the approver needs to see it — the finished page
+before a task is marked done, the chart a change rests on, the slide as it
+looks now. So beside `reason`, the gate adds an optional `images` argument to
+every write tool it holds: up to four images, each an `https` URL or base64
+data, with a caption. Like the reason, it is taken off before the call is
+recorded, so the upstream never sees it. An agent can also add an image to a
+write already waiting with `hub_attach_image` (a screenshot taken after the
+fact in Claude Code, say); anyone who may decide the write may, and so may the
+agent that made it, through a credential bound to it.
+
+The hub stores **a copy of the bytes** when the write is held, never a link to
+follow later, so the approver sees what the agent saw even if the page changes
+or the link dies first. Each image is treated as untrusted on the way in
+(`lib/proposalImages.ts`):
+
+- the type is read from the bytes, never from a header or a name — PNG, JPEG,
+  GIF, WebP only; SVG is refused, because it is a document that can carry script;
+- 5 MB per image, held while reading rather than trusted from Content-Length;
+- a URL is fetched over https only, and only from a public address: every
+  address the name resolves to is checked, and so is every redirect hop (three
+  at most), so an agent cannot use the hub to reach an internal service or the
+  cloud metadata endpoint. A DNS answer that changes between the check and the
+  fetch is not caught; what comes back must still be an image under the cap,
+  and it is only ever shown to a person who may see the proposal.
+
+An image that cannot be attached never costs the write: the write is held, and
+the model is told which image failed and why, so it reaches the answer a person
+reads.
+
+On the page, the images sit under the reason. One image is shown whole at a
+readable size; several become a strip. Screenshots are never cropped to fill a
+tile — the detail that matters is as likely to be in a corner. Any tile opens a
+viewer (arrow keys between images, Escape to close), and while the write is
+still waiting, **Approve this write** sits beside the picture, because the
+moment someone has looked at the evidence is the moment they decide. Decided
+writes keep their images. The bytes are served from `/approvals/images/<id>`
+only to someone who may see the proposal, with their type pinned and a CSP that
+lets them do nothing but be an image.
+
 ## What approving does
 
 The hub executes the very call that was held: the same tool, the same arguments,
@@ -143,6 +184,19 @@ recorded with its exact arguments and not made, that only the right people can
 decide, that approving runs the same call with the hub's credential and records
 the result, that rejections and double decisions behave, and that the gate
 stands at the per-agent endpoint and in the hub's MCP tools.
+
+```
+npm run verify:approval-images -w web
+```
+
+48 checks without a database: the schema a held tool shows the model, reason
+and images taken off before recording, the type read from the bytes, SVG and
+non-images refused, and the fetch guard — https only, private and internal
+addresses refused at every redirect hop, the size cap held while reading —
+using a stand-in fetcher and resolver, so nothing leaves the machine. With
+`DATABASE_URL` it also holds a real write with an image, hits the four-image
+cap, and refuses an image on a decided write. Not proven there: the image
+route's access rule, which needs a signed-in browser session.
 
 ## Not done yet
 
