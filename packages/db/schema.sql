@@ -527,3 +527,17 @@ create table if not exists decks (
   updated_at         timestamptz not null default now()
 );
 create index if not exists decks_updated_idx on decks (updated_at desc);
+
+-- What the code last set on each seeded agent, skill and memory
+-- (packages/db/src/seeds/apply.ts). Every release applies the seeds, and this
+-- is how it tells "nobody has touched this since the code set it" (take the
+-- new code value) from "a person or the agent changed it" (keep theirs). A
+-- seeded agent with a row here but none in `agents` was deleted on purpose
+-- and is not recreated.
+create table if not exists seed_applied (
+  kind        text not null check (kind in ('agent', 'skill', 'memory')),
+  key         text not null,                 -- agent slug · skill slug · agent-slug:memory-key
+  value       jsonb not null,
+  applied_at  timestamptz not null default now(),
+  primary key (kind, key)
+);

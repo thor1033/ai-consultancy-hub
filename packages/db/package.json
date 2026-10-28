@@ -15,7 +15,10 @@
     "verify:schedules": "node verify-schedules.mjs",
     "seed:secretary": "node seed-secretary.mjs",
     "seed:product-owner": "node --experimental-transform-types seed-product-owner.mjs",
-    "seed:project-manager": "node --experimental-transform-types seed-project-manager.mjs"
+    "seed:project-manager": "node --experimental-transform-types seed-project-manager.mjs",
+    "seeds:check": "node --experimental-transform-types seed-secretary.mjs --check && node --experimental-transform-types seed-project-manager.mjs --check && node --experimental-transform-types seed-product-owner.mjs --product hub --check && node --experimental-transform-types seed-product-owner.mjs --product atlas --check",
+    "seeds:apply": "node --experimental-transform-types release-seeds.mjs",
+    "verify:seeds": "node --experimental-transform-types verify-seeds.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

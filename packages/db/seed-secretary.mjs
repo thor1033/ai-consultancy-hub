@@ -229,59 +229,18 @@ if (missingServers.length) {
   console.log("         HUB_REMOTE_MCP_SERVERS wherever the agent actually runs.");
 }
 
-const { getAgent, createAgent, updateAgent, listMemories, rememberMemory } =
-  await import("./src/agents.ts");
-const { getSkill, createSkill, updateSkill } = await import("./src/skills.ts");
+const { applySeed } = await import("./src/seeds/apply.ts");
 const { getSql } = await import("./src/client.ts");
 
 console.log("\n— provisioning —");
 
-// --skills-only adds or refreshes the skills and leaves the agent row and the
-// memories alone. The full seed rewrites the agent from this file, which is
-// right for a first install and wrong for a deployment where someone has since
-// changed its placement, knowledge scope or mailbox in /agents.
-const skillsOnly = process.argv.includes("--skills-only");
+// The same rules every release applies (src/seeds/apply.ts): what the code
+// set last time is recorded, and a field a person or the agent changed since
+// is kept rather than overwritten. Running this by hand and deploying can
+// never disagree. --skills-only refreshes the skills and nothing else.
+const skillsOnlyRun = process.argv.includes("--skills-only");
+await applySeed({ agent: SECRETARY_AGENT, skills: SECRETARY_SKILLS, memories: SECRETARY_MEMORIES }, { skillsOnly: skillsOnlyRun, log: (line) => console.log(line) });
 
-const existing = await getAgent(SECRETARY_AGENT.slug);
-if (skillsOnly && !existing) {
-  console.error(`--skills-only: no agent "${SECRETARY_AGENT.slug}" exists yet — run without the flag first.`);
-  process.exit(1);
-}
-// An existing row keeps what a deployment tuned on the agent's page — model,
-// effort, knowledge scope, placement — and takes from the definition only what
-// the definition owns: the brief, the servers, the stamina, its place on the
-// org chart. updateAgent leaves an omitted field alone, so that is a matter of
-// what is passed.
-const { slug, name, description, instructions, mcpServers, maxIterations, functionName, owner } = SECRETARY_AGENT;
-const agent = skillsOnly
-  ? existing
-  : existing
-    ? await updateAgent(existing.id, { slug, name, description, instructions, mcpServers, maxIterations, functionName, owner })
-    : await createAgent(SECRETARY_AGENT);
-console.log(`${skillsOnly ? "kept   " : existing ? "updated" : "created"}  agent   ${agent.slug}  (${agent.id})`);
-
-for (const s of SECRETARY_SKILLS) {
-  const found = await getSkill(s.slug);
-  if (found && found.agentId !== agent.id) {
-    console.error(
-      `\nskill "${s.slug}" already belongs to a different agent (${found.agentSlug}).`,
-    );
-    console.error("Slugs are globally unique because they become MCP tool names.");
-    process.exit(1);
-  }
-  const saved = found
-    ? await updateSkill(found.id, { ...s, agentId: agent.id })
-    : await createSkill({ ...s, agentId: agent.id });
-  console.log(`${found ? "updated" : "created"}  skill   ${saved.slug}  (${saved.parameters.length} parameters)`);
-}
-
-const before = new Set((await listMemories(agent.id)).map((m) => m.key));
-for (const m of skillsOnly ? [] : SECRETARY_MEMORIES) {
-  await rememberMemory(agent.id, m.key, m.content);
-  console.log(`${before.has(m.key) ? "updated" : "created"}  memory  ${m.key}`);
-}
-
-// Both pools: the store's shared one and nothing else here opens another.
 await getSql().end({ timeout: 5 });
 console.log("\ndone");
 process.exit(0);

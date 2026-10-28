@@ -12,12 +12,13 @@ primary_region = "ams"
   dockerfile = "Dockerfile"
 
 [deploy]
-  # The schema is applied by the release itself: a throwaway machine runs this
-  # with the app's secrets before the new version starts serving, and a
-  # failure here aborts the deploy with the old version still up. schema.sql is
-  # idempotent (create … if not exists, guarded alter), so running it on every
-  # deploy is the point, not a cost. Nobody has to remember to migrate.
-  release_command = "node packages/db/migrate.mjs"
+  # The database is brought up to the code by the release itself: a throwaway
+  # machine runs this with the app's secrets before the new version starts
+  # serving, and a failure aborts the deploy with the old version still up.
+  # It migrates (schema.sql, idempotent) and then applies every agent that
+  # lives in code (packages/db/src/seeds), keeping what people changed on the
+  # agents' pages since the last release. Nobody runs a migration or a seed.
+  release_command = "node packages/db/release.mjs"
 
 [env]
   NODE_ENV = "production"
