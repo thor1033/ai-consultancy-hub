@@ -26,7 +26,11 @@ import type { McpStdioConfig } from "./manager";
 // below), and whatever HUB_REMOTE_MCP_SERVERS declares over HTTP. Adding a new
 // bundled server means dropping it in ../servers/<name>/server.mjs and naming it
 // here.
-export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365", "teams", "teams-notes"];
+// `knowledge` is the Context Steward's: reads over chats, notes and memory,
+// and three writes it may propose. Whose chats it reads is the deployment's
+// (HUB_STEWARD_READERS); its writes are annotated as writes so the gate holds
+// them. See docs/context-steward.md.
+export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365", "teams", "teams-notes", "knowledge"];
 
 /**
  * How each bundled server introduces itself in /mcp and in the agent form.
@@ -56,6 +60,12 @@ export const BUILTIN_SERVER_INFO: readonly { name: string; label: string; descri
     label: "Teams meeting notes",
     description:
       "Saves one meeting's notes as a new file in the team's notes folder. Create-only; each save waits for a person's approval unless an admin allows it for the agent.",
+  },
+  {
+    name: "knowledge",
+    label: "Knowledge (steward)",
+    description:
+      "The Context Steward's reading — recent chats of the people who allow it, meeting notes, agents' memory, the knowledge base — and its three proposals: file a document, remember something for an agent, retire a document. Each proposal waits for a person's approval.",
   },
 ];
 

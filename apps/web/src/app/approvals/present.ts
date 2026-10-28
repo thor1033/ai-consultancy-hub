@@ -10,6 +10,9 @@ const VERBS: Record<string, string> = {
   pm_update_task: "Update task",
   pm_add_note: "Add project note",
   teams_notes_save: "Save meeting note",
+  knowledge_file_document: "File document",
+  knowledge_remember_for: "Remember for agent",
+  knowledge_retire_document: "Retire document",
 };
 
 /** `pm_update_task` → "Update task"; `crm_contact_create` → "Contact create". */
@@ -21,7 +24,7 @@ export function verbFor(tool: string): string {
 }
 
 /** Arguments that address a thing rather than change it. Shown as the subject, not as a change. */
-const ADDRESS = new Set(["projectId", "taskId", "meetingId", "transcriptId", "id", "deckId", "slideId"]);
+const ADDRESS = new Set(["projectId", "taskId", "meetingId", "transcriptId", "id", "deckId", "slideId", "documentId", "agentSlug"]);
 /** Arguments that name the thing. The first one present is the headline. */
 const NAMES = ["title", "name", "subject", "summary"];
 
@@ -65,12 +68,19 @@ export function humanValue(v: unknown): { text: string; long: boolean } {
     return { text: v, long: v.length > 140 || v.includes("\n") };
   }
   if (Array.isArray(v)) return { text: `${v.length} item${v.length === 1 ? "" : "s"}`, long: false };
+  // A provenance object — { kind, id, detail? } — reads as where it came from,
+  // not as JSON: "chat 1a2b3c4d, turn 5".
+  if (typeof v === "object" && typeof (v as { kind?: unknown }).kind === "string" && typeof (v as { id?: unknown }).id === "string") {
+    const s = v as { kind: string; id: string; detail?: unknown };
+    const id = s.id.length > 12 ? s.id.slice(0, 8) : s.id;
+    return { text: `${s.kind} ${id}${typeof s.detail === "string" && s.detail ? `, ${s.detail}` : ""}`, long: false };
+  }
   return { text: JSON.stringify(v), long: true };
 }
 
 export function present(tool: string, args: Record<string, unknown>): Presented {
   const nameKey = NAMES.find((k) => typeof args[k] === "string" && (args[k] as string).trim());
-  const refKey = ["taskId", "id", "meetingId", "deckId"].find((k) => typeof args[k] === "string" && args[k]);
+  const refKey = ["taskId", "id", "meetingId", "deckId", "documentId", "agentSlug"].find((k) => typeof args[k] === "string" && args[k]);
   const headlineRaw = nameKey ? (args[nameKey] as string) : refKey ? (args[refKey] as string) : null;
   const headline = headlineRaw ? (headlineRaw.length > 120 ? `${headlineRaw.slice(0, 117)}…` : headlineRaw.split("\n")[0]) : null;
 
