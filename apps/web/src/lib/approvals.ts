@@ -1,13 +1,17 @@
 import type { Principal } from "@ai-hub/authz";
 import { authorize } from "@ai-hub/authz";
 import {
+  assignProposal,
   claimProposal,
   createProposal,
   finishProposal,
   getAgent,
+  getPrincipal,
   getProposal,
+  listPeople,
   rejectProposal,
   type McpEntry,
+  type PrincipalRow,
   type Proposal,
 } from "@ai-hub/db";
 import { connectMcpServers, type ConnectedMcp, type McpToolInfo } from "@ai-hub/mcp";
@@ -181,15 +185,68 @@ export async function hold(tool: McpToolInfo, input: unknown, ctx: GateContext):
 }
 
 /**
- * Who may decide a proposal: an admin, or the person whose reach the run had —
- * and never an agent. A credential bound to an agent is the agent's own key,
- * and an agent approving its own writes is no gate at all.
+ * Who may decide a proposal: an admin, the person whose reach the run had, or
+ * the person it was sent to — and never an agent. A credential bound to an
+ * agent is the agent's own key, and an agent approving its own writes is no
+ * gate at all.
+ *
+ * Sending a proposal on adds a decider; it does not remove the one who sent
+ * it. The person a run acted as can still decide their own run's writes after
+ * handing them to a colleague, so a handoff to someone who is away never
+ * strands a write.
  */
 export async function mayDecide(principal: Principal, proposal: Proposal): Promise<boolean> {
   if (principal.agentId) return false;
   if (!(await authorize(principal, "agent:run"))) return false;
   if (await authorize(principal, "admin:manage")) return true;
+  if (proposal.assignedTo && proposal.assignedTo === principal.id) return true;
   return Boolean(proposal.principalId) && proposal.principalId === principal.id;
+}
+
+/** A principal row as the policy engine sees a person. */
+const asPrincipal = (row: PrincipalRow): Principal => ({
+  id: row.id,
+  roles: row.roles,
+  source: "oauth",
+  ...(row.email ? { email: row.email } : {}),
+});
+
+/**
+ * Who a proposal can be sent to: a person (an enabled principal with an
+ * email, not bound to an agent) whose role may run agents, and so may decide
+ * a write. Someone who could not decide it would only be handed a dead end.
+ */
+export async function peopleToSendTo(principal: Principal): Promise<{ id: string; name: string; email: string }[]> {
+  const out: { id: string; name: string; email: string }[] = [];
+  for (const row of await listPeople()) {
+    if (row.id === principal.id) continue;
+    if (!(await authorize(asPrincipal(row), "agent:run"))) continue;
+    out.push({ id: row.id, name: row.displayName || row.email!, email: row.email! });
+  }
+  return out;
+}
+
+/**
+ * Send a pending proposal to someone else to decide, or take it back
+ * (`to` null). Only someone who may decide it may pass it on — you cannot
+ * hand over a decision that is not yours — and only to a person who could
+ * decide it in turn.
+ */
+export async function sendOn(id: string, principal: Principal, to: string | null, note?: string): Promise<Decision> {
+  const proposal = await getProposal(id);
+  if (!proposal) return { error: "No such proposal." };
+  if (!(await mayDecide(principal, proposal))) return { error: "You may not decide this proposal, so you cannot send it on." };
+  if (proposal.status !== "pending") return { error: `This proposal is already ${proposal.status}.` };
+  if (to !== null) {
+    if (to === principal.id) return { error: "That is you: decide it here instead." };
+    const row = await getPrincipal(to);
+    if (!row || !row.enabled || !row.email || row.agentId) return { error: "That is not a person who can be sent a proposal." };
+    if (!(await authorize(asPrincipal(row), "agent:run"))) {
+      return { error: `${row.displayName || row.email}'s role cannot decide writes, so they could not act on it.` };
+    }
+  }
+  if (!(await assignProposal(id, to, principal.id, note))) return { error: "This proposal was decided in the meantime." };
+  return { ok: true, proposal: (await getProposal(id))! };
 }
 
 export type Decision =
