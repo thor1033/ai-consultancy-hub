@@ -51,23 +51,70 @@ The tool result, instead of the upstream's answer:
 > its effect, and tell the reader exactly what you proposed and that it awaits
 > approval.
 
-The tool list is unchanged: the model may still ask for the write, and learns
-from the result that it was held. The run continues; its output should say what
-was proposed.
+The tool list differs in one way: every tool whose calls will be held carries
+one extra, required argument, **`reason`** — "for the person who approves this:
+one or two sentences saying what this changes and the evidence". The gate takes
+it off the arguments before the call is recorded, so the upstream never sees it
+and a proposal's `args` are exactly what the upstream will receive on approval;
+it is stored on the proposal and shown first on `/approvals`, above the
+arguments. A call without one is still held, and the page says the agent gave
+no reason. An upstream tool that declares its own `reason` argument keeps it,
+untouched. The run continues; its output should say what was proposed.
 
 ## Who decides
 
-An **admin**, or the **person whose reach the run had** — the schedule's owner,
+An **admin**, the **person whose reach the run had** — the schedule's owner,
 the person in the console, the person whose Claude Code session the sub-agent
-ran in. Never an agent: a credential bound to an agent is refused, because an
-agent approving its own writes is no gate at all.
+ran in — or the **person it was sent to** (below). Never an agent: a credential
+bound to an agent is refused, because an agent approving its own writes is no
+gate at all.
 
-`/approvals` shows a person the proposals from runs that acted as them; an
-admin sees all of them. Each shows the tool, the server, the agent, who it acted
-as, the exact arguments, what the agent was asked, and after a decision what the
-tool returned or why it failed. From Claude Code, `hub_list_proposals` and
-`hub_decide_proposal` do the same, and `hub_run_status` names the writes a run
-left waiting.
+### Sending one on
+
+A write that is someone else's call — the commercial tasks from a meeting, say —
+can be sent to a colleague with a note: from a row, a whole run, or a selection
+on `/approvals`, or with `hub_send_proposal` from Claude Code ("send these to
+Ditlev"). It is recorded on the proposal (`assigned_to`, `assigned_by`,
+`assigned_at`, `assign_note`), and the rules are:
+
+- **Only someone who may decide it may send it.** A decision that is not yours
+  is not yours to hand over.
+- **Only to a person who could decide it in turn**: an enabled principal with
+  an email (a person, not a service credential), not bound to an agent, whose
+  role includes `agent:run`. A colleague must have signed in once to be listed.
+- **Sending adds a decider; it removes none.** The person who sent it can still
+  approve, reject or take it back, so a handoff to someone who is away never
+  strands a write. Sending again moves it; it never copies.
+- **It counts as waiting on them**, not on the sender: it is under their
+  *Waiting on you* and on the red count beside Approvals in their sidebar, and
+  under the sender's *Sent on*.
+
+Nobody is mailed or messaged when a write is sent — the count in the sidebar is
+the notice, refreshed on every page and every minute. A push (mail, Teams) is the
+gap the next section names.
+
+### The page
+
+`/approvals` is built for how writes arrive: in batches, one per run. A
+person sees their own runs' writes and the ones sent to them; an admin sees all.
+
+- A headline that says the state ("16 writes waiting for you") over four
+  figures: waiting on you, with colleagues, ran and failed in the last 7 days.
+- Three tabs: **Waiting on you**, **Sent on**, **Decided** (grouped by day).
+- **One card per run**: the agent, when, how many writes, the run's opening
+  line, and *Approve all*, *Send all to…*, *Reject all*.
+- **One row per write**: the verb and what it touches ("Update task ·
+  t_ft87883"), the agent's reason, the changes in words ("Status → In
+  progress", "End → Thu, 29 Oct 2026"), and the exact call — tool, server,
+  arguments, long fields — one click away. What is shown is presentation
+  only (`app/approvals/present.ts`); what runs is the call underneath it.
+- **Selection across runs**, with a bar fixed to the bottom of the screen.
+  Approving several runs each held call in turn through the same single-item
+  path; a failure is recorded on its row and the rest still run.
+
+From Claude Code, `hub_list_proposals` (with who sent what to whom),
+`hub_decide_proposal` and `hub_send_proposal` do the same, and `hub_run_status`
+names the writes a run left waiting.
 
 ## What approving does
 
@@ -91,7 +138,7 @@ npm run verify:approvals -w web
 ```
 
 Needs `DATABASE_URL`; no API key. A real remote MCP server stands in for the
-PM-tool. It proves which calls are held and which pass, that the held call is
+PM-tool. 62 checks, sending on included. It proves which calls are held and which pass, that the held call is
 recorded with its exact arguments and not made, that only the right people can
 decide, that approving runs the same call with the hub's credential and records
 the result, that rejections and double decisions behave, and that the gate
@@ -101,7 +148,8 @@ stands at the per-agent endpoint and in the hub's MCP tools.
 
 - **Expiry.** A pending proposal waits until someone decides. The page shows
   its age; nothing times it out.
-- **Batches.** Each call is one proposal. A run that proposes ten tasks makes
-  ten rows, decided one by one.
+- **Notification.** Sending a write to a colleague, or an agent proposing one,
+  tells nobody outside the hub: the sidebar count is the only notice. A mail
+  or a Teams message needs a write-capable mailbox, which no agent holds yet.
 - **Edits.** A proposal is approved or rejected as it stands. Changing an
   argument means rejecting and asking the agent again.

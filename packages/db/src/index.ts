@@ -32,6 +32,7 @@ export {
   MEMORY_REGIONS,
   listAgentKnowledgeScopes,
   agentRoster,
+  agentOrgLabels,
   hubActivity,
   listRecentRuns,
   listAgentRuns,
@@ -71,6 +72,8 @@ export {
   getProposal,
   listProposals,
   pendingProposalCount,
+  waitingOnCount,
+  assignProposal,
   claimProposal,
   finishProposal,
   rejectProposal,
@@ -88,6 +91,7 @@ export type {
 } from "./context";
 export {
   listPrincipals,
+  listPeople,
   getPrincipal,
   findPrincipalByIdentity,
   bindWorkosUser,

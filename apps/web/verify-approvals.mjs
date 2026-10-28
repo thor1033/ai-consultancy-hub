@@ -91,12 +91,16 @@ const stamp = Date.now();
 const OWNER = { id: `verify-gate-owner-${stamp}`, roles: ["analyst"], source: "credential" };
 const OTHER = { id: `verify-gate-other-${stamp}`, roles: ["analyst"], source: "credential" };
 const ADMIN = { id: `verify-gate-admin-${stamp}`, roles: ["admin"], source: "credential" };
-const principals = [OWNER, OTHER, ADMIN];
+// A colleague a write can be sent to, one whose role cannot decide writes,
+// and a service identity with no email: only the first is someone to send to.
+const DITLEV = { id: `verify-gate-ditlev-${stamp}`, roles: ["analyst"], source: "oauth", email: `ditlev-${stamp}@verify.test` };
+const READER = { id: `verify-gate-reader-${stamp}`, roles: ["viewer"], source: "oauth", email: `reader-${stamp}@verify.test` };
+const principals = [OWNER, OTHER, ADMIN, DITLEV, READER];
 const agents = [];
 const runs = [];
 
 try {
-  for (const p of principals) await db.upsertPrincipal({ id: p.id, roles: p.roles, displayName: p.id });
+  for (const p of principals) await db.upsertPrincipal({ id: p.id, roles: p.roles, displayName: p.id, email: p.email ?? null });
   const asks = await db.createAgent({ slug: `verify-gate-asks-${stamp}`, name: "Verify asks", mcpServers: [{ name: "verify-pm" }] });
   const allows = await db.createAgent({ slug: `verify-gate-allows-${stamp}`, name: "Verify allows", mcpServers: [{ name: "verify-pm", writes: "allow" }] });
   agents.push(asks.id, allows.id);
@@ -120,10 +124,20 @@ try {
   console.log("\n— a run's tool calls —");
   const entry = asks.mcpServers[0];
   const mcp = await connectMcpServers([resolveServer("verify-pm", asks.id, undefined, entry), memoryServerConfig(asks.id)]);
-  const exec = gate.gatedExecutor(mcp, { agentId: asks.id, principalId: OWNER.id, entries: asks.mcpServers });
+  const gated = gate.gate(mcp, { agentId: asks.id, principalId: OWNER.id, entries: asks.mcpServers });
+  const exec = gated.execute;
+  const shownWrite = gated.tools.find((t) => t.name === "pm_create_task");
+  const shownRead = gated.tools.find((t) => t.name === "pm_list_projects");
+  check(
+    "a tool that will be held asks the model for a reason, as a required argument",
+    shownWrite?.input_schema?.properties?.reason?.type === "string" && shownWrite.input_schema.required?.includes("reason") && shownWrite.input_schema.required?.includes("title"),
+    JSON.stringify(shownWrite?.input_schema?.required),
+  );
+  check("a read tool is shown as the upstream declared it", Boolean(shownRead) && !shownRead.input_schema?.properties?.reason);
+  check("the upstream's own schema is not changed by showing it", !mcp.tools.find((t) => t.name === "pm_create_task")?.input_schema?.properties?.reason);
   const listed = await exec("pm_list_projects", {});
   check("a read passes straight through to the upstream", /projects|Aurora|\[/.test(listed), listed.slice(0, 60));
-  const held = await exec("pm_create_task", { projectId: "p1", title: "Held task" });
+  const held = await exec("pm_create_task", { projectId: "p1", title: "Held task", reason: "Agreed at 00:19:27: \"så prøver jeg at få det færdigt tæt på mandag\"." });
   const heldId = held.match(/proposal ([0-9a-f-]{36})/)?.[1];
   check("a write is held, and the model is told so in plain words", /HELD FOR APPROVAL/.test(held) && /NOT executed/.test(held) && Boolean(heldId), held.slice(0, 80));
   check("and told not to retry or assume it happened", /do not retry/.test(held) && /awaits approval/.test(held));
@@ -135,6 +149,12 @@ try {
     JSON.stringify(proposal?.args),
   );
   check("with the tool's own description, for the reader", /Create a task/.test(proposal?.description ?? ""), proposal?.description);
+  check("the reason is stored on the proposal, and taken out of the arguments the upstream will get", /tæt på mandag/.test(proposal?.reason ?? "") && !("reason" in (proposal?.args ?? {})), proposal?.reason);
+  const silent = await exec("pm_create_task", { projectId: "p1", title: "No reason given" });
+  const silentId = silent.match(/proposal ([0-9a-f-]{36})/)?.[1];
+  const silentProposal = silentId ? await db.getProposal(silentId) : null;
+  check("a write without a reason is still held, with no reason recorded", silentProposal?.status === "pending" && silentProposal.reason === null);
+  if (silentId) await db.rejectProposal(silentId, ADMIN.id, "test");
   const mem = await exec("memory_write", { key: "verify-gate", content: "remembered" });
   check("memory writes are not held: the agent's notebook never leaves the hub", !/HELD/.test(mem) && !/error/i.test(mem), mem.slice(0, 60));
   await mcp.close();
@@ -158,6 +178,7 @@ try {
   check("and the proposal is still pending", (await db.getProposal(heldId))?.status === "pending");
 
   const approved = await gate.approve(heldId, OWNER);
+  check("the call that ran carried no reason argument", !/reason/.test(approved.proposal?.result ?? ""), approved.proposal?.result?.slice(0, 80));
   check(
     "approving runs the held call and records what the tool returned",
     !("error" in approved) && approved.proposal.status === "executed" && /Held task/.test(approved.proposal.result ?? ""),
@@ -182,15 +203,60 @@ try {
   );
   check("pendingProposalCount counts only what is waiting", (await db.pendingProposalCount(OWNER.id)) === 0);
 
+  // --- 3b. sending one on --------------------------------------------------
+  console.log("\n— sending one on —");
+  const people = await gate.peopleToSendTo(OWNER);
+  check(
+    "the people a write can be sent to: a colleague who can decide, not a viewer, not a service identity, not yourself",
+    people.some((x) => x.id === DITLEV.id) && !people.some((x) => x.id === READER.id || x.id === OTHER.id || x.id === OWNER.id),
+    people.filter((x) => x.id.includes(String(stamp))).map((x) => x.name).join(", "),
+  );
+  const toSend = await db.createProposal({ agentId: asks.id, principalId: OWNER.id, server: "verify-pm", tool: "pm_create_task", args: { projectId: "p1", title: "For Ditlev" }, reason: "Commercial: his call." });
+  check("before it is sent, the colleague may not decide it", !(await gate.mayDecide(DITLEV, toSend)));
+  const byStranger = await gate.sendOn(toSend.id, OTHER, DITLEV.id, "x");
+  check("someone who may not decide it cannot send it on", "error" in byStranger, byStranger.error);
+  const toReader = await gate.sendOn(toSend.id, OWNER, READER.id, "x");
+  check("it cannot be sent to someone whose role cannot decide writes", "error" in toReader && /cannot decide/.test(toReader.error), toReader.error);
+  const toSelf = await gate.sendOn(toSend.id, OWNER, OWNER.id, "x");
+  check("nor to yourself", "error" in toSelf, toSelf.error);
+  const sentOn = await gate.sendOn(toSend.id, OWNER, DITLEV.id, "Your call — commercial.");
+  check(
+    "sent to a colleague: recorded with who sent it, when, and the note",
+    !("error" in sentOn) && sentOn.proposal.assignedTo === DITLEV.id && sentOn.proposal.assignedBy === OWNER.id && Boolean(sentOn.proposal.assignedAt) && sentOn.proposal.assignNote === "Your call — commercial.",
+    JSON.stringify({ to: sentOn.proposal?.assignedTo, note: sentOn.proposal?.assignNote }),
+  );
+  check("the colleague may now decide it", await gate.mayDecide(DITLEV, sentOn.proposal));
+  check("and the person it was sent from still may — a handoff never strands a write", await gate.mayDecide(OWNER, sentOn.proposal));
+  check("an unrelated person still may not", !(await gate.mayDecide(OTHER, sentOn.proposal)));
+  const theirList = await db.listProposals({ visibleTo: DITLEV.id, status: "pending" });
+  check("it appears in the colleague's list", theirList.some((x) => x.id === toSend.id && x.assignedToName === DITLEV.id));
+  check("and counts as waiting on them, not on the sender", (await db.waitingOnCount(DITLEV.id)) === 1 && !(await db.listProposals({ visibleTo: OTHER.id, status: "pending" })).some((x) => x.id === toSend.id));
+  const back = await gate.sendOn(toSend.id, OWNER, null);
+  check("taking it back clears the handoff", !("error" in back) && back.proposal.assignedTo === null && back.proposal.assignNote === null);
+  await gate.sendOn(toSend.id, OWNER, DITLEV.id, "Again.");
+  const ditlevApproves = await gate.approve(toSend.id, DITLEV);
+  check("the colleague approves: the call runs, attributed to them", !("error" in ditlevApproves) && ditlevApproves.proposal.status === "executed" && ditlevApproves.proposal.decidedBy === DITLEV.id, ditlevApproves.proposal?.status ?? ditlevApproves.error);
+  const late = await gate.sendOn(toSend.id, OWNER, DITLEV.id, "too late");
+  check("a decided proposal cannot be sent on", "error" in late && /already executed/.test(late.error), late.error);
+
   // --- 4. the per-agent endpoint (a local agent in Claude Code) ------------
   console.log("\n— the per-agent endpoint —");
   await db.updateAgent(asks.id, { placement: "both" });
   const local = await connect(await buildAgentMcpServer(OWNER, (await db.getAgent(asks.id))));
-  const viaLocal = await call(local, "pm_create_task", { projectId: "p1", title: "From Claude Code" });
+  const localTools = (await local.listTools()).tools;
+  const localWrite = localTools.find((t) => t.name === "pm_create_task");
+  const localRead = localTools.find((t) => t.name === "pm_list_projects");
+  check(
+    "a local agent's held tool asks for the reason too; its reads do not",
+    Boolean(localWrite?.inputSchema?.properties?.reason) && localWrite.inputSchema.required?.includes("reason") && !localRead?.inputSchema?.properties?.reason,
+    JSON.stringify(localWrite?.inputSchema?.required),
+  );
+  const viaLocal = await call(local, "pm_create_task", { projectId: "p1", title: "From Claude Code", reason: "Asked for in the session." });
   const localId = String(viaLocal.text).match(/proposal ([0-9a-f-]{36})/)?.[1];
   check("a local agent's write is held the same way", /HELD FOR APPROVAL/.test(viaLocal.text) && Boolean(localId), viaLocal.text.slice(0, 60));
   const localProposal = localId ? await db.getProposal(localId) : null;
   check("and recorded against the agent and the person it acted as", localProposal?.agentId === asks.id && localProposal?.principalId === OWNER.id && localProposal?.args?.title === "From Claude Code");
+  check("with its reason, and the arguments clean", localProposal?.reason === "Asked for in the session." && !("reason" in (localProposal?.args ?? {})));
   const viaLocalRead = await call(local, "pm_list_projects", {});
   check("its reads still pass through", !viaLocalRead.isError && !/HELD/.test(viaLocalRead.text));
   await local.close();
@@ -200,6 +266,13 @@ try {
   const hubOwner = await connect(await buildHubMcpServer(OWNER));
   const mine = await call(hubOwner, "hub_list_proposals", {});
   check("hub_list_proposals shows the person their pending writes", Array.isArray(mine.body) && mine.body.some((p) => p.proposal === localId), mine.text.slice(0, 80));
+  check("with the reason beside the arguments", Array.isArray(mine.body) && mine.body.find((p) => p.proposal === localId)?.reason === "Asked for in the session.");
+  const fromClaude = await db.createProposal({ agentId: asks.id, principalId: OWNER.id, server: "verify-pm", tool: "pm_create_task", args: { projectId: "p1", title: "Via Claude Code" } });
+  const viaTool = await call(hubOwner, "hub_send_proposal", { proposals: [fromClaude.id], to: DITLEV.email, note: "From the terminal." });
+  check("hub_send_proposal sends by email from Claude Code", !viaTool.isError && (await db.getProposal(fromClaude.id))?.assignedTo === DITLEV.id, viaTool.text.slice(0, 100));
+  const nobody = await call(hubOwner, "hub_send_proposal", { proposals: [fromClaude.id], to: "nobody-at-all" });
+  check("and names who you can send to when the name matches no one", nobody.isError && /People you can send to/.test(nobody.text), nobody.text.slice(0, 100));
+  await gate.reject(fromClaude.id, ADMIN, "test");
   const hubOther = await connect(await buildHubMcpServer(OTHER));
   const theirs = await call(hubOther, "hub_list_proposals", {});
   check("and nothing of anyone else's", /No pending proposals/.test(theirs.text), theirs.text.slice(0, 60));

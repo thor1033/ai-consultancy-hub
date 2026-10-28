@@ -404,6 +404,17 @@ create index if not exists agent_schedules_skill_idx on agent_schedules (agent_s
 alter table agents add column if not exists placement text not null default 'hub'
   check (placement in ('hub', 'local', 'both'));
 
+-- Where an agent sits in the company, and who answers for it.
+--
+-- Agents are hired into the same structure as people: a function (Delivery,
+-- Product, Legal & Compliance, …) and an owner, the person who is asked when
+-- the agent misbehaves. Both are labels, not foreign keys: a function may exist
+-- only as a word on two agents, and an owner is a name until the day the hub
+-- has a people table worth pointing at. Blank means "not filed yet", and the
+-- org chart shows those apart rather than guessing a column for them.
+alter table agents add column if not exists function_name text not null default '';
+alter table agents add column if not exists owner text not null default '';
+
 -- What a local agent did through the hub.
 --
 -- A local agent's model runs in someone's Claude Code session, so the hub never
@@ -462,6 +473,19 @@ create table if not exists proposals (
   error         text,
   created_at    timestamptz not null default now()
 );
+-- The agent's one line for the approver: what this changes and the evidence.
+-- Captured from a `reason` argument the gate adds to every write tool's
+-- schema and strips before the call is forwarded (apps/web/src/lib/approvals.ts).
+alter table proposals add column if not exists reason text;
+-- Sent to another person to decide (docs/approvals.md, "Sending one on").
+-- The person the run acted as, an admin, and the one it was sent to may all
+-- decide; sending it again moves it, it never copies. Set null if the person
+-- is deleted, so the proposal falls back to whoever could decide it before.
+alter table proposals add column if not exists assigned_to text references principals(id) on delete set null;
+alter table proposals add column if not exists assigned_by text;
+alter table proposals add column if not exists assigned_at timestamptz;
+alter table proposals add column if not exists assign_note text;
+create index if not exists proposals_assigned_idx on proposals (assigned_to, status);
 create index if not exists proposals_status_idx on proposals (status, created_at desc);
 create index if not exists proposals_run_idx on proposals (run_id);
 create index if not exists proposals_principal_idx on proposals (principal_id, status);

@@ -33,7 +33,7 @@ Node **22** is required (`.nvmrc`). The verify scripts use `registerHooks` and
 ```bash
 docker compose up -d db              # local Postgres + pgvector
 npm install
-npm run migrate -w @ai-hub/db        # idempotent; re-run after editing schema.sql
+npm run migrate -w @ai-hub/db        # idempotent; re-run after editing schema.sql (production runs it on every release)
 npm run dev                          # http://localhost:3000
 npm run build                        # turbo build — the only check that catches bundling errors
 npm run lint

@@ -36,6 +36,10 @@ export interface AgentSummary {
   description: string;
   enabled: boolean;
   placement: Placement;
+  /** The company function it is filed under (Delivery, Product, …). Blank = not filed. */
+  functionName: string;
+  /** The person who answers for it. Blank = nobody yet. */
+  owner: string;
   memoryCount: number;
   createdAt: string;
   updatedAt: string;
@@ -112,6 +116,8 @@ export interface AgentInput {
   maxIterations?: number | null;
   enabled?: boolean;
   placement?: Placement;
+  functionName?: string;
+  owner?: string;
 }
 
 // Unqualified on purpose: this list is reused in a RETURNING clause, where
@@ -120,7 +126,8 @@ const AGENT_COLUMNS = `
   id, slug, name, description, instructions, model, effort,
   mcp_servers as "mcpServers", knowledge_collections as "knowledgeCollections",
   knowledge_all as "knowledgeAll", max_iterations as "maxIterations",
-  enabled, placement, created_at as "createdAt", updated_at as "updatedAt"
+  enabled, placement, function_name as "functionName", owner,
+  created_at as "createdAt", updated_at as "updatedAt"
 `;
 
 export async function listAgents(): Promise<AgentSummary[]> {
@@ -129,6 +136,7 @@ export async function listAgents(): Promise<AgentSummary[]> {
   // so it belongs in the list rather than one level down.
   return sql<AgentSummary[]>`
     select a.id, a.slug, a.name, a.description, a.enabled, a.placement,
+           a.function_name as "functionName", a.owner,
            count(m.id)::int as "memoryCount",
            a.created_at as "createdAt", a.updated_at as "updatedAt"
     from agents a
@@ -158,12 +166,13 @@ export async function createAgent(input: AgentInput): Promise<Agent> {
   const rows = await sql<Agent[]>`
     insert into agents (slug, name, description, instructions, model, effort,
                         mcp_servers, knowledge_collections, knowledge_all, max_iterations,
-                        enabled, placement)
+                        enabled, placement, function_name, owner)
     values (${input.slug}, ${input.name}, ${input.description ?? ""},
             ${input.instructions ?? ""}, ${input.model ?? null}, ${input.effort ?? null},
             ${sql.json((input.mcpServers ?? []) as Parameters<typeof sql.json>[0])},
             ${cleanNames(input.knowledgeCollections)}::text[], ${input.knowledgeAll ?? false},
-            ${input.maxIterations ?? null}, ${input.enabled ?? true}, ${input.placement ?? "hub"})
+            ${input.maxIterations ?? null}, ${input.enabled ?? true}, ${input.placement ?? "hub"},
+            ${(input.functionName ?? "").trim()}, ${(input.owner ?? "").trim()})
     returning ${sql.unsafe(AGENT_COLUMNS)}, 0 as "memoryCount"
   `;
   return rows[0];
@@ -202,6 +211,8 @@ export async function updateAgent(
       max_iterations = ${next.maxIterations ?? null},
       enabled = ${next.enabled ?? true},
       placement = ${next.placement ?? "hub"},
+      function_name = ${(next.functionName ?? "").trim()},
+      owner = ${(next.owner ?? "").trim()},
       updated_at = now()
     where id = ${id}
     returning ${sql.unsafe(AGENT_COLUMNS)},
@@ -277,6 +288,8 @@ export interface AgentRosterRow {
   description: string;
   enabled: boolean;
   placement: Placement;
+  functionName: string;
+  owner: string;
   model: string | null;
   knowledgeCollections: string[];
   knowledgeAll: boolean;
@@ -294,6 +307,8 @@ export interface AgentRosterRow {
   lastRunStatus: string | null;
   /** Runs per day for the last 7 days, oldest first (UTC days). */
   runsByDay: number[];
+  /** Writes this agent has proposed that nobody has decided on yet. */
+  pendingProposals: number;
 }
 
 /**
@@ -304,8 +319,10 @@ export async function agentRoster(): Promise<AgentRosterRow[]> {
   const sql = getSql();
   return sql<AgentRosterRow[]>`
     select a.id, a.slug, a.name, a.description, a.enabled, a.placement, a.model,
+           a.function_name as "functionName", a.owner,
            a.knowledge_collections as "knowledgeCollections", a.knowledge_all as "knowledgeAll",
            a.mcp_servers as "mcpServers",
+           (select count(*)::int from proposals p where p.agent_id = a.id and p.status = 'pending') as "pendingProposals",
            (select count(*)::int from agent_memories m where m.agent_id = a.id and m.active) as "memoriesLoaded",
            (select count(*)::int from agent_memories m where m.agent_id = a.id and not m.active) as "memoriesAside",
            (select count(*)::int from agent_skills k where k.agent_id = a.id) as skills,
@@ -339,6 +356,16 @@ export async function agentRoster(): Promise<AgentRosterRow[]> {
       ) last on true
      order by a.enabled desc, a.name
   `;
+}
+
+/** Every function and owner in use, for the form's suggestions. */
+export async function agentOrgLabels(): Promise<{ functions: string[]; owners: string[] }> {
+  const sql = getSql();
+  const rows = await sql<{ functions: string[] | null; owners: string[] | null }[]>`
+    select (select array_agg(distinct function_name order by function_name) from agents where function_name <> '') as functions,
+           (select array_agg(distinct owner order by owner) from agents where owner <> '') as owners
+  `;
+  return { functions: rows[0]?.functions ?? [], owners: rows[0]?.owners ?? [] };
 }
 
 export interface AgentRun {

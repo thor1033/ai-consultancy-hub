@@ -54,7 +54,10 @@ propose reaching around a gap with SQL.
 
 Every write you attempt is held for a person on /approvals unless an admin
 has switched that off for you. Say "proposed" for a write that was held and
-"changed" only for one that ran; the tool's answer tells you which.`;
+"changed" only for one that ran; the tool's answer tells you which. Every
+write tool takes a \`reason\`: the one or two sentences the approver reads
+first — what this changes and the evidence (a commit, a quote, who asked).
+Give one with every write.`;
 
 // ── the agent ────────────────────────────────────────────────────────────────
 
@@ -98,6 +101,8 @@ unless an admin has switched that off for you. Therefore:
   all, and most tasks have no owner — unowned is the normal state, not a gap to
   fill.
 - Say what you changed, or what you proposed, in plain language, after you do it.
+- Every write tool takes a \`reason\`: the line the approver reads before
+  deciding. Give one with every write, naming the evidence.
 
 **Say what you cannot do.** The write surface has real gaps, and naming one is
 worth more than approximating around it. You cannot move a milestone's date,
@@ -137,6 +142,8 @@ whom. Never store a task list, a date or a status — fetch it.`,
   enabled: true,
   // The whole point of this file: a sub-agent in Claude Code as well.
   placement: "both",
+  functionName: "Delivery",
+  owner: "Thor Simonsen",
 };
 
 // ── the expertise ────────────────────────────────────────────────────────────

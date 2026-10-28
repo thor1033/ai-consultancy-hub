@@ -140,6 +140,20 @@ export async function saveAgentAction(
   if (knowledgeCollections.length > 50) return { error: "An agent can work from at most 50 collections." };
   const knowledgeAll = input.knowledgeAll === true;
 
+  // Labels on the org chart. Free text, so only their shape is checked: a
+  // function that is a paragraph breaks the chart's columns, and a stray
+  // newline would make two "Delivery" columns that look the same.
+  const label = (raw: unknown, what: string): string | { error: string } => {
+    if (raw === undefined || raw === null) return "";
+    if (typeof raw !== "string") return { error: `${what} must be text.` };
+    const clean = raw.replace(/\s+/g, " ").trim();
+    return clean.length > 60 ? { error: `${what} is too long (60 characters at most).` } : clean;
+  };
+  const functionName = label(input.functionName ?? existing?.functionName, "The function");
+  if (typeof functionName !== "string") return functionName;
+  const owner = label(input.owner ?? existing?.owner, "The owner");
+  if (typeof owner !== "string") return owner;
+
   const placement = input.placement ?? existing?.placement ?? "hub";
   if (!isPlacement(placement)) return { error: "Unknown placement." };
   if (placement !== (existing?.placement ?? "hub") && !(await sessionCan("admin:manage"))) {
@@ -156,6 +170,8 @@ export async function saveAgentAction(
         knowledgeAll,
         maxIterations,
         placement,
+        functionName,
+        owner,
       });
       if (!updated) return { error: "That agent no longer exists." };
       revalidatePath("/agents");
@@ -171,6 +187,8 @@ export async function saveAgentAction(
       knowledgeAll,
       maxIterations,
       placement,
+      functionName,
+      owner,
     });
     revalidatePath("/agents");
     return { ok: true, slug: created.slug };

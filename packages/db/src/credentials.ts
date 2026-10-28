@@ -96,6 +96,20 @@ export async function listPrincipals(): Promise<PrincipalRow[]> {
   `;
 }
 
+/**
+ * The people a proposal can be sent to: enabled, signed in with an email (so a
+ * person, not a service credential), and not bound to an agent. Whether their
+ * role may decide is policy, checked by the caller.
+ */
+export async function listPeople(): Promise<PrincipalRow[]> {
+  const sql = getSql();
+  return sql<PrincipalRow[]>`
+    select ${sql.unsafe(PRINCIPAL_COLS)} from principals
+     where enabled and email is not null and agent_id is null
+     order by coalesce(nullif(display_name, ''), email)
+  `;
+}
+
 export async function getPrincipal(id: string): Promise<PrincipalRow | null> {
   const sql = getSql();
   const rows = await sql<PrincipalRow[]>`

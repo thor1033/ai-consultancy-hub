@@ -43,6 +43,8 @@ export interface ProductDefinition {
   /** Where the repo's docs are filed by the github:<key> source. */
   collection: string;
   productionUrl: string;
+  /** Who answers for this product's owner agent, on the org chart. */
+  owner: string;
   /** One sentence, for the agent's description and the tool list. */
   oneLine: string;
   /** The product in a paragraph: what it is for and who it is for. */
@@ -76,6 +78,7 @@ export const HUB_PRODUCT: ProductDefinition = {
   defaultBranch: "master",
   collection: "hub-product",
   productionUrl: "https://hub.teqneo.co",
+  owner: "Thor Simonsen",
   oneLine:
     "Teqneo's AI Hub: standing agents with memory, a knowledge base, and the MCP servers they reach live systems through — usable from Claude Code and every other MCP client.",
   whatItIs: `The AI Hub is the product Teqneo runs its own agents on and sells to
@@ -117,6 +120,7 @@ export const ATLAS_PRODUCT: ProductDefinition = {
   defaultBranch: "main",
   collection: "atlas-product",
   productionUrl: "https://pm.teqneo.co",
+  owner: "Ditlev Brygmann",
   oneLine:
     "Atlas, Teqneo's PM-tool: an AI-native project delivery hub where every client engagement gets one workspace — board, business case, scope, risks, stakeholders, plans, KPIs — and which the hub's agents reach through its MCP endpoint.",
   whatItIs: `Atlas is the system of record for delivery. Every client engagement gets
@@ -295,6 +299,8 @@ task list — fetch them.`,
     // A sub-agent in Claude Code as well as a tool on the hub: the question
     // "does this fit?" is asked while building, before the code exists.
     placement: "both",
+    functionName: "Product",
+    owner: p.owner,
   };
 }
 
