@@ -100,9 +100,10 @@ agents.mcp_servers = [{"name":"knowledge"}]        no "writes":"allow", ever
   there is one chunking-and-embedding path. Filed documents carry
   `source_type = steward`, `source = steward:<kind>:<id>` and the source in
   their metadata.
-- **The approvals page renders a filing as a document**: title, collection,
-  source, the Markdown as it will be retrieved. The reviewer reads the
-  document, not a JSON blob.
+- **The approvals page reads a filing as a filing**: "File document", the
+  title as the headline, the collection and the source ("chat 1a2b3c4d, turn
+  5") as the changes, and the document's text folded under the exact call,
+  so the reviewer reads what will be retrievable before approving it.
 - **The sweep is bounded by the steward's own memory**: `last-sweep` is where
   it read to, `proposed` is what it has proposed, so it never proposes twice
   and never re-reads the beginning of time.
@@ -123,9 +124,10 @@ agents.mcp_servers = [{"name":"knowledge"}]        no "writes":"allow", ever
    flyctl secrets set -a teqneo-ai-hub HUB_STEWARD_TOKEN='…' HUB_STEWARD_READERS='ditlev@teqneo.co,thor@teqneo.co'
    ```
 
-4. **Seed it:** `npm run seed:context-steward -w @ai-hub/db` against the
-   deployment's database. Idempotent; a sweep ledger the steward has since
-   written is kept.
+4. **The seed applies itself on the next release** (`src/seeds/all.ts` lists
+   it; `release.mjs` applies it with the rules in `src/seeds/apply.ts`). By
+   hand: `npm run seed:context-steward -w @ai-hub/db`. Either way a sweep
+   ledger the steward has since written is kept.
 5. **The nightly sweep** is a schedule on the agent's page, owned by a founder
    (a scheduled run executes as its owner, which is why the seed does not make
    one): *"Sweep what is new since your last sweep and propose what should be

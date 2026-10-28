@@ -1,14 +1,20 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NAV, isActive, Wordmark } from "./nav";
+import { NAV, isActive, Wordmark, WaitingBadge } from "./nav";
+import { waitingOnMeAction } from "@/app/approvals/actions";
 import { ThemeToggle } from "./ThemeToggle";
 
 // Compact top bar for < lg: wordmark + horizontally scrollable nav + theme
 // toggle. Solid paper-2; the system has no blur.
 export function MobileBar() {
   const pathname = usePathname();
+  const [waiting, setWaiting] = useState(0);
+  useEffect(() => {
+    waitingOnMeAction().then(setWaiting).catch(() => {});
+  }, [pathname]);
 
   return (
     <div className="sticky top-0 z-40 border-b border-[var(--border)] bg-[var(--panel-2)] lg:hidden">
@@ -29,6 +35,7 @@ export function MobileBar() {
             className="nav-item shrink-0 whitespace-nowrap !py-1.5 !text-[0.8rem]"
           >
             {n.label}
+            {n.href === "/approvals" && <WaitingBadge count={waiting} />}
           </Link>
         ))}
       </nav>

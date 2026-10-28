@@ -4,11 +4,11 @@
 //   node --experimental-transform-types packages/db/seed-context-steward.mjs --check   # no DB
 //   node --experimental-transform-types --env-file=apps/web/.env.local packages/db/seed-context-steward.mjs
 //
-// Idempotent: the agent by slug, each memory by key. An existing row keeps
-// what a deployment tuned on the agent's page (model, effort) and takes from
-// the definition what the definition owns: the brief, the server, the stamina,
-// its place on the org chart. A memory the steward has since written (its
-// sweep ledger) is never overwritten by the seed.
+// In production this runs on every release (packages/db/release.mjs applies
+// src/seeds/all.ts, which lists the steward). By hand it applies the same
+// rules (src/seeds/apply.ts): what the code set last time is recorded, and a
+// field a person changed on the agent's page since — or a memory the steward
+// wrote into its ledger — is kept rather than overwritten.
 //
 // The checks run first and refuse to provision on failure. The one that
 // matters: the steward holds the knowledge server with NO "writes": "allow",
@@ -75,26 +75,11 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const { getAgent, createAgent, updateAgent, listMemories, rememberMemory } = await import("./src/agents.ts");
+const { applySeed } = await import("./src/seeds/apply.ts");
 const { getSql } = await import("./src/client.ts");
 
-const existing = await getAgent(AGENT.slug);
-const { slug, name, description, instructions, mcpServers, maxIterations, functionName, owner } = AGENT;
-const agent = existing
-  ? await updateAgent(existing.id, { slug, name, description, instructions, mcpServers, maxIterations, functionName, owner })
-  : await createAgent(AGENT);
-console.log(`\n${existing ? "updated" : "created"}  agent   ${agent.slug}  (${agent.id})`);
-
-// The ledger is seeded once: a steward that has swept has a better one.
-const have = new Set((await listMemories(agent.id)).map((m) => m.key));
-for (const m of MEMORIES) {
-  if (have.has(m.key)) {
-    console.log(`kept     memory  ${m.key}`);
-    continue;
-  }
-  await rememberMemory(agent.id, m.key, m.content);
-  console.log(`created  memory  ${m.key}`);
-}
+console.log("\n— provisioning —");
+await applySeed({ agent: AGENT, skills: [], memories: MEMORIES }, { log: (line) => console.log(line) });
 
 const missing = ["HUB_STEWARD_READERS", "HUB_STEWARD_TOKEN", "HUB_BASE_URL"].filter((k) => !process.env[k]);
 if (missing.length) {

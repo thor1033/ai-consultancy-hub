@@ -3,21 +3,30 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { NAV, isActive, Wordmark } from "./nav";
+import { NAV, isActive, Wordmark, WaitingBadge } from "./nav";
 import { ThemeToggle } from "./ThemeToggle";
 import { listMcpServersAction } from "@/app/mcp/actions";
 import type { McpNavItem } from "@/app/mcp/types";
+import { waitingOnMeAction } from "@/app/approvals/actions";
 
 // The persistent rail (lg+). A slim MobileBar covers smaller screens.
 // Paper-2 on paper, separated by a hairline — fill, not a frame.
 export function Sidebar() {
   const pathname = usePathname();
   const [servers, setServers] = useState<McpNavItem[]>([]);
+  const [waiting, setWaiting] = useState(0);
 
   // Live registries, so the rail always mirrors what's actually available.
+  // The approvals count is re-read on every navigation and every minute, so a
+  // write a colleague sends shows up without a reload.
   useEffect(() => {
     listMcpServersAction().then(setServers).catch(() => {});
+    waitingOnMeAction().then(setWaiting).catch(() => {});
   }, [pathname]);
+  useEffect(() => {
+    const t = setInterval(() => waitingOnMeAction().then(setWaiting).catch(() => {}), 60_000);
+    return () => clearInterval(t);
+  }, []);
 
   return (
     <aside className="fixed inset-y-0 left-0 z-40 hidden w-[15rem] flex-col overflow-y-auto border-r border-[var(--border)] bg-[var(--panel-2)] px-3 py-5 lg:flex">
@@ -30,6 +39,7 @@ export function Sidebar() {
           <Link key={n.href} href={n.href} data-active={isActive(pathname, n.href)} className="nav-item">
             <span className="opacity-90">{n.icon}</span>
             {n.label}
+            {n.href === "/approvals" && <WaitingBadge count={waiting} />}
           </Link>
         ))}
       </nav>

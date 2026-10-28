@@ -477,6 +477,15 @@ create table if not exists proposals (
 -- Captured from a `reason` argument the gate adds to every write tool's
 -- schema and strips before the call is forwarded (apps/web/src/lib/approvals.ts).
 alter table proposals add column if not exists reason text;
+-- Sent to another person to decide (docs/approvals.md, "Sending one on").
+-- The person the run acted as, an admin, and the one it was sent to may all
+-- decide; sending it again moves it, it never copies. Set null if the person
+-- is deleted, so the proposal falls back to whoever could decide it before.
+alter table proposals add column if not exists assigned_to text references principals(id) on delete set null;
+alter table proposals add column if not exists assigned_by text;
+alter table proposals add column if not exists assigned_at timestamptz;
+alter table proposals add column if not exists assign_note text;
+create index if not exists proposals_assigned_idx on proposals (assigned_to, status);
 create index if not exists proposals_status_idx on proposals (status, created_at desc);
 create index if not exists proposals_run_idx on proposals (run_id);
 create index if not exists proposals_principal_idx on proposals (principal_id, status);
@@ -518,3 +527,17 @@ create table if not exists decks (
   updated_at         timestamptz not null default now()
 );
 create index if not exists decks_updated_idx on decks (updated_at desc);
+
+-- What the code last set on each seeded agent, skill and memory
+-- (packages/db/src/seeds/apply.ts). Every release applies the seeds, and this
+-- is how it tells "nobody has touched this since the code set it" (take the
+-- new code value) from "a person or the agent changed it" (keep theirs). A
+-- seeded agent with a row here but none in `agents` was deleted on purpose
+-- and is not recreated.
+create table if not exists seed_applied (
+  kind        text not null check (kind in ('agent', 'skill', 'memory')),
+  key         text not null,                 -- agent slug · skill slug · agent-slug:memory-key
+  value       jsonb not null,
+  applied_at  timestamptz not null default now(),
+  primary key (kind, key)
+);

@@ -16,7 +16,10 @@
     "seed:secretary": "node seed-secretary.mjs",
     "seed:product-owner": "node --experimental-transform-types seed-product-owner.mjs",
     "seed:project-manager": "node --experimental-transform-types seed-project-manager.mjs",
-    "seed:context-steward": "node --experimental-transform-types seed-context-steward.mjs"
+    "seed:context-steward": "node --experimental-transform-types seed-context-steward.mjs",
+    "seeds:check": "node --experimental-transform-types seed-secretary.mjs --check && node --experimental-transform-types seed-project-manager.mjs --check && node --experimental-transform-types seed-product-owner.mjs --product hub --check && node --experimental-transform-types seed-product-owner.mjs --product atlas --check && node --experimental-transform-types seed-context-steward.mjs --check",
+    "seeds:apply": "node --experimental-transform-types release-seeds.mjs",
+    "verify:seeds": "node --experimental-transform-types verify-seeds.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",
