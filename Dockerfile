@@ -38,6 +38,11 @@ FROM node:22-alpine AS builder
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
+# Every seeded agent's definition is checked before anything is built: a
+# skill template with a placeholder no argument fills, a Secretary given a
+# server that switches the approval gate off. A failing check fails the build,
+# so a broken definition never reaches the release that would apply it.
+RUN npm run seeds:check --workspace=@ai-hub/db
 RUN npm run build --workspace=web
 
 # --- runner: minimal image running the standalone server ---
@@ -63,7 +68,11 @@ COPY --from=proddeps /app/node_modules ./packages/mcp/node_modules
 # package, so it is borrowed from the MCP servers' node_modules: an ES module
 # resolves imports by walking up from its own file, never from NODE_PATH, so
 # the link has to sit beside the script.
-COPY packages/db/migrate.mjs packages/db/schema.sql ./packages/db/
+COPY packages/db/migrate.mjs packages/db/schema.sql packages/db/release.mjs packages/db/release-seeds.mjs ./packages/db/
+# The seeded agents and the store they are written through, as TypeScript:
+# release-seeds.mjs runs them with --experimental-transform-types. They import
+# nothing but each other and `postgres`, which the link below provides.
+COPY packages/db/src ./packages/db/src
 RUN ln -s /app/packages/mcp/node_modules /app/packages/db/node_modules
 
 USER nextjs

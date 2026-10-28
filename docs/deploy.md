@@ -33,15 +33,34 @@ flyctl launch --no-deploy --copy-config --name teqneo-ai-hub --region ams
 before it first serves traffic.
 
 Then create a Neon project, enable the extension, and migrate once by hand so
-the first deploy finds a database it can start against. After that the schema
-is applied **by every release**: `fly.toml`'s `release_command` runs
-`node packages/db/migrate.mjs` on a throwaway machine with the app's secrets
-before the new version serves, and a failure there aborts the deploy with the
-old version still up. The runner image carries `migrate.mjs`, `schema.sql`
-and a link to the `postgres` package for exactly this. `schema.sql` is
-idempotent, so running it on every deploy costs a second and saves a step
-nobody remembers. The hand-run command still works and is still the way to
-migrate a laptop.
+the first deploy finds a database it can start against. After that the
+database is brought up to the code **by every release**: `fly.toml`'s
+`release_command` runs `node packages/db/release.mjs` on a throwaway machine
+with the app's secrets before the new version serves, and a failure there
+aborts the deploy with the old version still up. It does two things, in order:
+
+1. **Migrates** — `migrate.mjs`, `schema.sql`, idempotent.
+2. **Applies the seeded agents** — `release-seeds.mjs` applies every agent that
+   lives in code (`packages/db/src/seeds/all.ts`: the Secretary, the Project
+   Manager, the product owners) with the rules in `src/seeds/apply.ts`. Each
+   release records what the code set (`seed_applied`); the next merges three
+   ways, field by field — a field nobody changed since takes the new code value,
+   a field a person changed on the agent's page keeps theirs, and the log says
+   so. Memories are added when missing and updated only if untouched; one the
+   agent rewrote or forgot stays that way. A seeded agent deleted after a
+   release is not recreated, and a release never switches an agent back on.
+   With nothing recorded yet, the brief, servers and stamina come from the
+   code and model, effort, knowledge scope and placement stay as the page set
+   them; a server entry keeps what the page added to it, such as the approval
+   gate's `"writes"`.
+
+The definitions themselves are checked while the image is built
+(`npm run seeds:check -w @ai-hub/db`, the same checks each `seed-*.mjs` runs
+first), so a broken definition fails the build, not the release. The runner
+image carries `release.mjs`, `migrate.mjs`, `release-seeds.mjs`, `schema.sql`,
+`packages/db/src` and a link to the `postgres` package for exactly this. The
+hand-run commands still work, apply the same rules, and are still the way to
+set up a laptop.
 
 ```sql
 CREATE EXTENSION IF NOT EXISTS vector;

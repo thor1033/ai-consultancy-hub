@@ -88,6 +88,11 @@ off.
 
 ## Provisioning
 
+**In production this happens on every deploy**: the release command applies
+this agent with the rules in `packages/db/src/seeds/apply.ts`, keeping what was
+changed on its page since the last release ([deploy.md](deploy.md)). The
+commands below are for a laptop, and apply the same rules.
+
 ```bash
 node packages/db/seed-project-manager.mjs --check                        # no DB
 node --env-file=apps/web/.env.local packages/db/seed-project-manager.mjs

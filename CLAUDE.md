@@ -18,7 +18,8 @@ npm-workspaces + Turborepo monorepo, TypeScript throughout:
   stdio servers in `servers/` (e.g. `memory`, `microsoft365`, `teams`).
 - `packages/db` — Postgres access; schema in `schema.sql`, applied by `migrate.mjs`.
   Agents that live in code are seeded from `src/seeds/*` (`seed:secretary`, `seed:product-owner`,
-  `seed:project-manager`).
+  `seed:project-manager`), listed in `src/seeds/all.ts`, and applied on every release
+  (`release.mjs`: migrate, then seeds — keeping what was changed on an agent's page).
 - `packages/rag` — ingest, chunking, Voyage embeddings, principal-aware retrieval.
 - `packages/authz` — bearer principals, OAuth, credentials, policy engine.
 
@@ -34,6 +35,7 @@ Node **22** is required (`.nvmrc`). The verify scripts use `registerHooks` and
 docker compose up -d db              # local Postgres + pgvector
 npm install
 npm run migrate -w @ai-hub/db        # idempotent; re-run after editing schema.sql (production runs it on every release)
+npm run seeds:check -w @ai-hub/db    # every seeded agent's checks; the image build runs this too
 npm run dev                          # http://localhost:3000
 npm run build                        # turbo build — the only check that catches bundling errors
 npm run lint
@@ -55,7 +57,7 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 - No DB needed: `verify:loop` (agent), `verify:remote`, `verify:m365`, `verify:teams` (mcp),
   `verify:github` (rag; its sync half runs when `DATABASE_URL` is set), `verify:large-args`,
   `verify:work-log` (web).
-- Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules` (db),
+- Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds` (db),
   `verify:memory` (mcp), `verify:access` (rag), `verify:credentials` (authz),
   `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler` (web).
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.
