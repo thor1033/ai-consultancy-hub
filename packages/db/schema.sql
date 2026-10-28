@@ -462,6 +462,10 @@ create table if not exists proposals (
   error         text,
   created_at    timestamptz not null default now()
 );
+-- The agent's one line for the approver: what this changes and the evidence.
+-- Captured from a `reason` argument the gate adds to every write tool's
+-- schema and strips before the call is forwarded (apps/web/src/lib/approvals.ts).
+alter table proposals add column if not exists reason text;
 create index if not exists proposals_status_idx on proposals (status, created_at desc);
 create index if not exists proposals_run_idx on proposals (run_id);
 create index if not exists proposals_principal_idx on proposals (principal_id, status);

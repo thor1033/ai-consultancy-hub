@@ -19,6 +19,8 @@ export interface Proposal {
   tool: string;
   args: Record<string, unknown>;
   description: string;
+  /** The agent's one line for the approver; null when it gave none. */
+  reason: string | null;
   status: ProposalStatus;
   decidedBy: string | null;
   decidedAt: string | null;
@@ -41,11 +43,12 @@ export interface ProposalInput {
   tool: string;
   args: Record<string, unknown>;
   description?: string;
+  reason?: string | null;
 }
 
 const COLUMNS = `
   p.id, p.agent_id as "agentId", p.run_id as "runId", p.principal_id as "principalId",
-  p.server, p.tool, p.args, p.description, p.status,
+  p.server, p.tool, p.args, p.description, p.reason, p.status,
   p.decided_by as "decidedBy", p.decided_at as "decidedAt", p.note, p.result, p.error,
   p.created_at as "createdAt",
   a.name as "agentName", a.slug as "agentSlug",
@@ -62,11 +65,12 @@ const JOINS = `
 export async function createProposal(input: ProposalInput): Promise<Proposal> {
   const sql = getSql();
   const [row] = await sql<{ id: string }[]>`
-    insert into proposals (agent_id, run_id, principal_id, server, tool, args, description)
+    insert into proposals (agent_id, run_id, principal_id, server, tool, args, description, reason)
     values (${input.agentId ?? null}, ${input.runId ?? null}, ${input.principalId ?? null},
             ${input.server}, ${input.tool},
             ${sql.json((input.args ?? {}) as Parameters<typeof sql.json>[0])},
-            ${(input.description ?? "").slice(0, 2000)})
+            ${(input.description ?? "").slice(0, 2000)},
+            ${input.reason?.trim().slice(0, 1000) || null})
     returning id
   `;
   return (await getProposal(row.id))!;

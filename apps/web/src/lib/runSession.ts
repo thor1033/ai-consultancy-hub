@@ -14,7 +14,7 @@ import {
 } from "@ai-hub/mcp";
 import { recordSession, finishRun, disabledMcpServerNames } from "@ai-hub/db";
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
-import { gatedExecutor } from "@/lib/approvals";
+import { gate } from "@/lib/approvals";
 
 // The code-owned servers the hub starts itself.
 const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
@@ -184,6 +184,15 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       .map((name) => resolveServer(name, input.agentId, input.remoteBearer, entryFor(name)))
       .filter((c): c is McpServerConfig => c !== null);
     if (configs.length > 0) mcp = await connectMcpServers(configs);
+    const gated = mcp
+      ? gate(mcp, {
+          agentId: input.agentId,
+          runId: input.runId,
+          principalId: input.principalId,
+          entries: input.serverEntries,
+          held,
+        })
+      : undefined;
 
     const result = await runAgent({
       prompt: input.prompt,
@@ -193,17 +202,11 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       model: input.model,
       effort: input.effort,
       maxIterations: input.maxIterations,
-      tools: mcp?.tools,
       // Writes are held for a person (lib/approvals.ts); reads pass through.
-      toolExecutor: mcp
-        ? gatedExecutor(mcp, {
-            agentId: input.agentId,
-            runId: input.runId,
-            principalId: input.principalId,
-            entries: input.serverEntries,
-            held,
-          })
-        : undefined,
+      // The tool list and the executor come from the same gate, so a tool
+      // that will be held is the one that asks the model for its reason.
+      tools: gated?.tools,
+      toolExecutor: gated?.execute,
       metadata: input.agentId
         ? { source: "agent", agentId: input.agentId, servers }
         : { source: "workbench", servers },

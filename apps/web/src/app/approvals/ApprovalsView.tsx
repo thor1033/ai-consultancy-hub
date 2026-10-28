@@ -99,7 +99,12 @@ function ProposalCard({ p, now, viewerId, live = false }: { p: Proposal; now: nu
           </>
         )}
       </p>
-      {p.description && <p className="mt-2 text-sm text-[var(--text-soft)]">{p.description}</p>}
+      {p.reason ? (
+        <p className="mt-3 text-base">{p.reason}</p>
+      ) : (
+        <p className="mt-3 text-sm text-[var(--muted)]">The agent gave no reason. Judge it from the arguments below, or reject it and ask.</p>
+      )}
+      {p.description && <p className="mt-2 text-xs text-[var(--text-soft)]">{p.description}</p>}
 
       <div className="md mt-3">
         <div className="md-table">

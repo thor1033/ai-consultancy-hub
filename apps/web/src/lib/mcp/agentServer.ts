@@ -15,7 +15,7 @@ import { retrieveChunks, getDocument, embedderStatus } from "@ai-hub/rag";
 import { entryName, isKnownServer, resolveServer, unavailableServers, unavailabilityNote } from "@/lib/runSession";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
-import { heldText, hold, needsApproval } from "@/lib/approvals";
+import { heldText, hold, needsApproval, withReason } from "@/lib/approvals";
 
 /*
  * One agent, served to the Claude Code session it was synced into.
@@ -206,6 +206,8 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
         remoteServerForwardsIdentity(name) &&
         remoteServerReadOnly(name),
       taken,
+      // A tool whose calls will be held asks the model for its reason line.
+      present: (info) => (needsApproval(info, entry) ? withReason(info) : info),
       // Logged, and writes held for a person (lib/approvals.ts) — the local
       // agent's model is on someone's machine, but what it may change is not.
       wrap: (tool, fn, info) =>
