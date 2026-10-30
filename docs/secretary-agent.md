@@ -73,6 +73,13 @@ meeting before leaving it to the clock. What it needs on the deployment:
 the Secretary invited to the meeting series and transcription on
 ([teams.md](teams.md)), `M365_TEAMS_NOTES_FOLDER` set, and `HUB_SCHEDULER=1`.
 
+**What the meeting taught the firm** is not the Secretary's to file. When a
+run of `meeting-to-pm` or `meeting-followup` ends, the hub hands the meeting
+to the Context Steward, which reads the run and proposes — through the same
+queue — the decisions, definitions and corrections worth keeping
+([context-steward.md](context-steward.md)). The Secretary's answer ends with
+a line saying it was handed on, or why it was not.
+
 What it deliberately does not do: fire on the meeting itself (the hub has no
 event trigger from Teams; an hourly poll is within the hour, which is what was
 asked, at the cost of 24 cheap runs a day), apply anything without a founder,

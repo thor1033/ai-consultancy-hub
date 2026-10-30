@@ -10,7 +10,7 @@ export {
   listServerRuns,
 } from "./mcpServers";
 export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun } from "./mcpServers";
-export { recordSession, listSessions, getSession, startRun, finishRun, failRun, getRunStatus } from "./sessions";
+export { recordSession, listSessions, getSession, startRun, finishRun, failRun, appendRunOutput, getRunStatus } from "./sessions";
 export type {
   SessionSummary,
   SessionDetail,
@@ -148,3 +148,4 @@ export {
   DAILY_CATCH_UP_MINUTES,
 } from "./schedules";
 export type { Schedule, ScheduleInput, ScheduleKind, TickOutcome } from "./schedules";
+export { STEWARD_SLUG, STEWARD_HANDOFF_SKILLS, stewardHandoffPrompt } from "./seeds/context-steward";

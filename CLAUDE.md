@@ -59,7 +59,7 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
   `verify:work-log` (web).
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access` (rag), `verify:credentials` (authz),
-  `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler` (web).
+  `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff` (web).
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.
 
 When adding behaviour, extend or add a verify script in the same style: drive the

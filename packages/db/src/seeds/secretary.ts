@@ -289,6 +289,9 @@ export const SECRETARY_SKILLS: Omit<SkillInput, "agentId">[] = [
     promptTemplate: `A meeting took place on {{meetingDate}}. Turn it into a change
 set for the AI Consultancy project. Propose only — call no write tool in this
 skill: a person reviews the rows in Claude Code and applies the approved ones.
+What the meeting taught the firm — a decision, a definition, a correction — is
+not yours to file: when this run ends, the hub hands the meeting to the
+Context Steward, which proposes what should be kept.
 
 Attendees as given by the caller (blank means derive them yourself): {{attendees}}
 Focus as given by the caller (blank means the whole meeting): {{focus}}
@@ -455,7 +458,9 @@ what lasts: the task's description or the note.
 Then save the meeting note: \`teams_notes_save\` with the summary, the attendees
 by real name, each decision with its transcript time, each action with owner
 and due date only where the transcript gives them, and the open questions. Held
-like the rest.
+like the rest. What the meeting taught the firm is not yours to file: when
+this run ends, the hub hands it to the Context Steward, which proposes what
+should be kept.
 
 Rules without exception, the same as for a change set:
 

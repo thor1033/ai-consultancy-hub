@@ -1,4 +1,5 @@
 import { getAgent, getSkill, startRun, failRun, runsOnHub, type Agent, type SkillWithAgent, knowledgeScope, retrievalScope } from "@ai-hub/db";
+import { handOffToSteward, wantsHandoff } from "@/lib/stewardHandoff";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { authorize, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 import { runSession, isKnownServer } from "@/lib/runSession";
@@ -55,6 +56,8 @@ export interface AgentRunInput {
   deadlineMs?: number;
   /** The skill this run came from, when it came from one. */
   skillId?: string | null;
+  /** The skill by slug and name, for the hand-off rule (stewardHandoff.ts). */
+  skill?: { slug: string; name: string } | null;
 }
 
 /** The agents this principal may run, for tool generation and for listing. */
@@ -134,6 +137,19 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     remoteBearer: input.principal.accessToken,
     serverEntries: agent.mcpServers,
     runId,
+    // A meeting skill's run is handed to the Context Steward when it ends, as
+    // the same person. The steward is started the way any agent is, so every
+    // check on the way (may this person run agents, is the steward on) holds.
+    afterRun:
+      input.skill && wantsHandoff(input.skill.slug, agent.slug)
+        ? () =>
+            handOffToSteward(
+              { skill: input.skill!, sessionId: runId, agentSlug: agent.slug, agentName: agent.name, principal: input.principal },
+              // The steward's run is not waited for: it reads and proposes in
+              // the background, and the person sees its proposals in the queue.
+              (agentRef, prompt, principal) => runAgentForPrincipal({ agentRef, prompt, principal, deadlineMs: 1 }),
+            )
+        : undefined,
   })
     .then((out) => ({ ok: true as const, out }))
     .catch(async (err) => {
@@ -203,6 +219,7 @@ export async function runSkillForPrincipal(input: {
     principal: input.principal,
     deadlineMs: input.deadlineMs,
     skillId: skill.id,
+    skill: { slug: skill.slug, name: skill.name },
   });
 }
 

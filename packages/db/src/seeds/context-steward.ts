@@ -32,6 +32,27 @@ export const SWEEP_KEY = "last-sweep";
 /** The memory key under which it keeps what it has already proposed, so it never proposes twice. */
 export const PROPOSED_KEY = "proposed";
 
+/**
+ * The Secretary's skills whose runs the hub hands to the steward when they
+ * finish (apps/web/src/lib/stewardHandoff.ts): the two that read a meeting.
+ * A deployment overrides the list with HUB_STEWARD_HANDOFF_SKILLS.
+ */
+export const STEWARD_HANDOFF_SKILLS: readonly string[] = ["meeting-to-pm", "meeting-followup"];
+
+/** The prompt a hand-off runs the steward with. Written for the brief's "A hand-off" section. */
+export function stewardHandoffPrompt(h: { sessionId: string; skillName: string; agentName: string }): string {
+  return `Hand-off: ${h.agentName} has just processed a meeting (skill "${h.skillName}",
+session ${h.sessionId}). Do not sweep. Read that one session with
+knowledge_chat_get, every page: the transcript or the meeting's content is in
+it, and so is what ${h.agentName} proposed from it. If a meeting note was filed
+from it, knowledge_recent_notes shows it; read that too. Then propose, through
+your tools, what the firm should keep from this meeting — decisions,
+definitions, corrections, durable facts — each checked with knowledge_find
+first, each with its source (the session, or the note). Record what you
+proposed under "${PROPOSED_KEY}", then report in a few lines: what you proposed,
+and what you read and left.`;
+}
+
 export const CONTEXT_STEWARD_AGENT: AgentInput = {
   slug: STEWARD_SLUG,
   name: "Context Steward",
@@ -121,6 +142,16 @@ question with no answer yet, and anything knowledge_find already returns.
 5. Report: what you proposed, one line each with the kind and the source; what
    you considered and left, in a line; and anything you could not read because
    a tool refused, with the tool's own words.
+
+## A hand-off
+
+When the hub hands you a meeting the Secretary has just processed, the
+message says so and names the session. Do not sweep: read that session with
+knowledge_chat_get (every page — the decisions are at the end), and the note
+filed from it if there is one, propose from that meeting alone, record it
+under "${PROPOSED_KEY}", and report. The Secretary keeps the record of the
+meeting; you say what the firm should keep from it. Never propose the change
+set the Secretary already proposed — tasks and dates are the PM-tool's.
 
 When asked a question instead ("what do we have on X", "look at this chat"),
 answer it from the tools and propose only if asked to.`,
