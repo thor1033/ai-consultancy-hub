@@ -62,6 +62,49 @@ Not valuable: a status that changes daily, an opinion nobody acted on,
 anything told in confidence, a draft, a question with no answer yet, and
 anything `knowledge_find` already returns.
 
+## The hand-off from the Secretary
+
+A meeting is the richest source the steward has, and it has a moment: the
+Secretary has just read the transcript, grounded it against the board and
+proposed its change set. An agent in a hub run cannot call another agent, so
+**the hub does the handing**: when a run of `meeting-to-pm` or
+`meeting-followup` finishes, the hub starts a steward run **as the same
+person**, pointed at that session, and the person's answer ends with a line
+saying so:
+
+```
+Secretary run (meeting-to-pm) ──▶ recorded ──▶ steward run, same principal, "Hand-off: … session <id>"
+                                                   knowledge_chat_get(session) · knowledge_recent_notes
+                                                   ──▶ proposals on /approvals, beside the Secretary's
+```
+
+- **As the same person**, so a scheduled follow-up (which runs as the
+  schedule's owner) hands to a steward that runs as them too, and the
+  steward's chat tools see the Secretary's session only if that person is in
+  `HUB_STEWARD_READERS`. The hand-off widens nothing: the steward is started
+  the way any agent is, through every check on the way.
+- **After the record.** The steward reads the session with
+  `knowledge_chat_get`, so it is started only once the session is stored with
+  its transcript; what the hand-off says is appended to the stored answer
+  after.
+- **Said, never silent.** The answer ends with *Handed to the Context Steward
+  (run …)*, or *Not handed to the Context Steward: it is switched off* (or
+  whatever refused it). A hand-off that fails never fails the run.
+- **Which skills:** `STEWARD_HANDOFF_SKILLS` in the seed, the Secretary's two
+  meeting skills; `HUB_STEWARD_HANDOFF_SKILLS` on the deployment overrides it,
+  and an empty value turns the hand-off off. The steward's own runs are never
+  handed to itself.
+- **The steward is told not to sweep** on a hand-off: read that one session,
+  every page, and the note filed from it if there is one; propose from that
+  meeting alone; never re-propose the Secretary's change set, which is the
+  PM-tool's.
+
+The note itself is filed too: a `teams_notes_save` that waited for approval
+is filed in the knowledge base the moment it is approved (`approve()` runs
+the notes sync after the save), as an unheld save is filed in its own run.
+So an approved meeting is searchable, and the steward's proposals from it
+carry the note as their source.
+
 ## Where it may file — the rule in code
 
 `Sites.Selected` cannot fence a folder and a prompt cannot fence a collection,
@@ -154,6 +197,7 @@ agents.mcp_servers = [{"name":"knowledge"}]        no "writes":"allow", ever
 
 ```bash
 npm run verify:knowledge -w @ai-hub/mcp          # needs DATABASE_URL + a migrated DB
+npm run verify:handoff -w web                    # needs DATABASE_URL + the steward seeded
 node --experimental-transform-types packages/db/seed-context-steward.mjs --check
 ```
 
@@ -166,6 +210,15 @@ a write and no read is; the visibility rule refuses a chat into a collection
 its person may not read, a chat of someone who did not allow it, a workbench
 run, and a restricted note into an open collection — and the refused calls
 post nothing. A mutation that disables the chat rule fails five checks.
+
+`verify:handoff` drives the real run path (`runSkillForPrincipal`) with a
+throwaway skill and a streaming stand-in for the Messages API: 28 checks,
+among them that a run of a hand-off skill starts exactly one steward run, as
+the same principal, pointed at that session by id, only once the session is
+recorded with its transcript; that the answer says so, stored and returned;
+that any other skill starts none; and that a switched-off steward is said in
+the answer rather than skipped. What it cannot prove is what the steward
+proposes from a real meeting.
 
 **What it cannot prove:** the steward's judgement. Whether a month of real
 chats yields the right ten proposals and not fifty is the model's doing, read
@@ -206,6 +259,6 @@ the asker rather than as the steward.
 - **File on its own**, in any phase, for any kind of proposal.
 - **Read every chat.** Breadth is the easy part and the wrong part.
 - **Replace the Secretary.** The Secretary writes the record of a meeting; the
-  steward reads it.
+  steward reads it — handed over when the Secretary is done, not in its run.
 - **Watch chats as they happen.** A sweep over finished chats sees the whole
   conversation, including the correction at the end.

@@ -129,6 +129,16 @@ export async function finishRun(id: string, result: FinishRunInput): Promise<voi
 }
 
 /**
+ * Add to a finished run's answer. The hand-off to the Context Steward
+ * (apps/web/src/lib/stewardHandoff.ts) runs once the session is recorded, so
+ * the steward can read it; what the hand-off says goes into the answer after.
+ */
+export async function appendRunOutput(id: string, line: string): Promise<void> {
+  const sql = getSql();
+  await sql`update agent_sessions set output = coalesce(output, '') || ${line} where id = ${id}`;
+}
+
+/**
  * Mark a run failed.
  *
  * The message is stored rather than only logged: whoever asked for this run is

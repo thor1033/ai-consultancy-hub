@@ -12,7 +12,7 @@ import {
   type ConnectedMcp,
   type McpServerConfig,
 } from "@ai-hub/mcp";
-import { recordSession, finishRun, disabledMcpServerNames } from "@ai-hub/db";
+import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames } from "@ai-hub/db";
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { gate } from "@/lib/approvals";
 
@@ -138,6 +138,13 @@ export interface RunSessionInput {
    * poll while the work is still going.
    */
   runId?: string;
+  /**
+   * Runs once the session is recorded — so another run can read it — and what
+   * it returns is appended to the answer, stored and returned. The hand-off to
+   * the Context Steward uses it: the steward reads this session, and the
+   * person reads in the same answer that the steward is on it.
+   */
+  afterRun?: (result: RunAgentResult) => Promise<string | null>;
 }
 
 export interface RunSessionOutput {
@@ -254,6 +261,16 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         agentId: input.agentId ?? null,
         principalId: input.principalId ?? null,
       });
+    }
+
+    if (input.afterRun) {
+      // After the record, so what it starts can read this session in full. Its
+      // failure is reported in the answer, never allowed to fail the run.
+      const line = await input.afterRun(result).catch((err) => `\n\n**After the run:** ${err instanceof Error ? err.message : String(err)}`);
+      if (line) {
+        result.text += line;
+        await appendRunOutput(sessionId, line);
+      }
     }
 
     return { sessionId, servers, result };

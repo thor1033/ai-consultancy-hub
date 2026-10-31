@@ -1,4 +1,5 @@
 import type { Principal } from "@ai-hub/authz";
+import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { authorize } from "@ai-hub/authz";
 import {
   assignProposal,
@@ -295,8 +296,16 @@ export async function approve(id: string, principal: Principal): Promise<Decisio
     if (!mcp.details.some((t) => t.name === proposal.tool)) {
       return fail(`"${proposal.server}" no longer offers "${proposal.tool}" to this credential.`);
     }
-    const out = await mcp.execute(proposal.tool, proposal.args);
+    let out = await mcp.execute(proposal.tool, proposal.args);
     if (out.startsWith("Tool error:")) return fail(out);
+    // A meeting note that waited for approval is in Teams now; file it in the
+    // knowledge base here, as an unheld save is filed in its own run, so the
+    // approval is what makes the meeting searchable and nobody runs a sync.
+    if (proposal.tool === "teams_notes_save") {
+      out += await syncSource("teams-notes", { collection: TEAMS_NOTES_COLLECTION })
+        .then((r) => `\n\nFiled in the knowledge base: ${r.documents} meeting note(s) in "${TEAMS_NOTES_COLLECTION}".`)
+        .catch((err) => `\n\nSaved to Teams, but not filed in the knowledge base: ${err instanceof Error ? err.message : String(err)}`);
+    }
     await finishProposal(id, { result: out });
     return { ok: true, proposal: (await getProposal(id))! };
   } catch (err) {
