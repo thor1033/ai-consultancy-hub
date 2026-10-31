@@ -155,6 +155,7 @@ gets the model's last half-formed sentence as though it were the answer.
 | `npm run verify:schedules -w @ai-hub/db` | the clock: when a schedule is due, and that two simultaneous claims produce one run ([schedules.md](schedules.md)) |
 | `npm run verify:scheduler -w web` | the real tick: a scheduled run lands in `agent_sessions` as its owner, and a refused one is recorded |
 | `npm run verify:asks -w web`, `verify:handoff`, `verify:patterns -w @ai-hub/db` | agents working together: asks, hand-offs, patterns ([agent-patterns.md](agent-patterns.md)) |
+| `npm run verify:import -w web` | importing a SKILL.md or an agent file from GitHub ([skill-import.md](skill-import.md)) |
 
 None of them needs an API key. `verify:agents` and `verify:memory` need
 `DATABASE_URL` and clean up after themselves; `verify:loop` and `verify:m365`

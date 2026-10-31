@@ -368,6 +368,15 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
               <span>· {agent.placement === "local" ? "Runs in Claude Code" : "Hub and Claude Code"}</span>
             )}
             {agent.pattern && <span>· {agent.pattern.role} of “{agent.pattern.instance}”</span>}
+            {agent.source && (
+              <span className="normal-case tracking-normal">
+                · imported from{" "}
+                <a href={agent.source.url} className="underline underline-offset-2" target="_blank" rel="noreferrer">
+                  {agent.source.repo}
+                </a>
+                {agent.source.license ? ` (${agent.source.license})` : ""}
+              </span>
+            )}
             {!agent.keepsMemory && <span>· No memory</span>}
             <span className="mono normal-case tracking-normal text-[var(--faint)]">{agent.slug}</span>
           </div>

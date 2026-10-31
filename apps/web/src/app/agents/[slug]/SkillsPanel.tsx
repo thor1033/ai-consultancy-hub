@@ -118,6 +118,15 @@ export function SkillsPanel({
                   <p className="mt-1 text-sm text-[var(--text-soft)]">
                     {s.description || <span className="text-[var(--muted)]">No description.</span>}
                   </p>
+                  {s.source && (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Imported from{" "}
+                      <a href={s.source.url} className="underline underline-offset-2" target="_blank" rel="noreferrer">
+                        {s.source.repo}
+                      </a>
+                      {s.source.license ? ` · ${s.source.license}` : " · license not found"}
+                    </p>
+                  )}
                 </div>
               </div>
               <div className="inset mono mt-3 break-all px-3 py-2 text-xs">

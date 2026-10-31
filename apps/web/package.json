@@ -18,7 +18,8 @@
     "verify:decks": "node --experimental-transform-types --env-file=.env.local verify-decks.mjs",
     "verify:handoff": "node --experimental-transform-types --env-file=.env.local verify-handoff.mjs",
     "verify:run-timing": "node --experimental-transform-types --env-file=.env.local verify-run-timing.mjs",
-    "verify:asks": "node --experimental-transform-types --env-file=.env.local verify-asks.mjs"
+    "verify:asks": "node --experimental-transform-types --env-file=.env.local verify-asks.mjs",
+    "verify:import": "node --experimental-transform-types --env-file=.env.local verify-import.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",

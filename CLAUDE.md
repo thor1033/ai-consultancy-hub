@@ -17,7 +17,8 @@ npm-workspaces + Turborepo monorepo, TypeScript throughout:
 - `packages/mcp` — MCP client/manager, remote (Streamable HTTP) registry, bundled
   stdio servers in `servers/` (e.g. `memory`, `microsoft365`, `teams`).
 - `packages/db` — Postgres access; schema in `schema.sql`, applied by `migrate.mjs`. Patterns (premade sets of
-  agents, `src/patterns/*`) and hand-off rows live here too (docs/agent-patterns.md).
+  agents, `src/patterns/*`), hand-off rows and the SKILL.md parser live here too (docs/agent-patterns.md,
+  docs/skill-import.md).
   Agents that live in code are seeded from `src/seeds/*` (`seed:secretary`, `seed:product-owner`,
   `seed:project-manager`, `seed:context-steward`), listed in `src/seeds/all.ts`, and applied on every release
   (`release.mjs`: migrate, then seeds — keeping what was changed on an agent's page).
@@ -60,7 +61,8 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
   `verify:work-log` (web).
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds`, `verify:patterns` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access` (rag), `verify:credentials` (authz),
-  `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing` (web).
+  `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing`,
+  `verify:import` (web).
 - `bench:prompt` (agent) calls the real model and spends money; it says how many calls first. See
   docs/agent-testing.md, "Prompt speed".
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.

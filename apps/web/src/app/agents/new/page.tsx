@@ -37,6 +37,10 @@ export default async function NewAgentPage() {
           <Link href="/agents/patterns" className="text-[var(--text)] underline underline-offset-2">
             Start from a pattern
           </Link>
+          . Found a brief or a SKILL.md on GitHub?{" "}
+          <Link href="/agents/import" className="text-[var(--text)] underline underline-offset-2">
+            Import it
+          </Link>
           .
         </p>
       </header>

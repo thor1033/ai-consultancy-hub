@@ -1,4 +1,5 @@
 import { getSql } from "./client";
+import type { ImportSource } from "./skillmd";
 
 // Standing agents and the memory they keep between conversations. Agents are now
 // the hub's only unit of work; nothing here is versioned, because an agent is a
@@ -73,6 +74,8 @@ export interface Agent extends AgentSummary {
    */
   keepsMemory: boolean;
   pattern: PatternTag | null;
+  /** Where it was imported from, if it was (docs/skill-import.md). */
+  source: ImportSource | null;
 }
 
 /**
@@ -137,6 +140,7 @@ export interface AgentInput {
   owner?: string;
   keepsMemory?: boolean;
   pattern?: PatternTag | null;
+  source?: ImportSource | null;
 }
 
 // Unqualified on purpose: this list is reused in a RETURNING clause, where
@@ -146,7 +150,7 @@ const AGENT_COLUMNS = `
   mcp_servers as "mcpServers", knowledge_collections as "knowledgeCollections",
   knowledge_all as "knowledgeAll", max_iterations as "maxIterations",
   enabled, placement, function_name as "functionName", owner,
-  keeps_memory as "keepsMemory", pattern,
+  keeps_memory as "keepsMemory", pattern, source,
   created_at as "createdAt", updated_at as "updatedAt"
 `;
 
@@ -186,14 +190,15 @@ export async function createAgent(input: AgentInput): Promise<Agent> {
   const rows = await sql<Agent[]>`
     insert into agents (slug, name, description, instructions, model, effort,
                         mcp_servers, knowledge_collections, knowledge_all, max_iterations,
-                        enabled, placement, function_name, owner, keeps_memory, pattern)
+                        enabled, placement, function_name, owner, keeps_memory, pattern, source)
     values (${input.slug}, ${input.name}, ${input.description ?? ""},
             ${input.instructions ?? ""}, ${input.model ?? null}, ${input.effort ?? null},
             ${sql.json((input.mcpServers ?? []) as Parameters<typeof sql.json>[0])},
             ${cleanNames(input.knowledgeCollections)}::text[], ${input.knowledgeAll ?? false},
             ${input.maxIterations ?? null}, ${input.enabled ?? true}, ${input.placement ?? "hub"},
             ${(input.functionName ?? "").trim()}, ${(input.owner ?? "").trim()},
-            ${input.keepsMemory ?? true}, ${sql.json((input.pattern ?? null) as never)})
+            ${input.keepsMemory ?? true}, ${sql.json((input.pattern ?? null) as never)},
+            ${sql.json((input.source ?? null) as never)})
     returning ${sql.unsafe(AGENT_COLUMNS)}, 0 as "memoryCount"
   `;
   return rows[0];
@@ -236,6 +241,7 @@ export async function updateAgent(
       owner = ${(next.owner ?? "").trim()},
       keeps_memory = ${next.keepsMemory ?? true},
       pattern = ${sql.json((next.pattern ?? null) as never)},
+      source = ${sql.json((next.source ?? null) as never)},
       updated_at = now()
     where id = ${id}
     returning ${sql.unsafe(AGENT_COLUMNS)},

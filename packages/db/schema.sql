@@ -606,3 +606,11 @@ create index if not exists agent_handoffs_to_idx on agent_handoffs (to_agent_id)
 alter table seed_applied drop constraint if exists seed_applied_kind_check;
 alter table seed_applied add constraint seed_applied_kind_check
   check (kind in ('agent', 'skill', 'memory', 'handoff'));
+
+-- Where an agent or a skill was imported from, when it was (docs/skill-import.md):
+-- {"kind":"github","url":…,"rawUrl":…,"repo":…,"ref":…,"path":…,"license":…,
+--  "importedAt":…,"sha256":…}. A record, never a binding: the brief is the
+-- row's from the moment it is created, and the source says where to look
+-- when it is time to compare with upstream or credit a license.
+alter table agents add column if not exists source jsonb;
+alter table agent_skills add column if not exists source jsonb;
