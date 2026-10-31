@@ -259,24 +259,36 @@ try {
   check("the error lands on the schedule for someone to see", /Graph is down/.test(failedRow.lastError ?? ""), failedRow.lastError);
 
   // ── who may still fire ────────────────────────────────────────────────────
-  // The property that makes revoking a person mean something.
+  // The property that makes revoking a person mean something. Asked of this
+  // script's own schedules, not of the whole table: a database that holds
+  // other people's schedules considers those, and that is correct.
+  const mine = async () => (await schedulesToConsider()).filter((s) => s.agentId === agent.id).map((s) => s.id);
+  const firedMine = (tick) => tick.ran.some((r) => r.scheduleId === polling.id);
   await sql`update agent_schedules set last_run_at = null, last_error = null where id = ${polling.id}`;
   await setPrincipalEnabled(principalId, false);
+  const consideredRevoked = await mine();
   const whileRevoked = await runDueSchedules(async () => ({ runId: null }));
   check(
     "disabling the owner stops their unattended runs",
-    whileRevoked.considered === 0 && whileRevoked.claimed === 0,
+    consideredRevoked.length === 0 && !firedMine(whileRevoked),
+    `considered ${consideredRevoked.length} of ours`,
   );
 
   await setPrincipalEnabled(principalId, true);
   await updateAgent(agent.id, { enabled: false });
+  const consideredAgentOff = await mine();
   const whileAgentOff = await runDueSchedules(async () => ({ runId: null }));
-  check("so does disabling the agent", whileAgentOff.considered === 0);
+  check("so does disabling the agent", consideredAgentOff.length === 0 && !firedMine(whileAgentOff), `considered ${consideredAgentOff.length} of ours`);
 
   await updateAgent(agent.id, { enabled: true });
   await setScheduleEnabled(polling.id, false);
+  const consideredScheduleOff = await mine();
   const whileScheduleOff = await runDueSchedules(async () => ({ runId: null }));
-  check("and so does disabling the schedule itself", whileScheduleOff.considered === 1 && whileScheduleOff.due === 0);
+  check(
+    "and so does disabling the schedule itself",
+    consideredScheduleOff.length === 1 && !consideredScheduleOff.includes(polling.id) && !firedMine(whileScheduleOff),
+    `considered ${consideredScheduleOff.length} of ours`,
+  );
 
   // ── cleanup semantics ─────────────────────────────────────────────────────
   check("deleteSchedule removes one", (await deleteSchedule(polling.id)) === true);

@@ -394,8 +394,8 @@ link exactly as a calendar event carries it (`teams_status` reports how many
 links resolved, which is the check), that the live tenant is configured (`teams_status` is
 for that, and a first save is the only proof of write access), and the few
 lines in `runSession` that file notes after a run. Those need a fake model
-that streams, which the web test scripts do not have yet; `verify:scheduler`
-fails today for the same reason.
+that streams and a fake Teams behind the notes server; `verify:handoff` and
+`verify:scheduler` now have the first, not yet the second.
 
 ## What this increment deliberately does not do
 
