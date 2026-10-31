@@ -21,33 +21,24 @@ Question 2 has an answer today, and a design choice behind it.
 
 ## Can agents call each other?
 
-**Not from inside a run, by design.** An agent on the hub holds the MCP servers
-on its row (PM-tool, Teams, knowledge, its memory) and nothing that starts
-another agent. Three things do start agents:
+**Yes, two ways, both bounded** ([agent-patterns.md](agent-patterns.md)): an
+agent may **ask** another while it runs (`agents_ask`, only the agents its
+entry allows, one level deep, twelve per run), and the hub **hands** a
+finished run to the agents its hand-off rows name. Both run the other agent
+as the same person. What starts agents, in full:
 
 | What starts an agent | How | As whom |
 |---|---|---|
 | A person or an outside client | `hub_agent_*` and `hub_skill_*` tools on `/api/mcp`, the agent's page, the chat | the caller |
 | The clock | a schedule (`docs/schedules.md`) | the schedule's owner |
-| **The hub, after a run** | the hand-off: a finished `meeting-to-pm` or `meeting-followup` run starts the Context Steward (`lib/stewardHandoff.ts`) | the same person as the run it follows |
+| **The hub, after a run** | a hand-off row on the finished agent (`lib/handoffs.ts`); the first two are the Secretary's meeting skills to the Context Steward | the same person as the run it follows |
+| **Another agent, mid-run** | `agents_ask`, if the asker's entry lists the asked agent (`lib/askAgents.ts`) | the same person as the asker |
 | A Claude Code session ending | the work-log hook sends the session's commits to the Project Manager's `pm-work-log` skill | the hook's credential |
 
-So "agents working together" today means **hand-offs the hub drives**, written
-in code, each tested. That is deliberate: a chain in code says who runs, as
-whom, and when, and an approval gate sits on every write either way.
-
-**If agents should ask each other directly** (the Secretary asking the Product
-Owner "is this task already done?" mid-run), the shape that fits the hub is a
-bundled `agents` server with one read tool, `ask_agent(slug, question)`, that
-runs the other agent as the same principal and returns its answer. The
-decisions it needs, before it is built:
-
-- **Read-only asks only?** The asked agent's writes are held for approval
-  regardless, but an ask that triggers proposals is harder to review than one
-  that returns an answer.
-- **Depth.** One level (A asks B; B cannot ask C) keeps cost and loops bounded.
-- **Which pairs.** An allow-list on the asking agent's row, like its servers,
-  rather than every agent asking every other.
+The decisions behind the ask tool — not held for approval, one level deep, an
+allow-list on the asker's row, twelve per run — are written down with their
+reasons in [agent-patterns.md](agent-patterns.md), and `verify:asks` proves
+each bound.
 
 ## Layer 1 — the wiring, with no model (built)
 
@@ -60,7 +51,9 @@ one does), and creates and deletes its own fixtures. No API key, no spend.
 | Triggered at the right time | `verify:scheduler` (web) | a due schedule runs once, as its owner; a non-due one does not; an owner who may not run agents is refused and recorded; a revoked owner's schedule stops |
 | | `verify:schedules` (db) | which schedules are due at a given minute, in their time zone; only one machine claims each |
 | Agents in a chain | `verify:scheduler` (web) | **the clock fires a meeting skill → the Secretary runs as the owner → the hub hands the session to the Context Steward → the steward runs as the same owner**, pointed at that session; nobody asks either agent |
-| | `verify:handoff` (web) | the hand-off itself: only after the session is recorded; only for the listed skills; a switched-off steward is said in the answer |
+| | `verify:handoff` (web) | hand-off rows: only after the session is recorded; only for the skill named; a switched-off next agent is said; any-run hand-offs carry the answer; a loop stops at two deep |
+| | `verify:asks` (web) | a coordinator asks a worker as the same person, one deep; the worker has no ask tool and no memory; its write is held; the budget stops a greedy run |
+| | `verify:patterns` (db) | every pattern previews and creates what its design says: who remembers, who may ask whom, which hand-offs |
 | | `verify:work-log` (web) | a Claude Code session that committed sends its work to the Project Manager; one that did not sends nothing |
 | Writes wait for a person | `verify:approvals` (web) | every write is held, the right people decide, approving runs the exact call |
 | Reachable from clients | `verify:agent-tools`, `verify:local-agents` (web) | the right agents appear as tools for the right person; a run id is not a bearer token |

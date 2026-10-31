@@ -142,9 +142,14 @@ export default async function AgentsPage() {
                 }. Open an agent to talk to it or change its brief; its function and owner are under Settings.`}
           </p>
         </div>
-        <Link href="/agents/new" className="btn-brand min-h-11">
-          New agent
-        </Link>
+        <div className="flex flex-wrap gap-2">
+          <Link href="/agents/patterns" className="btn min-h-11">
+            Start from a pattern
+          </Link>
+          <Link href="/agents/new" className="btn-brand min-h-11">
+            New agent
+          </Link>
+        </div>
       </header>
 
       {error ? (
@@ -372,8 +377,15 @@ function AgentCard({
           </div>
           <div>
             <dt className="sr-only">Tools</dt>
-            <dd>{tools.length ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : "Memory only"}</dd>
+            <dd>{tools.length ? `${tools.length} tool${tools.length === 1 ? "" : "s"}` : a.keepsMemory ? "Memory only" : "No memory"}</dd>
           </div>
+          {a.pattern && (
+            <div className="flex items-center gap-1.5">
+              <dt className="sr-only">Pattern</dt>
+              <span aria-hidden className="inline-block h-1.5 w-1.5 rotate-45 bg-[var(--c-person)]" />
+              <dd>{a.pattern.role} of “{a.pattern.instance}”</dd>
+            </div>
+          )}
           <div>
             <dt className="sr-only">Skills</dt>
             <dd>{a.skills ? `${a.skills} skill${a.skills === 1 ? "" : "s"}` : null}</dd>

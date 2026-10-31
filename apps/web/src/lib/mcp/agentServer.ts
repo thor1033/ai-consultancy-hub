@@ -99,8 +99,9 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
       }
     };
 
-  // Memory, wrapped so its calls are tracked like the rest.
-  registerMemoryTools(trackingProxy(server, track), agent.id);
+  // Memory, wrapped so its calls are tracked like the rest. An agent that keeps
+  // none (docs/agent-patterns.md) is served no memory tools, here as on the hub.
+  if (agent.keepsMemory !== false) registerMemoryTools(trackingProxy(server, track), agent.id);
 
   // Knowledge, as the caller. The agent's scope is curation and narrows what
   // is searched; it never widens what the caller may read. An agent set to

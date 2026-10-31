@@ -1,5 +1,6 @@
-import { getAgent, getSkill, startRun, failRun, runsOnHub, type Agent, type SkillWithAgent, knowledgeScope, retrievalScope } from "@ai-hub/db";
-import { handOffToSteward, wantsHandoff } from "@/lib/stewardHandoff";
+import { getAgent, getSkill, startRun, failRun, runsOnHub, askedAgents, type Agent, type SkillWithAgent, knowledgeScope, retrievalScope } from "@ai-hub/db";
+import { runHandoffs } from "@/lib/handoffs";
+import { ASK_MAX_DEPTH, ASK_TIMEOUT_MS, type Asks } from "@/lib/askAgents";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { authorize, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 import { runSession, isKnownServer } from "@/lib/runSession";
@@ -56,8 +57,54 @@ export interface AgentRunInput {
   deadlineMs?: number;
   /** The skill this run came from, when it came from one. */
   skillId?: string | null;
-  /** The skill by slug and name, for the hand-off rule (stewardHandoff.ts). */
+  /** The skill by slug and name, for the hand-offs keyed to it. */
   skill?: { slug: string; name: string } | null;
+  /** Prior chat turns, for the conversation on the agent's page. */
+  history?: { role: "user" | "assistant"; content: string }[];
+  /**
+   * The run this one is started by — a hand-off when it finished, or an ask
+   * while it ran — and how deep the chain is. Absent for a person's or the
+   * clock's run (depth 0).
+   */
+  parent?: { sessionId: string; depth: number } | null;
+}
+
+/**
+ * How this agent works with others on this run (docs/agent-patterns.md):
+ * whether it keeps memory, whom it may ask, and the hand-offs that fire when
+ * it finishes. One place, so the chat on the agent's page, a client's tool
+ * call, a schedule and a hand-off all cooperate the same way.
+ */
+export async function cooperation(agent: Agent, principal: Principal, runId: string, depth: number) {
+  const askable = askedAgents(agent.mcpServers).filter((slug) => slug !== agent.slug);
+  let asks: Asks | undefined;
+  if (askable.length && depth < ASK_MAX_DEPTH) {
+    // Only agents that exist, are on, and run on the hub are offered: the
+    // tool's description lists them, so a slug that would only refuse is
+    // left out rather than shown.
+    const allowed = (await Promise.all(askable.map((slug) => getAgent(slug))))
+      .filter((a): a is Agent => Boolean(a && a.enabled && runsOnHub(a.placement)))
+      .map((a) => ({ slug: a.slug, name: a.name, description: a.description }));
+    if (allowed.length) {
+      asks = {
+        allowed,
+        start: async (slug, task) => {
+          const out = await runAgentForPrincipal({ agentRef: slug, prompt: task, principal, deadlineMs: ASK_TIMEOUT_MS, parent: { sessionId: runId, depth: depth + 1 } });
+          return out.kind === "done" ? { kind: "done", runId: out.runId, output: out.output } : out.kind === "running" ? { kind: "running", runId: out.runId } : out;
+        },
+      };
+    }
+  }
+  return { keepsMemory: agent.keepsMemory, asks };
+}
+
+/** The hand-offs of a finished run, as the run's afterRun (lib/handoffs.ts). */
+export function handoffsAfter(run: Omit<Parameters<typeof runHandoffs>[0], "output">): (result: { text: string }) => Promise<string> {
+  // The next agent is started the way any agent is, so every check on the way
+  // (may this person run agents, is the agent on) holds; its run is not
+  // waited for, and the person reads in this answer that it was started.
+  return (result) =>
+    runHandoffs({ ...run, output: result.text }, (agentRef, p, who, parent) => runAgentForPrincipal({ agentRef, prompt: p, principal: who, deadlineMs: 1, parent }));
 }
 
 /** The agents this principal may run, for tool generation and for listing. */
@@ -111,6 +158,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     .map((e) => (typeof e === "string" ? e : String((e as { name?: unknown }).name ?? "")))
     .filter((n) => n && isKnownServer(n));
 
+  const depth = input.parent?.depth ?? 0;
   const runId = await startRun({
     prompt,
     agentId: agent.id,
@@ -120,12 +168,16 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     model: agent.model ?? undefined,
     effort: agent.effort ?? undefined,
     mcpServers: servers,
+    parentSessionId: input.parent?.sessionId ?? null,
+    depth,
   });
+  const together = await cooperation(agent, input.principal, runId, depth);
 
   // Started before the race so it is never abandoned: whichever way the race
   // goes, this promise owns finishing or failing the row.
   const work = runSession({
     prompt,
+    history: input.history,
     context,
     system: agent.instructions || undefined,
     model: (agent.model as ModelId) ?? undefined,
@@ -137,19 +189,18 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     remoteBearer: input.principal.accessToken,
     serverEntries: agent.mcpServers,
     runId,
-    // A meeting skill's run is handed to the Context Steward when it ends, as
-    // the same person. The steward is started the way any agent is, so every
-    // check on the way (may this person run agents, is the steward on) holds.
-    afterRun:
-      input.skill && wantsHandoff(input.skill.slug, agent.slug)
-        ? () =>
-            handOffToSteward(
-              { skill: input.skill!, sessionId: runId, agentSlug: agent.slug, agentName: agent.name, principal: input.principal },
-              // The steward's run is not waited for: it reads and proposes in
-              // the background, and the person sees its proposals in the queue.
-              (agentRef, prompt, principal) => runAgentForPrincipal({ agentRef, prompt, principal, deadlineMs: 1 }),
-            )
-        : undefined,
+    keepsMemory: together.keepsMemory,
+    asks: together.asks,
+    afterRun: handoffsAfter({
+      sessionId: runId,
+      agentId: agent.id,
+      agentName: agent.name,
+      skillId: input.skillId ?? null,
+      skillName: input.skill?.name ?? null,
+      prompt,
+      principal: input.principal,
+      depth,
+    }),
   })
     .then((out) => ({ ok: true as const, out }))
     .catch(async (err) => {

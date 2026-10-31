@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getAgent, getRunTiming } from "@ai-hub/db";
+import { getAgent, getRunTiming, listChildRuns } from "@ai-hub/db";
 import type { RunTimeline, TurnTiming } from "@ai-hub/agent";
 import { money } from "@/lib/format";
 import { PART_STYLE, count, duration, isTimeline, readTimeline, type Part } from "@/lib/runTiming";
@@ -21,6 +21,12 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
 
   const timeline = isTimeline(run.timeline) ? run.timeline : null;
   const reading = timeline ? readTimeline(timeline, run.latencyMs) : null;
+  // The run that started this one, and the runs this one started: a hand-off
+  // when it finished, or an agent it asked while it ran.
+  const [parent, children] = await Promise.all([
+    run.parentSessionId ? getRunTiming(run.parentSessionId).then(async (p) => (p ? { ...p, agent: p.agentId ? await getAgent(p.agentId) : null } : null)) : null,
+    listChildRuns(run.id),
+  ]);
 
   return (
     <main className="mx-auto max-w-[70rem] px-5 py-7 lg:px-8">
@@ -49,6 +55,40 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
           <Fact label="Started" value={new Date(run.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} />
         </dl>
         {run.status === "failed" && run.error && <p className="mt-3 max-w-3xl text-sm text-[var(--danger)]">{run.error}</p>}
+        {(parent || children.length > 0) && (
+          <ul className="mt-4 flex flex-col gap-1 text-sm">
+            {parent && (
+              <li>
+                Started by{" "}
+                {parent.agent ? (
+                  <Link href={`/agents/${parent.agent.slug}/runs/${parent.id}`} className="font-medium underline-offset-2 hover:underline">
+                    a run of {parent.agent.name}
+                  </Link>
+                ) : (
+                  <span className="mono">{parent.id}</span>
+                )}{" "}
+                <span className="text-[var(--muted)]">({run.depth} deep)</span>
+              </li>
+            )}
+            {children.map((c) => (
+              <li key={c.id}>
+                Started{" "}
+                {c.agentSlug ? (
+                  <Link href={`/agents/${c.agentSlug}/runs/${c.id}`} className="font-medium underline-offset-2 hover:underline">
+                    {c.agentName}
+                  </Link>
+                ) : (
+                  <span className="mono">{c.id}</span>
+                )}
+                <span className="text-[var(--muted)]">
+                  {" "}
+                  · {c.status}
+                  {c.latencyMs !== null ? ` · ${duration(c.latencyMs)}` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
       </header>
 
       {!timeline || !reading ? (

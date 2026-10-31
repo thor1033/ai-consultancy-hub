@@ -10,7 +10,7 @@ import type { Seed } from "./apply";
 import { SECRETARY_AGENT, SECRETARY_MEMORIES, SECRETARY_SKILLS } from "./secretary";
 import { PROJECT_MANAGER_AGENT, PROJECT_MANAGER_MEMORIES, PROJECT_MANAGER_SKILLS } from "./project-manager";
 import { PRODUCTS, productOwnerAgent, productOwnerMemories, productOwnerSkills } from "./product-owner";
-import { CONTEXT_STEWARD_AGENT, CONTEXT_STEWARD_MEMORIES } from "./context-steward";
+import { CONTEXT_STEWARD_AGENT, CONTEXT_STEWARD_HANDOFFS, CONTEXT_STEWARD_MEMORIES } from "./context-steward";
 
 export const SEEDS: Seed[] = [
   { agent: SECRETARY_AGENT, skills: SECRETARY_SKILLS, memories: SECRETARY_MEMORIES },
@@ -19,5 +19,8 @@ export const SEEDS: Seed[] = [
   // No skills: the steward's work is the sweep, asked for or scheduled, not a
   // packaged task. Its one memory is the empty ledger, and the release rules
   // keep whatever the steward has written into it since.
-  { agent: CONTEXT_STEWARD_AGENT, skills: [], memories: CONTEXT_STEWARD_MEMORIES },
+  // Its two hand-offs come from the Secretary's meeting skills, so it is
+  // listed after the Secretary: a hand-off whose other side is not there yet
+  // is skipped, and said.
+  { agent: CONTEXT_STEWARD_AGENT, skills: [], memories: CONTEXT_STEWARD_MEMORIES, handoffs: CONTEXT_STEWARD_HANDOFFS },
 ];

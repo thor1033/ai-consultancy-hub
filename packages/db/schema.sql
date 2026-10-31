@@ -549,3 +549,60 @@ create table if not exists seed_applied (
   applied_at  timestamptz not null default now(),
   primary key (kind, key)
 );
+
+-- ---------------------------------------------------------------------------
+-- Agents working together (docs/agent-patterns.md).
+-- ---------------------------------------------------------------------------
+
+-- Whether an agent keeps memory between runs. Every agent did, by construction:
+-- "an agent that could be configured to forget everything is just a chat
+-- window". A worker that is meant to start clean every time — the goldfish in
+-- the long-memory/short-hands pattern — is the exception that proves the rule:
+-- it is briefed by an agent that remembers, does one job with a small prompt,
+-- and nothing it did leaks into the next job. Default true, so every existing
+-- agent keeps remembering.
+alter table agents add column if not exists keeps_memory boolean not null default true;
+
+-- Which pattern an agent was made from, if any: {"slug": "cluster",
+-- "instance": "research", "role": "coordinator"}. A label, not a binding: the
+-- rows a pattern creates are the person's from then on, and this only says
+-- where they came from so the org chart can show the set together.
+alter table agents add column if not exists pattern jsonb;
+
+-- A run started by another run: a hand-off when the parent finished, or an
+-- ask while it was going. `depth` is how far down the chain this is (a person
+-- or the clock starts at 0), and it is what bounds the chain: an ask is
+-- offered only below one depth and a hand-off fires only below another, so
+-- two agents that hand to each other stop, rather than run forever.
+alter table agent_sessions add column if not exists parent_session_id uuid
+  references agent_sessions(id) on delete set null;
+alter table agent_sessions add column if not exists depth int not null default 0;
+create index if not exists agent_sessions_parent_idx on agent_sessions (parent_session_id);
+
+-- Hand-offs as data: when a run of `from` (any run, or a run of one skill)
+-- finishes, the hub starts `to` with `prompt`, as the same person. The prompt
+-- is a template: {{sessionId}} the finished run, {{output}} its answer,
+-- {{prompt}} what it was asked, {{agentName}} and {{skillName}}. `note` is
+-- what the finished run's answer says the next agent will do. The first of
+-- these was written in code (the Secretary's meeting skills to the Context
+-- Steward); rows let a pattern wire a pipeline and a person switch one off.
+create table if not exists agent_handoffs (
+  id            uuid primary key default gen_random_uuid(),
+  from_agent_id uuid not null references agents(id) on delete cascade,
+  skill_id      uuid references agent_skills(id) on delete cascade,   -- null ⇒ any run of the agent
+  to_agent_id   uuid not null references agents(id) on delete cascade,
+  prompt        text not null,
+  note          text not null default '',
+  enabled       boolean not null default true,
+  created_at    timestamptz not null default now(),
+  check (from_agent_id <> to_agent_id)
+);
+create index if not exists agent_handoffs_from_idx on agent_handoffs (from_agent_id);
+create index if not exists agent_handoffs_to_idx on agent_handoffs (to_agent_id);
+
+-- A seed may declare the hand-offs into its agent, so they are recorded and
+-- merged like its skills. The constraint is replaced rather than altered so
+-- this stays idempotent.
+alter table seed_applied drop constraint if exists seed_applied_kind_check;
+alter table seed_applied add constraint seed_applied_kind_check
+  check (kind in ('agent', 'skill', 'memory', 'handoff'));

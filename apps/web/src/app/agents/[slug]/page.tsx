@@ -15,6 +15,9 @@ import {
   knowledgeLabel,
   knowledgeScope,
   runsOnHub,
+  listHandoffs,
+  listAgents,
+  askedAgents,
 } from "@ai-hub/db";
 import { DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
 import { listCollections } from "@ai-hub/rag";
@@ -28,6 +31,7 @@ import { AgentChat } from "./AgentChat";
 import { MemoryPanel } from "./MemoryPanel";
 import { SkillsPanel } from "./SkillsPanel";
 import { SchedulesPanel } from "./SchedulesPanel";
+import { HandoffsPanel } from "./HandoffsPanel";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { localAgentName, localSkillName, renderAgentFiles } from "@/lib/localAgents";
 
@@ -47,7 +51,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
   const writesAllowed = serverWritesAllowed(agent.mcpServers);
   // Everything below is display; a failure in one source must not take the
   // page (and with it the only way to fix the agent) down.
-  const [memories, collections, skills, runs, schedules, roster, tools, canManage, activity, admin, viewer, orgLabels] =
+  const [memories, collections, skills, runs, schedules, roster, tools, canManage, activity, admin, viewer, orgLabels, handoffs, allAgents] =
     await Promise.all([
     listMemories(agent.id),
     sessionKnowledgeAccess()
@@ -67,6 +71,8 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
     sessionPrincipal(),
     // Functions and owners already in use, as the form's suggestions.
     agentOrgLabels().catch(() => ({ functions: [], owners: [] })),
+    listHandoffs(agent.id).catch(() => []),
+    listAgents().catch(() => []),
   ]);
   const baseUrl = appBaseUrl(await headers()) ?? "https://hub.example.com";
 
@@ -322,7 +328,10 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           owner: agent.owner,
           mailboxes,
           writesAllowed,
+          keepsMemory: agent.keepsMemory,
+          asks: askedAgents(agent.mcpServers),
         }}
+        agents={allAgents.map((a) => ({ slug: a.slug, name: a.name, description: a.description }))}
         functions={orgLabels.functions}
         owners={orgLabels.owners}
         tools={tools}
@@ -358,6 +367,8 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
             {agent.placement !== "hub" && (
               <span>· {agent.placement === "local" ? "Runs in Claude Code" : "Hub and Claude Code"}</span>
             )}
+            {agent.pattern && <span>· {agent.pattern.role} of “{agent.pattern.instance}”</span>}
+            {!agent.keepsMemory && <span>· No memory</span>}
             <span className="mono normal-case tracking-normal text-[var(--faint)]">{agent.slug}</span>
           </div>
           <h1 className="mt-3 text-3xl md:text-4xl">{agent.name}</h1>
@@ -427,6 +438,21 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
             label: "Skills",
             count: skills.length,
             content: <SkillsPanel agentId={agent.id} agentSlug={agent.slug} initial={skills} />,
+          },
+          {
+            id: "handoffs",
+            label: "Hand-offs",
+            count: handoffs.length,
+            content: (
+              <HandoffsPanel
+                agentId={agent.id}
+                agentName={agent.name}
+                initial={handoffs}
+                skills={skills}
+                agents={allAgents.map((a) => ({ id: a.id, slug: a.slug, name: a.name }))}
+                canManage={Boolean(canManage)}
+              />
+            ),
           },
           { id: "settings", label: "Settings", content: settings },
         ]}

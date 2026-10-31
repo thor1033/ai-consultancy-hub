@@ -16,7 +16,8 @@ npm-workspaces + Turborepo monorepo, TypeScript throughout:
 - `packages/agent` — the Anthropic tool-use loop (`runAgent.ts`), models, tracing.
 - `packages/mcp` — MCP client/manager, remote (Streamable HTTP) registry, bundled
   stdio servers in `servers/` (e.g. `memory`, `microsoft365`, `teams`).
-- `packages/db` — Postgres access; schema in `schema.sql`, applied by `migrate.mjs`.
+- `packages/db` — Postgres access; schema in `schema.sql`, applied by `migrate.mjs`. Patterns (premade sets of
+  agents, `src/patterns/*`) and hand-off rows live here too (docs/agent-patterns.md).
   Agents that live in code are seeded from `src/seeds/*` (`seed:secretary`, `seed:product-owner`,
   `seed:project-manager`, `seed:context-steward`), listed in `src/seeds/all.ts`, and applied on every release
   (`release.mjs`: migrate, then seeds — keeping what was changed on an agent's page).
@@ -57,9 +58,9 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 - No DB needed: `verify:loop`, `verify:bench` (agent; the bench's skill half runs when `DATABASE_URL` is set), `verify:remote`, `verify:m365`, `verify:teams` (mcp),
   `verify:github` (rag; its sync half runs when `DATABASE_URL` is set), `verify:large-args`,
   `verify:work-log` (web).
-- Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds` (db),
+- Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds`, `verify:patterns` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access` (rag), `verify:credentials` (authz),
-  `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:run-timing` (web).
+  `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing` (web).
 - `bench:prompt` (agent) calls the real model and spends money; it says how many calls first. See
   docs/agent-testing.md, "Prompt speed".
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.
@@ -81,7 +82,8 @@ commit or print `.env*` files; `*.bak` is gitignored because backups held secret
   `HUB_REMOTE_MCP_SERVERS` ⇒ no remote servers).
 - Authorization is structural: scheduled runs execute as the owning principal;
   retrieval filters by principal on every read path; the secretary's M365 access
-  is read-only by construction. Don't widen these without being asked.
+  is read-only by construction; an agent asks or hands to another agent only as the
+  same person, one level deep (docs/agent-patterns.md). Don't widen these without being asked.
 - Failures must surface in the output a person reads — never return an empty or
   truncated agent answer as success.
 - Schema changes go in `packages/db/schema.sql` and must stay idempotent

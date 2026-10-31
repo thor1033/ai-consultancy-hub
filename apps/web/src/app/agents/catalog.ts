@@ -12,7 +12,11 @@ export interface ToolOption {
   available: boolean;
 }
 
+const LOCAL_LABELS: Record<string, string> = { agents: "Other agents" };
+
 const LOCAL_DESCRIPTIONS: Record<string, string> = {
+  agents:
+    "Lets this agent ask the agents ticked below while it runs, as the same person. The asked agent sees only the task it is sent; its writes wait for approval like any run's. An asked agent cannot ask further.",
   microsoft365: "Read-only Outlook mail and calendar through Microsoft Graph.",
   teams: "Read-only Teams meeting transcripts and the team's SharePoint files.",
   "teams-notes": "Saves meeting notes as new Markdown files in one Teams folder. Create-only: cannot change or delete anything.",
@@ -25,7 +29,7 @@ export async function toolCatalog(alsoNamed: string[] = []): Promise<ToolOption[
   const known = knownServers().filter((n) => n !== "memory");
   const options: ToolOption[] = known.map((name) => ({
     name,
-    label: byName.get(name)?.label || name,
+    label: byName.get(name)?.label || LOCAL_LABELS[name] || name,
     description: byName.get(name)?.description || LOCAL_DESCRIPTIONS[name] || "",
     available: true,
   }));

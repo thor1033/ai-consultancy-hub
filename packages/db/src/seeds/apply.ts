@@ -30,11 +30,25 @@
 import { getSql } from "../client";
 import { createAgent, getAgent, listMemories, rememberMemory, updateAgent, type AgentInput, type Agent } from "../agents";
 import { createSkill, getSkill, updateSkill, type SkillInput } from "../skills";
+import { createHandoff, listHandoffs, updateHandoffPrompt } from "../handoffs";
+
+/**
+ * A hand-off INTO the seeded agent: when a run of `fromAgent` (its slug; of
+ * `skill`, if named) finishes, start this agent with `prompt`. Declared on the
+ * agent that receives, because that is the agent whose job it describes.
+ */
+export interface SeedHandoff {
+  fromAgent: string;
+  skill?: string;
+  prompt: string;
+  note?: string;
+}
 
 export interface Seed {
   agent: AgentInput;
   skills: Omit<SkillInput, "agentId">[];
   memories: { key: string; content: string }[];
+  handoffs?: SeedHandoff[];
 }
 
 export interface ApplyOptions {
@@ -84,7 +98,7 @@ function mergeServers(code: unknown, current: unknown): unknown {
 
 // ── what the code last set ───────────────────────────────────────────────────
 
-type Kind = "agent" | "skill" | "memory";
+type Kind = "agent" | "skill" | "memory" | "handoff";
 
 async function lastApplied(kind: Kind, key: string): Promise<Record<string, unknown> | null> {
   const sql = getSql();
@@ -109,12 +123,13 @@ export interface Applied {
   kept: string[];
   skills: { slug: string; outcome: string }[];
   memories: { key: string; outcome: string }[];
+  handoffs: { from: string; outcome: string }[];
 }
 
 export async function applySeed(seed: Seed, opts: ApplyOptions = {}): Promise<Applied> {
   const log = opts.log ?? (() => {});
   const slug = seed.agent.slug;
-  const out: Applied = { slug, agent: "unchanged", kept: [], skills: [], memories: [] };
+  const out: Applied = { slug, agent: "unchanged", kept: [], skills: [], memories: [], handoffs: [] };
   const code = Object.fromEntries([...CODE_OWNED, ...PAGE_OWNED].map((f) => [f, stored(f, seed.agent[f])])) as Record<AgentField, unknown>;
 
   // ── the agent row
@@ -219,6 +234,43 @@ export async function applySeed(seed: Seed, opts: ApplyOptions = {}): Promise<Ap
       out.memories.push({ key: m.key, outcome });
       log(`${outcome.padEnd(13)} memory  ${slug}:${m.key}`);
       await record("memory", key, { content: m.content });
+    }
+  }
+
+  // ── the hand-offs into it: the prompt is the code's unless a person changed
+  // it; whether it is on is the page's switch, like a skill's.
+  if (!opts.skillsOnly) {
+    for (const h of seed.handoffs ?? []) {
+      const from = await getAgent(h.fromAgent);
+      const skill = h.skill ? await getSkill(h.skill) : null;
+      const label = `${h.fromAgent}${h.skill ? `/${h.skill}` : ""} → ${slug}`;
+      if (!from || (h.skill && (!skill || skill.agentId !== from.id))) {
+        // Not fatal: the other agent may be seeded later, or by hand.
+        out.handoffs.push({ from: label, outcome: `skipped: ${!from ? `no agent "${h.fromAgent}"` : `no skill "${h.skill}" on it`}` });
+        log(`skipped       handoff ${label}  (${!from ? `no agent "${h.fromAgent}"` : `no skill "${h.skill}" on ${h.fromAgent}`} yet)`);
+        continue;
+      }
+      const key = `${slug}<-${h.fromAgent}${h.skill ? `/${h.skill}` : ""}`;
+      const codeValue = { prompt: h.prompt, note: h.note ?? "" };
+      const existing = (await listHandoffs(agent.id)).find(
+        (x) => x.toAgentId === agent.id && x.fromAgentId === from.id && x.skillId === (skill?.id ?? null),
+      );
+      const hbase = await lastApplied("handoff", key);
+      let outcome: string;
+      if (!existing) {
+        if (hbase) outcome = "kept deleted";
+        else {
+          await createHandoff({ fromAgentId: from.id, skillId: skill?.id ?? null, toAgentId: agent.id, prompt: h.prompt, note: h.note });
+          outcome = "created";
+        }
+      } else if (same({ prompt: existing.prompt, note: existing.note }, codeValue)) outcome = "unchanged";
+      else if (hbase && same({ prompt: existing.prompt, note: existing.note }, { prompt: hbase.prompt, note: hbase.note })) {
+        await updateHandoffPrompt(existing.id, h.prompt, h.note ?? "");
+        outcome = "updated";
+      } else outcome = "kept the page's prompt";
+      out.handoffs.push({ from: label, outcome });
+      log(`${outcome.padEnd(13)} handoff ${label}`);
+      await record("handoff", key, codeValue);
     }
   }
   return out;

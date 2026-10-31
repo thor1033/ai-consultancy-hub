@@ -73,7 +73,7 @@ person**, pointed at that session, and the person's answer ends with a line
 saying so:
 
 ```
-Secretary run (meeting-to-pm) ──▶ recorded ──▶ steward run, same principal, "Hand-off: … session <id>"
+Secretary run (meeting-to-pm) ──▶ recorded ──▶ steward run, same principal, one deep, "Hand-off: … session <id>"
                                                    knowledge_chat_get(session) · knowledge_recent_notes
                                                    ──▶ proposals on /approvals, beside the Secretary's
 ```
@@ -90,10 +90,11 @@ Secretary run (meeting-to-pm) ──▶ recorded ──▶ steward run, same pri
 - **Said, never silent.** The answer ends with *Handed to the Context Steward
   (run …)*, or *Not handed to the Context Steward: it is switched off* (or
   whatever refused it). A hand-off that fails never fails the run.
-- **Which skills:** `STEWARD_HANDOFF_SKILLS` in the seed, the Secretary's two
-  meeting skills; `HUB_STEWARD_HANDOFF_SKILLS` on the deployment overrides it,
-  and an empty value turns the hand-off off. The steward's own runs are never
-  handed to itself.
+- **Which skills:** two hand-off rows the steward's seed declares
+  (`CONTEXT_STEWARD_HANDOFFS`): the Secretary's `meeting-to-pm` and
+  `meeting-followup`. They are on the steward's **Hand-offs** tab, where a
+  person can switch one off, and the release keeps that. Hand-offs are the
+  general mechanism now: [agent-patterns.md](agent-patterns.md).
 - **The steward is told not to sweep** on a hand-off: read that one session,
   every page, and the note filed from it if there is one; propose from that
   meeting alone; never re-propose the Secretary's change set, which is the

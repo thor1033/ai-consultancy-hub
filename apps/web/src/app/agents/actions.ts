@@ -24,6 +24,15 @@ import {
   getSkill,
   type Schedule,
   type ScheduleKind,
+  startRun,
+  failRun,
+  ASK_SERVER,
+  listHandoffs,
+  createHandoff,
+  setHandoffEnabled,
+  deleteHandoff,
+  getHandoff,
+  type Handoff,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
@@ -31,7 +40,7 @@ import { MAX_ITERATIONS_CEILING, type ModelId } from "@ai-hub/agent";
 import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
 import { listSkills, createSkill, updateSkill, deleteSkill, type SkillParameter } from "@ai-hub/db";
 import { fillTemplate, undeclaredPlaceholders } from "@/lib/skillPrompt";
-import { runAgentForPrincipal, runSkillForPrincipal } from "@/lib/agentRuns";
+import { runAgentForPrincipal, runSkillForPrincipal, cooperation, handoffsAfter } from "@/lib/agentRuns";
 import { MAILBOX_SERVERS, serverWritesAllowed } from "./models";
 import { isUniqueViolation } from "@/lib/apiError";
 
@@ -108,8 +117,25 @@ export async function saveAgentAction(
       }
       entry.writes = "allow";
     }
+    // Whom it may ask: slugs of agents that exist, never itself. Checked here
+    // because the list is read at run time to build the ask tool; a slug that
+    // is not an agent would be offered to the model and refuse every time.
+    if (name === ASK_SERVER) {
+      const raw = (e as { agents?: unknown }).agents;
+      if (raw !== undefined && !Array.isArray(raw)) return { error: `"${name}": the agents it may ask must be a list of slugs.` };
+      const asks: string[] = [];
+      for (const s of (raw ?? []) as unknown[]) {
+        if (typeof s !== "string" || !s.trim()) continue;
+        const askSlug = s.trim();
+        if (askSlug === slug || (existing && askSlug === existing.slug)) return { error: "An agent cannot ask itself." };
+        if (!(await getAgent(askSlug))) return { error: `There is no agent "${askSlug}" to ask.` };
+        if (!asks.includes(askSlug)) asks.push(askSlug);
+      }
+      entry.agents = asks;
+    }
     servers.push(entry);
   }
+  const keepsMemory = input.keepsMemory === undefined ? (existing?.keepsMemory ?? true) : input.keepsMemory === true;
 
   // A server action is a public endpoint, so the number is validated here and
   // not only by the <input type="number"> that usually produces it. Anything
@@ -165,6 +191,9 @@ export async function saveAgentAction(
       const updated = await updateAgent(id, {
         ...input,
         name,
+        keepsMemory,
+        // The pattern tag is where an agent came from; the form never sends it.
+        pattern: existing?.pattern ?? null,
         mcpServers: servers,
         knowledgeCollections,
         knowledgeAll,
@@ -182,6 +211,8 @@ export async function saveAgentAction(
       ...input,
       name,
       slug,
+      keepsMemory,
+      pattern: null,
       mcpServers: servers,
       knowledgeCollections,
       knowledgeAll,
@@ -321,7 +352,20 @@ export async function sendAgentMessageAction(
     }
   }
 
+  // A row first, as every other run path does: the conversation's turn is a
+  // run like any other, so the agents it asks hang off it and the hand-offs
+  // that follow it have a session to point at.
+  const runId = await startRun({
+    prompt: last.content,
+    agentId: agent.id,
+    principalId: principal.id,
+    system: agent.instructions || undefined,
+    model: agent.model ?? undefined,
+    effort: agent.effort ?? undefined,
+    mcpServers: servers,
+  });
   try {
+    const together = await cooperation(agent, principal, runId, 0);
     const { result, servers: used } = await runSession({
       prompt: last.content,
       history,
@@ -329,10 +373,24 @@ export async function sendAgentMessageAction(
       context,
       model: (agent.model as ModelId) ?? undefined,
       effort: effortOf(agent.effort),
+      maxIterations: agent.maxIterations ?? undefined,
       servers,
       serverEntries: agent.mcpServers,
       agentId: agent.id,
       principalId: principal.id,
+      runId,
+      keepsMemory: together.keepsMemory,
+      asks: together.asks,
+      afterRun: handoffsAfter({
+        sessionId: runId,
+        agentId: agent.id,
+        agentName: agent.name,
+        skillId: null,
+        skillName: null,
+        prompt: last.content,
+        principal,
+        depth: 0,
+      }),
     });
     revalidatePath(`/agents/${agent.slug}`); // memory may have changed
     return {
@@ -348,7 +406,9 @@ export async function sendAgentMessageAction(
       },
     };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "The agent turn failed." };
+    const message = e instanceof Error ? e.message : "The agent turn failed.";
+    await failRun(runId, message).catch(() => {});
+    return { error: message };
   }
 }
 
@@ -569,4 +629,67 @@ export async function runScheduleNowAction(id: string): Promise<{ ok: true; runI
     : await runAgentForPrincipal({ agentRef: schedule.agentId, prompt: schedule.prompt, principal, deadlineMs: 3000 });
   if (outcome.kind === "error") return { error: outcome.message };
   return { ok: true, runId: outcome.runId, running: outcome.kind === "running" };
+}
+
+// --- Hand-offs: what starts when this agent finishes ------------------------
+//
+// Rows, so a pattern can wire a pipeline and a person can switch one off.
+// Guarded on agent:manage like skills: a hand-off decides which agent runs
+// next, as whom (the same person), which is what the brief decides too.
+
+export async function listHandoffsAction(agentId: string): Promise<{ handoffs: Handoff[] } | { error: string }> {
+  if (!(await sessionCan("agent:run"))) return { error: NOT_ALLOWED };
+  return { handoffs: await listHandoffs(agentId) };
+}
+
+export async function createHandoffAction(input: {
+  fromAgentId: string;
+  skillId: string | null;
+  toAgentId: string;
+  prompt: string;
+  note: string;
+}): Promise<{ handoffs: Handoff[] } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  const [from, to] = await Promise.all([getAgent(input.fromAgentId), getAgent(input.toAgentId)]);
+  if (!from) return { error: "That agent no longer exists." };
+  if (!to) return { error: "Pick an agent to hand to." };
+  if (from.id === to.id) return { error: "An agent cannot hand off to itself." };
+  if (input.skillId && !(await listSkills(from.id)).some((s) => s.id === input.skillId)) return { error: "That skill is not this agent's." };
+  if (!input.prompt?.trim()) return { error: "Say what the next agent should do, with {{output}} or {{sessionId}} where its material goes." };
+  if (input.prompt.length > 8000) return { error: "That prompt is too long." };
+  try {
+    await createHandoff({ fromAgentId: from.id, skillId: input.skillId, toAgentId: to.id, prompt: input.prompt, note: (input.note ?? "").slice(0, 300) });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not create the hand-off." };
+  }
+  revalidatePath(`/agents/${from.slug}`);
+  revalidatePath(`/agents/${to.slug}`);
+  return { handoffs: await listHandoffs(from.id) };
+}
+
+export async function setHandoffEnabledAction(id: string, agentId: string, enabled: boolean): Promise<{ handoffs: Handoff[] } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  const row = await getHandoff(id);
+  if (!row) return { error: "That hand-off no longer exists." };
+  await setHandoffEnabled(id, enabled);
+  revalidatePath(`/agents/${row.fromAgentSlug}`);
+  revalidatePath(`/agents/${row.toAgentSlug}`);
+  return { handoffs: await listHandoffs(agentId) };
+}
+
+export async function deleteHandoffAction(id: string, agentId: string): Promise<{ handoffs: Handoff[] } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  const row = await getHandoff(id);
+  if (row) {
+    await deleteHandoff(id);
+    revalidatePath(`/agents/${row.fromAgentSlug}`);
+    revalidatePath(`/agents/${row.toAgentSlug}`);
+  }
+  return { handoffs: await listHandoffs(agentId) };
+}
+
+/** The agents another agent may be wired to, for the hand-off and ask pickers. */
+export async function listOtherAgentsAction(): Promise<{ id: string; slug: string; name: string; description: string }[]> {
+  if (!(await sessionCan("agent:run"))) return [];
+  return (await listAgents()).map((a) => ({ id: a.id, slug: a.slug, name: a.name, description: a.description }));
 }

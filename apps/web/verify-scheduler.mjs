@@ -96,8 +96,8 @@ const { tick } = await import("./src/lib/scheduler.ts");
 const { createAgent, deleteAgent } = await import("../../packages/db/src/agents.ts");
 const { upsertPrincipal, setPrincipalEnabled } = await import("../../packages/db/src/credentials.ts");
 const { createSchedule, getSchedule } = await import("../../packages/db/src/schedules.ts");
-const { createSkill, getAgent } = await import("../../packages/db/src/index.ts");
-const { STEWARD_SLUG } = await import("../../packages/db/src/seeds/context-steward.ts");
+const { createSkill, getAgent, createHandoff } = await import("../../packages/db/src/index.ts");
+const { STEWARD_SLUG, STEWARD_HANDOFF_PROMPT, STEWARD_HANDOFF_NOTE } = await import("../../packages/db/src/seeds/context-steward.ts");
 
 const sql = postgres(process.env.DATABASE_URL, { onnotice: () => {} });
 const stamp = Date.now();
@@ -194,8 +194,9 @@ try {
     console.log(`skip  the Context Steward is ${steward ? "switched off" : "not seeded"} here — npm run seed:context-steward -w @ai-hub/db`);
   } else {
     const meetingSkill = `verify-tick-meeting-${stamp}`;
-    process.env.HUB_STEWARD_HANDOFF_SKILLS = meetingSkill;
     const skill = await createSkill({ agentId: agent.id, slug: meetingSkill, name: "Verify meeting follow-up", promptTemplate: "Follow up the meetings that finished in the last {{lookbackHours}} hours." , parameters: [{ name: "lookbackHours", description: "hours", required: false }] });
+    // The hand-off is a row, as the steward's seed declares it for the real Secretary.
+    await createHandoff({ fromAgentId: agent.id, skillId: skill.id, toAgentId: steward.id, prompt: STEWARD_HANDOFF_PROMPT, note: STEWARD_HANDOFF_NOTE });
     const followup = await createSchedule({
       agentId: agent.id,
       name: "Meeting follow-up",
@@ -212,7 +213,7 @@ try {
     const secRun = await finished(secRunId);
     check("the Secretary's run fills the skill's template from the schedule's arguments", secRun?.prompt === "Follow up the meetings that finished in the last 3 hours.", secRun?.prompt);
     check("and runs as the schedule's owner", secRun?.principalId === owner);
-    check("its answer says it was handed to the Context Steward", /_Handed to the Context Steward \(run [0-9a-f-]{36}\)/.test(secRun?.output ?? ""), (secRun?.output ?? "").slice(-90));
+    check("its answer says it was handed to the Context Steward", /_Handed to Context Steward \(run [0-9a-f-]{36}\)/.test(secRun?.output ?? ""), (secRun?.output ?? "").slice(-90));
     let stewardRun;
     for (const until = Date.now() + 30_000; Date.now() < until; await new Promise((r) => setTimeout(r, 200))) {
       [stewardRun] = await sql`

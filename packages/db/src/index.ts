@@ -56,6 +56,7 @@ export type {
   Agent,
   AgentMemory,
   AgentInput,
+  PatternTag,
   Placement,
   LocalCallInput,
   LocalActivity,
@@ -149,4 +150,20 @@ export {
   DAILY_CATCH_UP_MINUTES,
 } from "./schedules";
 export type { Schedule, ScheduleInput, ScheduleKind, TickOutcome } from "./schedules";
-export { STEWARD_SLUG, STEWARD_HANDOFF_SKILLS, stewardHandoffPrompt } from "./seeds/context-steward";
+export { STEWARD_SLUG } from "./seeds/context-steward";
+export {
+  createHandoff,
+  getHandoff,
+  listHandoffs,
+  handoffsFor,
+  setHandoffEnabled,
+  updateHandoffPrompt,
+  deleteHandoff,
+  renderHandoffPrompt,
+  HANDOFF_PLACEHOLDERS,
+} from "./handoffs";
+export type { Handoff, HandoffInput, HandoffVars } from "./handoffs";
+export { PATTERNS, COMMON_PARAMS, getPattern, previewPattern, instantiatePattern, patternSlug, ASK_SERVER, askedAgents } from "./patterns";
+export type { Pattern, PatternParam, PatternRole, PatternPreview, PatternInstance, PatternValues } from "./patterns";
+export { listChildRuns } from "./sessions";
+export type { ChildRun } from "./sessions";

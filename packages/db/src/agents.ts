@@ -29,6 +29,16 @@ export const runsOnHub = (p: Placement) => p !== "local";
 /** Whether this agent is synced into Claude Code as a sub-agent. */
 export const runsLocally = (p: Placement) => p !== "hub";
 
+/**
+ * Where an agent came from, when a pattern made it (docs/agent-patterns.md).
+ * A label for the org chart and the agent's page; never consulted at run time.
+ */
+export interface PatternTag {
+  slug: string;
+  instance: string;
+  role: string;
+}
+
 export interface AgentSummary {
   id: string;
   slug: string;
@@ -56,6 +66,13 @@ export interface Agent extends AgentSummary {
   knowledgeAll: boolean;
   /** Rounds of tool use one run may take. Null ⇒ the runtime default. */
   maxIterations: number | null;
+  /**
+   * Whether it keeps memory between runs. False is for a worker meant to start
+   * clean every time (the goldfish of docs/agent-patterns.md): no memory
+   * server is attached, so nothing from one job reaches the next.
+   */
+  keepsMemory: boolean;
+  pattern: PatternTag | null;
 }
 
 /**
@@ -118,6 +135,8 @@ export interface AgentInput {
   placement?: Placement;
   functionName?: string;
   owner?: string;
+  keepsMemory?: boolean;
+  pattern?: PatternTag | null;
 }
 
 // Unqualified on purpose: this list is reused in a RETURNING clause, where
@@ -127,6 +146,7 @@ const AGENT_COLUMNS = `
   mcp_servers as "mcpServers", knowledge_collections as "knowledgeCollections",
   knowledge_all as "knowledgeAll", max_iterations as "maxIterations",
   enabled, placement, function_name as "functionName", owner,
+  keeps_memory as "keepsMemory", pattern,
   created_at as "createdAt", updated_at as "updatedAt"
 `;
 
@@ -166,13 +186,14 @@ export async function createAgent(input: AgentInput): Promise<Agent> {
   const rows = await sql<Agent[]>`
     insert into agents (slug, name, description, instructions, model, effort,
                         mcp_servers, knowledge_collections, knowledge_all, max_iterations,
-                        enabled, placement, function_name, owner)
+                        enabled, placement, function_name, owner, keeps_memory, pattern)
     values (${input.slug}, ${input.name}, ${input.description ?? ""},
             ${input.instructions ?? ""}, ${input.model ?? null}, ${input.effort ?? null},
             ${sql.json((input.mcpServers ?? []) as Parameters<typeof sql.json>[0])},
             ${cleanNames(input.knowledgeCollections)}::text[], ${input.knowledgeAll ?? false},
             ${input.maxIterations ?? null}, ${input.enabled ?? true}, ${input.placement ?? "hub"},
-            ${(input.functionName ?? "").trim()}, ${(input.owner ?? "").trim()})
+            ${(input.functionName ?? "").trim()}, ${(input.owner ?? "").trim()},
+            ${input.keepsMemory ?? true}, ${sql.json((input.pattern ?? null) as never)})
     returning ${sql.unsafe(AGENT_COLUMNS)}, 0 as "memoryCount"
   `;
   return rows[0];
@@ -213,6 +234,8 @@ export async function updateAgent(
       placement = ${next.placement ?? "hub"},
       function_name = ${(next.functionName ?? "").trim()},
       owner = ${(next.owner ?? "").trim()},
+      keeps_memory = ${next.keepsMemory ?? true},
+      pattern = ${sql.json((next.pattern ?? null) as never)},
       updated_at = now()
     where id = ${id}
     returning ${sql.unsafe(AGENT_COLUMNS)},
@@ -309,6 +332,8 @@ export interface AgentRosterRow {
   runsByDay: number[];
   /** Writes this agent has proposed that nobody has decided on yet. */
   pendingProposals: number;
+  keepsMemory: boolean;
+  pattern: PatternTag | null;
 }
 
 /**
@@ -319,6 +344,7 @@ export async function agentRoster(): Promise<AgentRosterRow[]> {
   const sql = getSql();
   return sql<AgentRosterRow[]>`
     select a.id, a.slug, a.name, a.description, a.enabled, a.placement, a.model,
+           a.keeps_memory as "keepsMemory", a.pattern,
            a.function_name as "functionName", a.owner,
            a.knowledge_collections as "knowledgeCollections", a.knowledge_all as "knowledgeAll",
            a.mcp_servers as "mcpServers",

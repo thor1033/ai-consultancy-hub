@@ -83,6 +83,9 @@ export interface StartRunInput {
   model?: string;
   effort?: string;
   mcpServers?: string[];
+  /** The run that started this one (a hand-off or an ask), and how deep the chain is. */
+  parentSessionId?: string | null;
+  depth?: number;
 }
 
 export async function startRun(input: StartRunInput): Promise<string> {
@@ -90,13 +93,15 @@ export async function startRun(input: StartRunInput): Promise<string> {
   const [row] = await sql<{ id: string }[]>`
     insert into agent_sessions
       (prompt, system, model, effort, mcp_servers, transcript,
-       status, agent_id, agent_skill_id, principal_id, started_at)
+       status, agent_id, agent_skill_id, principal_id, started_at,
+       parent_session_id, depth)
     values
       (${input.prompt}, ${input.system ?? null}, ${input.model ?? null},
        ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
        ${sql.json([] as never)},
        'running', ${input.agentId ?? null}, ${input.skillId ?? null},
-       ${input.principalId ?? null}, now())
+       ${input.principalId ?? null}, now(),
+       ${input.parentSessionId ?? null}, ${Math.max(0, Math.trunc(input.depth ?? 0))})
     returning id
   `;
   return row.id;
@@ -149,6 +154,32 @@ export interface RunTiming {
   error: string | null;
   /** Null for a run recorded before timings were kept, or one still running. */
   timeline: unknown;
+  parentSessionId: string | null;
+  depth: number;
+}
+
+export interface ChildRun {
+  id: string;
+  agentId: string | null;
+  agentSlug: string | null;
+  agentName: string | null;
+  status: string;
+  prompt: string;
+  latencyMs: number | null;
+  at: string;
+}
+
+/** The runs one run started: hand-offs when it finished, asks while it ran. */
+export async function listChildRuns(parentSessionId: string): Promise<ChildRun[]> {
+  if (!/^[0-9a-f-]{36}$/i.test(parentSessionId)) return [];
+  const sql = getSql();
+  return sql<ChildRun[]>`
+    select s.id, s.agent_id as "agentId", a.slug as "agentSlug", a.name as "agentName", s.status, s.prompt,
+           s.latency_ms as "latencyMs", coalesce(s.started_at, s.created_at) as at
+      from agent_sessions s
+      left join agents a on a.id = s.agent_id
+     where s.parent_session_id = ${parentSessionId}
+     order by coalesce(s.started_at, s.created_at)`;
 }
 
 /**
@@ -163,7 +194,8 @@ export async function getRunTiming(id: string): Promise<RunTiming | null> {
   const [row] = await sql<RunTiming[]>`
     select s.id, s.agent_id as "agentId", coalesce(s.started_at, s.created_at) as at, s.status, s.prompt,
            k.name as skill, s.model, s.effort, s.latency_ms as "latencyMs", s.cost_usd::float8 as "costUsd",
-           s.tokens, s.tools_used as "toolsUsed", s.error, s.timeline
+           s.tokens, s.tools_used as "toolsUsed", s.error, s.timeline,
+           s.parent_session_id as "parentSessionId", s.depth
       from agent_sessions s
       left join agent_skills k on k.id = s.agent_skill_id
      where s.id = ${id}`;
@@ -172,7 +204,7 @@ export async function getRunTiming(id: string): Promise<RunTiming | null> {
 
 /**
  * Add to a finished run's answer. The hand-off to the Context Steward
- * (apps/web/src/lib/stewardHandoff.ts) runs once the session is recorded, so
+ * (apps/web/src/lib/handoffs.ts) runs once the session is recorded, so
  * the steward can read it; what the hand-off says goes into the answer after.
  */
 export async function appendRunOutput(id: string, line: string): Promise<void> {

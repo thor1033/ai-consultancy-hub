@@ -12,20 +12,24 @@ import {
   type ConnectedMcp,
   type McpServerConfig,
 } from "@ai-hub/mcp";
-import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames } from "@ai-hub/db";
+import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames, ASK_SERVER } from "@ai-hub/db";
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { gate } from "@/lib/approvals";
+import { askExecutor, askTool, ASK_TOOL, type Asks } from "@/lib/askAgents";
 
 // The code-owned servers the hub starts itself.
 const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
 
 /**
  * The selectable MCP servers for a workbench session — the code-owned ones plus
- * any remote servers this deployment declares (HUB_REMOTE_MCP_SERVERS). Remote
- * servers are env-driven, so this is a function, not a constant.
+ * any remote servers this deployment declares (HUB_REMOTE_MCP_SERVERS), plus
+ * `agents`, which is no server at all: an entry by that name on an agent lets
+ * it ask the agents the entry lists (lib/askAgents.ts), and the tool is built
+ * in this process. Remote servers are env-driven, so this is a function, not
+ * a constant.
  */
 export function knownServers(): string[] {
-  return [...LOCAL_SERVERS, ...remoteServerNames()];
+  return [...LOCAL_SERVERS, ASK_SERVER, ...remoteServerNames()];
 }
 
 export function isKnownServer(name: string): boolean {
@@ -51,7 +55,7 @@ export function unavailableServers(names: readonly string[], disabled: Set<strin
   const malformed = remoteConfigError();
   const out: UnavailableServer[] = [];
   for (const name of names) {
-    if (!name || name === "memory") continue;
+    if (!name || name === "memory" || name === ASK_SERVER) continue;
     if (!isKnownServer(name)) {
       out.push({
         name,
@@ -98,6 +102,8 @@ export function resolveServer(
   entry?: McpEntry,
 ): McpServerConfig | null {
   if (name === "memory") return agentId ? memoryServerConfig(agentId) : null;
+  // Not a process: the ask tool is built in runSession from the entry's list.
+  if (name === ASK_SERVER) return null;
   return builtinServerConfig(name, builtinOptionsFrom(entry)) ?? remoteServerConfig(name, { bearer: remoteBearer });
 }
 
@@ -112,6 +118,17 @@ export interface RunSessionInput {
    * the session so a run can be traced back to the agent that made it.
    */
   agentId?: string;
+  /**
+   * Whether the agent keeps memory between runs. Default true: its memory
+   * server is attached. False attaches none, so a worker meant to start clean
+   * every time does (docs/agent-patterns.md).
+   */
+  keepsMemory?: boolean;
+  /**
+   * The agents this run may ask, and how to start one. Present only when the
+   * agent's entry lists some and the run is shallow enough (lib/askAgents.ts).
+   */
+  asks?: Asks;
   system?: string;
   model?: ModelId;
   effort?: "low" | "medium" | "high" | "max";
@@ -179,9 +196,13 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
   if (note) console.warn(`[run] ${input.agentId ?? "workbench"}: unavailable servers — ${missing.map((m) => m.name).join(", ")}`);
   const system = note ? [input.system, note].filter(Boolean).join("\n\n") : input.system;
 
-  // An agent always gets its own memory, without having to select it: an agent
-  // that could be configured to forget everything is just a chat window.
-  if (input.agentId && !servers.includes("memory")) servers.push("memory");
+  // An agent gets its own memory without having to select it: an agent that
+  // could be configured to forget everything is just a chat window. The one
+  // exception is on purpose: a worker briefed by an agent that remembers, so
+  // that nothing from one job colours the next.
+  const memoryAt = servers.indexOf("memory");
+  if (input.agentId && input.keepsMemory !== false && memoryAt < 0) servers.push("memory");
+  if ((input.keepsMemory === false || !input.agentId) && memoryAt >= 0) servers.splice(memoryAt, 1);
 
   let mcp: ConnectedMcp | undefined;
   const held = new Set<string>();
@@ -201,6 +222,20 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         })
       : undefined;
 
+    // The hub's own tool for asking another agent sits beside the servers'
+    // tools. It is not gated: an ask starts a run, which changes nothing
+    // outside the hub, and the asked agent's own writes are held as always.
+    const ask = input.asks?.allowed.length ? { tool: askTool(input.asks.allowed), execute: askExecutor(input.asks) } : null;
+    const tools = [...(gated?.tools ?? []), ...(ask ? [ask.tool] : [])];
+    const toolExecutor =
+      ask || gated
+        ? async (name: string, args: unknown) => {
+            if (ask && name === ASK_TOOL) return ask.execute(args);
+            if (gated) return gated.execute(name, args);
+            return `No tool named ${name}.`;
+          }
+        : undefined;
+
     const result = await runAgent({
       prompt: input.prompt,
       history: input.history,
@@ -212,8 +247,8 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       // Writes are held for a person (lib/approvals.ts); reads pass through.
       // The tool list and the executor come from the same gate, so a tool
       // that will be held is the one that asks the model for its reason.
-      tools: gated?.tools,
-      toolExecutor: gated?.execute,
+      tools: tools.length ? tools : undefined,
+      toolExecutor,
       metadata: input.agentId
         ? { source: "agent", agentId: input.agentId, servers }
         : { source: "workbench", servers },

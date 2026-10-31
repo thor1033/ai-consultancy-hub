@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
-import { agentOrgLabels } from "@ai-hub/db";
+import { agentOrgLabels, listAgents } from "@ai-hub/db";
 import { listCollections } from "@ai-hub/rag";
 import { sessionCan, sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 import { AgentForm } from "../AgentForm";
@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 // agent:manage can save it — saveAgentAction checks again, so the notice below
 // is a courtesy, not the control.
 export default async function NewAgentPage() {
-  const [canManage, tools, collections, admin, orgLabels] = await Promise.all([
+  const [canManage, tools, collections, admin, orgLabels, agents] = await Promise.all([
     sessionCan("agent:manage"),
     toolCatalog(),
     sessionKnowledgeAccess()
@@ -20,6 +20,7 @@ export default async function NewAgentPage() {
       .catch(() => [] as string[]),
     sessionCan("admin:manage"),
     agentOrgLabels().catch(() => ({ functions: [], owners: [] })),
+    listAgents().catch(() => []),
   ]);
 
   return (
@@ -32,7 +33,11 @@ export default async function NewAgentPage() {
         <h1 className="mt-3 text-3xl md:text-4xl">Hire an agent.</h1>
         <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
           Give it a name, a brief and the tools it may use. It starts remembering from its first conversation, and
-          every connected client can call it the moment it is saved.
+          every connected client can call it the moment it is saved. Hiring several that work together?{" "}
+          <Link href="/agents/patterns" className="text-[var(--text)] underline underline-offset-2">
+            Start from a pattern
+          </Link>
+          .
         </p>
       </header>
 
@@ -61,7 +66,10 @@ export default async function NewAgentPage() {
             owner: "",
             mailboxes: {},
             writesAllowed: [],
+            keepsMemory: true,
+            asks: [],
           }}
+          agents={agents.map((a) => ({ slug: a.slug, name: a.name, description: a.description }))}
           functions={orgLabels.functions}
           owners={orgLabels.owners}
           tools={tools}
