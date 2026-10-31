@@ -1,14 +1,16 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useView } from "@/components/ViewProvider";
 import {
   addDocumentAction,
+  addFileAction,
   deleteDocumentAction,
   getDocumentAction,
   testRetrievalAction,
   syncSourceAction,
 } from "./actions";
-import type { DocRow, DocDetail, KnowledgeContext, KnowledgeSnapshot, RetrievedRow, SourceRow } from "./types";
+import { MAX_UPLOAD_BYTES, type DocRow, type DocDetail, type KnowledgeContext, type KnowledgeSnapshot, type RetrievedRow, type SourceRow } from "./types";
 
 // What each connector needs before it can sync, in the deployer's words.
 const SOURCE_SETUP: Record<string, { what: string; env: string[] }> = {
@@ -52,6 +54,11 @@ export function KnowledgeConsole({
   embedder: { name: string; production: boolean } | null;
   canWrite: boolean;
 }) {
+  // Simple is "your documents": add, search, read. Standard adds collections'
+  // access and sources; Expert the search engine itself (docs/views.md).
+  const { view, can } = useView();
+  const simple = view === "simple";
+  const expert = view === "expert";
   const [snap, setSnap] = useState<KnowledgeSnapshot>(initial);
   const [error, setError] = useState<string | null>(null);
   const [panel, setPanel] = useState<"add" | "sources" | null>(null);
@@ -105,23 +112,26 @@ export function KnowledgeConsole({
     <div className="flex flex-col gap-6">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          <div className="eyebrow">Knowledge</div>
-          <h1 className="mt-3 text-3xl md:text-4xl">What the agents can look up.</h1>
+          <div className="eyebrow">{simple ? "Documents" : "Knowledge"}</div>
+          <h1 className="mt-3 text-3xl md:text-4xl">{simple ? "Your documents." : "What the agents can look up."}</h1>
           <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
-            Documents the agents retrieve from when they answer. Everything here is searchable by meaning, and each
-            collection decides who — and which agent — can read it.
+            {simple
+              ? "What the agents read before they answer you. Add a document, or ask what is in them."
+              : "Documents the agents retrieve from when they answer. Everything here is searchable by meaning, and each collection decides who — and which agent — can read it."}
           </p>
         </div>
         {canWrite && (
           <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              className="btn min-h-11"
-              aria-expanded={panel === "sources"}
-              onClick={() => setPanel(panel === "sources" ? null : "sources")}
-            >
-              Connect a source
-            </button>
+            {!simple && (
+              <button
+                type="button"
+                className="btn min-h-11"
+                aria-expanded={panel === "sources"}
+                onClick={() => setPanel(panel === "sources" ? null : "sources")}
+              >
+                Connect a source
+              </button>
+            )}
             <button
               type="button"
               className="btn-brand min-h-11"
@@ -156,25 +166,37 @@ export function KnowledgeConsole({
       )}
       {panel === "sources" && <Sources sources={sources} onSynced={apply} onClose={() => setPanel(null)} />}
 
+      {!simple && (
       <div className="rule-heavy grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5">
         <Stat value={docs.length} label="Documents" node={docs.length ? undefined : "var(--brand)"} />
         <Stat value={snap.collections.length} label="Collections" />
         <Stat value={passages} label="Searchable passages" />
         <Stat value={new Set(context.scopes.map((s) => s.slug)).size} label="Agents using it" node="var(--ai)" />
-        <Stat
-          value={embedder ? (embedder.production ? "Voyage" : "Fallback") : "—"}
-          label="Search engine"
-          node={embedder?.production ? "var(--ai)" : "var(--brand)"}
-        />
+        {expert ? (
+          <Stat
+            value={embedder ? (embedder.production ? "Voyage" : "Fallback") : "—"}
+            label="Search engine"
+            node={embedder?.production ? "var(--ai)" : "var(--brand)"}
+          />
+        ) : (
+          <Stat value={passages} label="Passages" />
+        )}
       </div>
+      )}
 
-      {embedder && !embedder.production && (
+      {embedder && !embedder.production && (expert || can.admin) && (
         <div className="panel notice-warning flex flex-wrap items-baseline gap-x-2 p-3 text-sm">
           <span className="font-bold text-[var(--warning)]">Search is approximate.</span>
-          <span className="text-[var(--text-soft)]">
-            It is running on the <code>{embedder.name}</code> fallback, which matches words rather than meaning. Set{" "}
-            <code>VOYAGE_API_KEY</code>, then re-add or re-sync the documents.
-          </span>
+          {expert ? (
+            <span className="text-[var(--text-soft)]">
+              It is running on the <code>{embedder.name}</code> fallback, which matches words rather than meaning. Set{" "}
+              <code>VOYAGE_API_KEY</code>, then re-add or re-sync the documents.
+            </span>
+          ) : (
+            <span className="text-[var(--text-soft)]">
+              It matches words rather than meaning until the hub&apos;s search service is set up. Switch to Expert view for what to set.
+            </span>
+          )}
         </div>
       )}
 
@@ -209,7 +231,7 @@ export function KnowledgeConsole({
                       title={c}
                       count={docs.filter((d) => d.collection === c).length}
                       mono
-                      meta={[access(c), users.length ? `Used by ${users.join(", ")}` : null]}
+                      meta={simple ? [] : [access(c), users.length ? `Used by ${users.join(", ")}` : null]}
                       restricted={restricted.has(c)}
                     />
                   );
@@ -220,11 +242,11 @@ export function KnowledgeConsole({
                     onClick={() => setScope(UNFILED)}
                     title="Unfiled"
                     count={unfiled}
-                    meta={[`${access(null)} · no agent is scoped to it`]}
+                    meta={simple ? [] : [`${access(null)} · no agent is scoped to it`]}
                   />
                 )}
               </nav>
-              <SourceSummary sources={sources} canWrite={canWrite} onOpen={() => setPanel("sources")} />
+              {!simple && <SourceSummary sources={sources} canWrite={canWrite} onOpen={() => setPanel("sources")} />}
             </aside>
 
             <section aria-labelledby="docs-title" className="panel min-w-0 flex-[999_1_560px]">
@@ -234,8 +256,8 @@ export function KnowledgeConsole({
                     {scopeTitle}
                   </h2>
                   <div className="mt-1 text-xs text-[var(--muted)]">
-                    {plural(shown.length, "document")} ·{" "}
-                    {plural(shown.reduce((a, d) => a + d.chunkCount, 0), "passage")}
+                    {plural(shown.length, "document")}
+                    {!simple && <> · {plural(shown.reduce((a, d) => a + d.chunkCount, 0), "passage")}</>}
                   </div>
                 </div>
                 <label className="w-full sm:w-64">
@@ -371,6 +393,7 @@ function EmptyState({
   onAdd: () => void;
   onConnect: () => void;
 }) {
+  const simple = useView().view === "simple";
   return (
     <section className="panel p-8 md:p-12">
       <div className="eyebrow text-[var(--brand)]">Empty</div>
@@ -389,9 +412,9 @@ function EmptyState({
             </button>
           )}
           <button type="button" className={`${connected.length ? "btn" : "btn-brand"} min-h-11`} onClick={onAdd}>
-            Paste a document
+            Add a document
           </button>
-          {connected.length === 0 && (
+          {connected.length === 0 && !simple && (
             <button type="button" className="btn min-h-11" onClick={onConnect}>
               Connect a source
             </button>
@@ -415,22 +438,68 @@ function AddDocument({
   onCancel: () => void;
   onDone: (out: Result) => void;
 }) {
+  // A file first: that is what people have. Pasting stays one click away, for
+  // an email or a page from somewhere that is not a file.
+  const simple = useView().view === "simple";
+  const [mode, setMode] = useState<"file" | "paste">("file");
+  const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState("");
   const [source, setSource] = useState("");
   const [collection, setCollection] = useState(defaultCollection);
   const [content, setContent] = useState("");
   const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
   const firstField = useRef<HTMLInputElement>(null);
-  useEffect(() => firstField.current?.focus(), []);
+  useEffect(() => firstField.current?.focus(), [mode]);
 
   const words = content.trim() ? content.trim().split(/\s+/).length : 0;
+  const tooBig = file ? file.size > MAX_UPLOAD_BYTES : false;
+
+  function choose(f: File | null) {
+    setFile(f);
+    setProblem(f && f.size > MAX_UPLOAD_BYTES ? `That file is ${(f.size / 1024 / 1024).toFixed(1)} MB; the limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.` : null);
+    if (f && !title) setTitle(f.name.replace(/\.[^.]+$/, ""));
+  }
 
   async function add(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
-    onDone(await addDocumentAction({ title, source, collection, content }));
+    setProblem(null);
+    let out: Result;
+    if (mode === "file") {
+      if (!file) {
+        setBusy(false);
+        return setProblem("Choose a file first.");
+      }
+      const form = new FormData();
+      form.set("file", file);
+      form.set("title", title);
+      form.set("source", source);
+      form.set("collection", collection);
+      out = await addFileAction(form).catch((err) => ({ error: err instanceof Error ? err.message : "The upload failed." }));
+    } else {
+      out = await addDocumentAction({ title, source, collection, content });
+    }
+    // The form stays open on a problem, so what was chosen or typed is not lost.
     setBusy(false);
+    if ("error" in out) setProblem(out.error);
+    else onDone(out);
   }
+
+  const tab = (m: "file" | "paste", text: string) => (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={mode === m}
+      onClick={() => {
+        setMode(m);
+        setProblem(null);
+      }}
+      className={`border-b-2 px-1 pb-1.5 text-sm ${mode === m ? "border-[var(--brand)] text-[var(--text)]" : "border-transparent text-[var(--muted)] hover:text-[var(--text)]"}`}
+    >
+      {text}
+    </button>
+  );
 
   return (
     <form onSubmit={add} className="panel p-5" aria-labelledby="add-title">
@@ -442,18 +511,47 @@ function AddDocument({
           Close
         </button>
       </div>
-      <div className="mt-4 grid gap-3 sm:grid-cols-3">
+      <div role="tablist" className="mt-3 flex gap-4">
+        {tab("file", "Upload a file")}
+        {tab("paste", "Paste text")}
+      </div>
+
+      {mode === "file" && (
+        <label className="mt-4 flex cursor-pointer flex-col items-start gap-2 border border-dashed border-[var(--border-strong)] p-5 hover:border-[var(--brand)]">
+          <span className="text-sm font-medium">{file ? file.name : "Choose a file"}</span>
+          <span className="text-xs text-[var(--muted)]">
+            {file
+              ? `${file.size < 1024 * 1024 ? `${Math.max(1, Math.round(file.size / 1024))} KB` : `${(file.size / 1024 / 1024).toFixed(1)} MB`} · choose another to replace it`
+              : `Word, PowerPoint, Excel, PDF or a text file, up to ${MAX_UPLOAD_BYTES / 1024 / 1024} MB. Only its text is kept.`}
+          </span>
+          <input
+            ref={firstField}
+            type="file"
+            className="sr-only"
+            accept=".docx,.pptx,.xlsx,.pdf,.txt,.md,.markdown,.csv,.tsv,.json,.log,.xml,.yaml,.yml,.ini,.vtt,.html,.htm"
+            onChange={(e) => choose(e.target.files?.[0] ?? null)}
+          />
+        </label>
+      )}
+
+      <div className={`mt-4 grid gap-3 ${simple ? "sm:grid-cols-2" : "sm:grid-cols-3"}`}>
         <label className="block">
           <span className="mb-1 block text-xs text-[var(--muted)]">Title</span>
-          <input ref={firstField} value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Refund policy" className="field" />
+          <input
+            ref={mode === "paste" ? firstField : undefined}
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder={mode === "file" ? "The file's name, unless you change it" : "Refund policy"}
+            className="field"
+          />
         </label>
         <label className="block">
-          <span className="mb-1 block text-xs text-[var(--muted)]">Collection</span>
+          <span className="mb-1 block text-xs text-[var(--muted)]">{simple ? "Folder (optional)" : "Collection"}</span>
           <input
             list="collections"
             value={collection}
             onChange={(e) => setCollection(e.target.value)}
-            placeholder="Leave empty to keep it unfiled"
+            placeholder={simple ? "Leave empty if unsure" : "Leave empty to keep it unfiled"}
             className="field"
           />
           <datalist id="collections">
@@ -462,30 +560,51 @@ function AddDocument({
             ))}
           </datalist>
         </label>
-        <label className="block">
-          <span className="mb-1 block text-xs text-[var(--muted)]">Where it comes from</span>
-          <input value={source} onChange={(e) => setSource(e.target.value)} placeholder="Employee handbook" className="field" />
-        </label>
+        {!simple && (
+          <label className="block">
+            <span className="mb-1 block text-xs text-[var(--muted)]">Where it comes from</span>
+            <input value={source} onChange={(e) => setSource(e.target.value)} placeholder={mode === "file" ? "The file's name" : "Employee handbook"} className="field" />
+          </label>
+        )}
       </div>
-      <label className="mt-3 block">
-        <span className="mb-1 block text-xs text-[var(--muted)]">Text</span>
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          rows={8}
-          placeholder="Paste the document text. It is split into passages and indexed so an agent can find the part it needs."
-          className="field resize-y"
-          required
-        />
-      </label>
+
+      {mode === "paste" && (
+        <label className="mt-3 block">
+          <span className="mb-1 block text-xs text-[var(--muted)]">Text</span>
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            rows={8}
+            placeholder={
+              simple
+                ? "Paste the text here."
+                : "Paste the document text. It is split into passages and indexed so an agent can find the part it needs."
+            }
+            className="field resize-y"
+            required
+          />
+        </label>
+      )}
+
+      {problem && (
+        <p role="alert" className="mt-3 text-sm text-[var(--danger)]">
+          {problem}
+        </p>
+      )}
       <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-        <span className="text-xs text-[var(--muted)]">{words ? plural(words, "word") : "Plain text works best."}</span>
+        <span className="text-xs text-[var(--muted)]">
+          {mode === "paste" ? (words ? plural(words, "word") : "Plain text works best.") : "The agents can read it as soon as it is added."}
+        </span>
         <div className="flex gap-2">
           <button type="button" onClick={onCancel} className="btn min-h-11">
             Cancel
           </button>
-          <button type="submit" disabled={busy || !content.trim()} className="btn-brand min-h-11">
-            {busy ? "Indexing…" : "Add to knowledge"}
+          <button
+            type="submit"
+            disabled={busy || (mode === "paste" ? !content.trim() : !file || tooBig)}
+            className="btn-brand min-h-11"
+          >
+            {busy ? (mode === "file" ? "Reading the file…" : "Adding…") : simple ? "Add it" : "Add to knowledge"}
           </button>
         </div>
       </div>

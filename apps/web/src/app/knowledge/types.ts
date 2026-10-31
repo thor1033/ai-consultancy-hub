@@ -48,3 +48,10 @@ export interface SourceRow {
   /** Where a sync files its documents when no collection is named. */
   defaultCollection?: string;
 }
+
+/**
+ * The largest file the Documents page takes (addFileAction). Below
+ * serverActions.bodySizeLimit in next.config.ts, which leaves room for the
+ * form's other fields; here so the page can say so before uploading.
+ */
+export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
