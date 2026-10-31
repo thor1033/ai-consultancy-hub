@@ -24,6 +24,11 @@ primary_region = "ams"
   NODE_ENV = "production"
   PORT = "3000"
   HOSTNAME = "0.0.0.0"
+  # The clock: schedules on agents' pages, and the shared folders' hourly sync
+  # (docs/schedules.md, docs/shared-folders.md). Off by default in code so a dev
+  # container on production's database does not start acting; on here, in the
+  # file, so production's being on is visible and reviewed rather than a secret.
+  HUB_SCHEDULER = "1"
 
 [http_service]
   internal_port = 3000

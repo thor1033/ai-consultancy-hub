@@ -58,7 +58,7 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
   `verify:github` (rag; its sync half runs when `DATABASE_URL` is set), `verify:large-args`,
   `verify:work-log` (web).
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds` (db),
-  `verify:memory`, `verify:knowledge` (mcp), `verify:access` (rag), `verify:credentials` (authz),
+  `verify:memory`, `verify:knowledge` (mcp), `verify:access`, `verify:sharepoint` (rag), `verify:credentials` (authz),
   `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff` (web).
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.
 
