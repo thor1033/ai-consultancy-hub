@@ -47,4 +47,8 @@ export interface SourceRow {
   configured: boolean;
   /** Where a sync files its documents when no collection is named. */
   defaultCollection?: string;
+  /** Synced on the clock this often (minutes); unset means only by hand. */
+  autoSyncMinutes?: number;
+  /** The last sync on the clock — what it did, or why it failed. */
+  lastSync?: { at: string | null; running: boolean; ok: boolean | null; summary: string; error: string | null };
 }

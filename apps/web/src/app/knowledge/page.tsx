@@ -1,5 +1,5 @@
 import { listDocuments, listCollections, embedderStatus, listSources } from "@ai-hub/rag";
-import { listAgentKnowledgeScopes, restrictedCollectionNames } from "@ai-hub/db";
+import { listAgentKnowledgeScopes, restrictedCollectionNames, listSourceSyncs } from "@ai-hub/db";
 import { defaultVisibility } from "@ai-hub/authz";
 import { KnowledgeConsole } from "./KnowledgeConsole";
 import { PageHeader } from "@/components/PageHeader";
@@ -20,12 +20,13 @@ export default async function KnowledgePage() {
   let error: string | null = null;
   try {
     const access = await sessionKnowledgeAccess();
-    const [documents, collections, restricted, scopes, writer] = await Promise.all([
+    const [documents, collections, restricted, scopes, writer, syncs] = await Promise.all([
       listDocuments(access),
       listCollections(access),
       restrictedCollectionNames(),
       listAgentKnowledgeScopes(),
       sessionCan("document:write"),
+      listSourceSyncs(),
     ]);
     snapshot = { documents, collections };
     // Only name what this person can already see.
@@ -35,7 +36,23 @@ export default async function KnowledgePage() {
       scopes: scopes.filter((s) => visible.has(s.collection)),
       defaultVisibility: defaultVisibility(),
     };
-    sources = listSources();
+    const lastSync = new Map(syncs.map((r) => [r.sourceType, r]));
+    sources = listSources().map((s) => {
+      const r = lastSync.get(s.type);
+      if (!r) return s;
+      // Running: claimed after the last one finished (or none has finished yet).
+      const running = Boolean(r.startedAt && (!r.finishedAt || new Date(r.startedAt) > new Date(r.finishedAt)));
+      return {
+        ...s,
+        lastSync: {
+          at: r.finishedAt ? new Date(r.finishedAt).toISOString() : null,
+          running,
+          ok: r.ok,
+          summary: r.summary,
+          error: r.error,
+        },
+      };
+    });
     embedder = embedderStatus();
     canWrite = Boolean(writer);
   } catch (e) {

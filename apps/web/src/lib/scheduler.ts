@@ -6,6 +6,7 @@ import {
 } from "@ai-hub/db";
 import type { Principal } from "@ai-hub/authz";
 import { runAgentForPrincipal, runSkillForPrincipal } from "./agentRuns";
+import { syncDueSources } from "./sourceSync";
 
 /*
  * The ticker.
@@ -104,6 +105,10 @@ export function startScheduler(): boolean {
   if (timer) return true;
 
   timer = setInterval(() => {
+    // Knowledge sources on the clock. Not part of the tick: a first sync of a
+    // full folder can take minutes, and schedules must not wait behind it.
+    void syncDueSources();
+
     // A tick that overruns must not stack on the next one. Schedules it skips
     // are still due a minute later; two overlapping passes would both see them.
     if (ticking) return;
