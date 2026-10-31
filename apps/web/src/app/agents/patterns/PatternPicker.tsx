@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useView } from "@/components/ViewProvider";
 import { createFromPatternAction, previewPatternAction, type PatternPreviewView } from "./actions";
 
 // Picking a pattern and filling it in. The preview is the point: before
@@ -22,6 +23,9 @@ export interface PatternView {
 
 export function PatternPicker({ patterns, canManage }: { patterns: PatternView[]; canManage: boolean }) {
   const router = useRouter();
+  // The diagram, slugs and server names are Expert reading (docs/views.md);
+  // the words above and below them say the same thing.
+  const expert = useView().view === "expert";
   const [open, setOpen] = useState<string>(patterns[0]?.slug ?? "");
   const [values, setValues] = useState<Record<string, Record<string, string>>>({});
   const [preview, setPreview] = useState<PatternPreviewView | null>(null);
@@ -79,7 +83,7 @@ export function PatternPicker({ patterns, canManage }: { patterns: PatternView[]
           <div className="eyebrow">{pattern.name}</div>
           <h2 className="mt-2 text-2xl md:text-3xl">{pattern.nickname}</h2>
           <p className="mt-3 max-w-3xl text-[var(--text-soft)]">{pattern.summary}</p>
-          <pre className="inset mono mt-4 overflow-x-auto p-4 text-xs leading-relaxed">{pattern.diagram}</pre>
+          {expert && <pre className="inset mono mt-4 overflow-x-auto p-4 text-xs leading-relaxed">{pattern.diagram}</pre>}
           <div className="mt-4 grid gap-4 sm:grid-cols-2">
             <div>
               <div className="text-xs font-medium">When it is the right shape</div>
@@ -125,7 +129,7 @@ export function PatternPicker({ patterns, canManage }: { patterns: PatternView[]
                   <input className="field" value={v[p.key] ?? p.default ?? ""} onChange={(e) => set(p.key, e.target.value)} placeholder={p.placeholder} required={p.required} />
                 ) : (
                   <textarea
-                    className={`field ${p.kind === "list" ? "mono" : ""} min-h-28`}
+                    className={`field ${p.kind === "list" && expert ? "mono" : ""} min-h-28`}
                     value={v[p.key] ?? p.default ?? ""}
                     onChange={(e) => set(p.key, e.target.value)}
                     placeholder={p.placeholder}
@@ -166,7 +170,7 @@ export function PatternPicker({ patterns, canManage }: { patterns: PatternView[]
                     <li key={a.slug} className="border-t border-[var(--border)] py-3">
                       <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1">
                         <span className="text-base font-bold">{a.name}</span>
-                        <span className="mono text-xs text-[var(--muted)]">{a.slug}</span>
+                        {expert && <span className="mono text-xs text-[var(--muted)]">{a.slug}</span>}
                       </div>
                       <p className="mt-1 text-sm text-[var(--text-soft)]">{a.description}</p>
                       <ul className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
@@ -180,7 +184,7 @@ export function PatternPicker({ patterns, canManage }: { patterns: PatternView[]
                             May ask {a.asks.join(", ")}
                           </li>
                         )}
-                        {a.servers.length > 0 && (
+                        {expert && a.servers.length > 0 && (
                           <li className="flex items-center gap-1.5">
                             <span aria-hidden className="inline-block h-1.5 w-1.5 border-2 border-[var(--c-src)]" />
                             Tools: {a.servers.join(", ")}
@@ -193,7 +197,7 @@ export function PatternPicker({ patterns, canManage }: { patterns: PatternView[]
                           </li>
                         )}
                       </ul>
-                      {a.unknownServers.length > 0 && (
+                      {expert && a.unknownServers.length > 0 && (
                         <p className="mt-1.5 text-xs text-[var(--warning)]">
                           Not declared on this deployment, so skipped at run time: {a.unknownServers.join(", ")}.
                         </p>

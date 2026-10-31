@@ -268,6 +268,39 @@ export async function getRunStatus(
   return row ?? null;
 }
 
+/** One of a person's own runs of an agent, with its answer — for "Your answers". */
+export interface MyRun {
+  id: string;
+  status: string;
+  prompt: string;
+  output: string | null;
+  error: string | null;
+  skill: string | null;
+  at: string;
+}
+
+/**
+ * The runs a person started with one agent, newest first, with what came back
+ * (the agent page's "Your answers"). Only their own: the answer is the
+ * person's, so nobody else's appears here, whatever their role — the same
+ * rule that keeps answers off the run page. Runs another agent asked for under
+ * this one (asks, one level deep) are left out: the person did not ask them.
+ */
+export async function listMyRuns(agentId: string, principalId: string, limit = 20): Promise<MyRun[]> {
+  const sql = getSql();
+  return sql<MyRun[]>`
+    select s.id, s.status, s.prompt, s.output, s.error, k.name as skill,
+           coalesce(s.started_at, s.created_at) as at
+      from agent_sessions s
+      left join agent_skills k on k.id = s.agent_skill_id
+     where s.agent_id = ${agentId}
+       and s.principal_id = ${principalId}
+       and s.parent_session_id is null
+     order by coalesce(s.started_at, s.created_at) desc
+     limit ${Math.max(1, Math.min(Math.trunc(limit), 100))}
+  `;
+}
+
 export async function listSessions(limit = 50): Promise<SessionSummary[]> {
   const sql = getSql();
   return sql<SessionSummary[]>`

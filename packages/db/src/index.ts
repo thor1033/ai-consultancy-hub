@@ -10,7 +10,7 @@ export {
   listServerRuns,
 } from "./mcpServers";
 export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun } from "./mcpServers";
-export { recordSession, listSessions, getSession, startRun, finishRun, failRun, appendRunOutput, getRunStatus, getRunTiming } from "./sessions";
+export { recordSession, listSessions, getSession, startRun, finishRun, failRun, appendRunOutput, getRunStatus, getRunTiming, listMyRuns } from "./sessions";
 export type { RunTiming } from "./sessions";
 export type {
   SessionSummary,
@@ -18,7 +18,8 @@ export type {
   RecordSessionInput,
   StartRunInput,
   FinishRunInput,
-  RunStatus
+  RunStatus,
+  MyRun
 } from "./sessions";
 export {
   listAgents,
@@ -99,6 +100,7 @@ export {
   bindWorkosUser,
   upsertPrincipal,
   setPrincipalEnabled,
+  setPrincipalPreference,
   issueCredential,
   verifyCredential,
   touchCredential,

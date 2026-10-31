@@ -33,6 +33,7 @@ import {
   deleteHandoff,
   getHandoff,
   type Handoff,
+  getRunStatus,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
@@ -692,4 +693,48 @@ export async function deleteHandoffAction(id: string, agentId: string): Promise<
 export async function listOtherAgentsAction(): Promise<{ id: string; slug: string; name: string; description: string }[]> {
   if (!(await sessionCan("agent:run"))) return [];
   return (await listAgents()).map((a) => ({ id: a.id, slug: a.slug, name: a.name, description: a.description }));
+}
+
+// --- Running a skill from its page ----------------------------------------
+//
+// Until this, a skill could be run from Claude Code, Claude.ai or a schedule,
+// and not from the hub's own page — so a person who does not use those
+// clients could not use the expertise the firm packaged (docs/views.md). It
+// runs as the person, through the same path a client's call takes, so every
+// check holds and every write is held.
+
+export type SkillRunResult =
+  | { status: "done"; runId: string; output: string }
+  | { status: "running"; runId: string }
+  | { status: "failed"; runId?: string; error: string };
+
+/** How long the page waits before it polls instead. */
+const PAGE_DEADLINE_MS = 40_000;
+
+export async function runSkillAction(skillId: string, args: Record<string, unknown>): Promise<SkillRunResult> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { status: "failed", error: NOT_ALLOWED };
+  if (typeof skillId !== "string" || !skillId) return { status: "failed", error: "No skill named." };
+  const clean: Record<string, string> = {};
+  for (const [k, v] of Object.entries(args ?? {})) {
+    if (typeof k !== "string" || k.length > 64) continue;
+    if (typeof v === "string") clean[k] = v.slice(0, 200_000);
+    else if (typeof v === "number" || typeof v === "boolean") clean[k] = String(v);
+  }
+  const out = await runSkillForPrincipal({ skillRef: skillId, args: clean, principal, deadlineMs: PAGE_DEADLINE_MS });
+  if (out.kind === "error") return { status: "failed", error: out.message };
+  if (out.kind === "running") return { status: "running", runId: out.runId };
+  revalidatePath("/agents");
+  return { status: "done", runId: out.runId, output: out.output };
+}
+
+/** A run this person started, for the page to poll. Scoped to them: a run id is not a bearer token. */
+export async function runStatusAction(runId: string): Promise<SkillRunResult> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { status: "failed", error: NOT_ALLOWED };
+  const run = await getRunStatus(runId, principal.id).catch(() => null);
+  if (!run) return { status: "failed", runId, error: "That run is not one of yours." };
+  if (run.status === "running") return { status: "running", runId };
+  if (run.status === "failed") return { status: "failed", runId, error: run.error ?? "The run failed." };
+  return { status: "done", runId, output: run.output ?? "" };
 }

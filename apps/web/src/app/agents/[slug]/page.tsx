@@ -18,6 +18,8 @@ import {
   listHandoffs,
   listAgents,
   askedAgents,
+  listMyRuns,
+  type MyRun,
 } from "@ai-hub/db";
 import { DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
 import { listCollections } from "@ai-hub/rag";
@@ -32,6 +34,9 @@ import { MemoryPanel } from "./MemoryPanel";
 import { SkillsPanel } from "./SkillsPanel";
 import { SchedulesPanel } from "./SchedulesPanel";
 import { HandoffsPanel } from "./HandoffsPanel";
+import { YourAnswers } from "./YourAnswers";
+import { viewContext } from "@/lib/viewServer";
+import { atLeast } from "@/lib/views";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { localAgentName, localSkillName, renderAgentFiles } from "@/lib/localAgents";
 
@@ -75,6 +80,13 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
     listAgents().catch(() => []),
   ]);
   const baseUrl = appBaseUrl(await headers()) ?? "https://hub.example.com";
+  // The signed-in person's own runs, with their answers: "Your answers".
+  const mine: MyRun[] = viewer ? await listMyRuns(agent.id, viewer.id).catch(() => []) : [];
+  // How much of the agent this person is shown (docs/views.md). Simple is a
+  // conversation and its skills; Expert is every dial and the tool names.
+  const { view } = await viewContext();
+  const standard = atLeast(view, "standard");
+  const expert = atLeast(view, "expert");
 
   const stats = roster.find((r) => r.id === agent.id);
   const scope = knowledgeScope(agent);
@@ -169,8 +181,15 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
               Not run yet.{" "}
               <a href="#conversation" className="text-[var(--text)] underline underline-offset-2">
                 Start a conversation
-              </a>{" "}
-              or call <span className="mono">{agentToolName(agent.slug)}</span> from a client.
+              </a>
+              {expert ? (
+                <>
+                  {" "}
+                  or call <span className="mono">{agentToolName(agent.slug)}</span> from a client.
+                </>
+              ) : (
+                "."
+              )}
             </p>
           ) : (
             <ul className="mt-3 flex flex-col">
@@ -186,13 +205,17 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
                     }}
                   />
                   <div className="min-w-0">
-                    <Link
-                      href={`/agents/${agent.slug}/runs/${r.id}`}
-                      title="Where this run's time went"
-                      className="block truncate text-sm hover:text-[var(--brand-ink)] hover:underline hover:underline-offset-2"
-                    >
-                      {r.prompt || <span className="text-[var(--muted)]">(no prompt)</span>}
-                    </Link>
+                    {expert ? (
+                      <Link
+                        href={`/agents/${agent.slug}/runs/${r.id}`}
+                        title="Where this run's time went"
+                        className="block truncate text-sm hover:text-[var(--brand-ink)] hover:underline hover:underline-offset-2"
+                      >
+                        {r.prompt || <span className="text-[var(--muted)]">(no prompt)</span>}
+                      </Link>
+                    ) : (
+                      <p className="truncate text-sm">{r.prompt || <span className="text-[var(--muted)]">(no prompt)</span>}</p>
+                    )}
                     <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-[var(--muted)]">
                       {r.skill && (
                         <span className="inline-flex items-center gap-1 text-[var(--text-soft)]">
@@ -235,6 +258,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           </dl>
         </section>
 
+        {expert && (
         <section className="panel p-5 md:p-6">
           <div className="eyebrow">Reach it from a client</div>
           {agent.placement !== "local" && (
@@ -288,6 +312,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
             <p className="mt-3 text-xs text-[var(--warning)]">Switched off — clients do not see these right now.</p>
           )}
         </section>
+        )}
 
         <SchedulesPanel
           agentId={agent.id}
@@ -345,6 +370,20 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
     </>
   );
 
+  const conversation =
+              agent.placement === "local" ? (
+                <div className="panel p-5 text-sm text-[var(--text-soft)]">
+                  {agent.name} runs in Claude Code, as the <span className="mono">{localAgentName(agent.slug)}</span>{" "}
+                  sub-agent, so the hub does not run it here. Set it to <strong>Hub</strong> or <strong>Both</strong> under{" "}
+                  <a href="#settings" className="underline underline-offset-2">
+                    Settings
+                  </a>{" "}
+                  to talk to it in this console.
+                </div>
+              ) : (
+                <AgentChat slug={agent.slug} name={agent.name} enabled={agent.enabled} />
+              );
+
   const health: { text: string; color: string }[] = [];
   if (stats?.failed7d) health.push({ text: `${stats.failed7d} failed this week`, color: "var(--brand)" });
   if (stats?.scheduleError) health.push({ text: "A schedule errored", color: "var(--brand)" });
@@ -364,11 +403,11 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
               style={{ background: agent.enabled ? "var(--ai)" : "var(--faint)" }}
             />
             {agent.enabled ? "Agent · On" : "Agent · Switched off"}
-            {agent.placement !== "hub" && (
+            {standard && agent.placement !== "hub" && (
               <span>· {agent.placement === "local" ? "Runs in Claude Code" : "Hub and Claude Code"}</span>
             )}
-            {agent.pattern && <span>· {agent.pattern.role} of “{agent.pattern.instance}”</span>}
-            {agent.source && (
+            {standard && agent.pattern && <span>· {agent.pattern.role} of “{agent.pattern.instance}”</span>}
+            {standard && agent.source && (
               <span className="normal-case tracking-normal">
                 · imported from{" "}
                 <a href={agent.source.url} className="underline underline-offset-2" target="_blank" rel="noreferrer">
@@ -377,8 +416,8 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
                 {agent.source.license ? ` (${agent.source.license})` : ""}
               </span>
             )}
-            {!agent.keepsMemory && <span>· No memory</span>}
-            <span className="mono normal-case tracking-normal text-[var(--faint)]">{agent.slug}</span>
+            {standard && !agent.keepsMemory && <span>· No memory</span>}
+            {expert && <span className="mono normal-case tracking-normal text-[var(--faint)]">{agent.slug}</span>}
           </div>
           <h1 className="mt-3 text-3xl md:text-4xl">{agent.name}</h1>
           <p className="mt-2 max-w-2xl text-[var(--text-soft)]">
@@ -396,17 +435,20 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           )}
         </div>
         <div className="flex gap-2">
-          <a href="#settings" className="btn min-h-11">
-            Settings
-          </a>
+          {standard && (
+            <a href="#settings" className="btn min-h-11">
+              Settings
+            </a>
+          )}
           {agent.enabled && (
             <a href="#conversation" className="btn-brand min-h-11">
-              Talk to {agent.name.split(" ")[0]}
+              Ask a question
             </a>
           )}
         </div>
       </header>
 
+      {standard && (
       <div className="rule-heavy mt-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
         <Stat value={`${stats?.runs7d ?? 0}`} label="Runs · 7 days" node="var(--ai)" />
         <Stat value={money(stats?.spend7d ?? 0)} label="Spend · 7 days" />
@@ -415,55 +457,42 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
         <Stat value={`${liveSkills.length}`} label="Skills" node="var(--c-skill)" diamond />
         <Stat value={`${stats?.schedulesEnabled ?? 0}`} label="Schedules on" />
       </div>
+      )}
 
       <AgentTabs
         tabs={[
-          { id: "overview", label: "Overview", content: overview },
-          {
-            id: "conversation",
-            label: "Conversation",
-            content:
-              agent.placement === "local" ? (
-                <div className="panel p-5 text-sm text-[var(--text-soft)]">
-                  {agent.name} runs in Claude Code, as the <span className="mono">{localAgentName(agent.slug)}</span>{" "}
-                  sub-agent, so the hub does not run it here. Set it to <strong>Hub</strong> or <strong>Both</strong> under{" "}
-                  <a href="#settings" className="underline underline-offset-2">
-                    Settings
-                  </a>{" "}
-                  to talk to it in this console.
-                </div>
-              ) : (
-                <AgentChat slug={agent.slug} name={agent.name} enabled={agent.enabled} />
-              ),
-          },
-          {
-            id: "memory",
-            label: "Memory",
-            count: memories.length,
-            content: <MemoryPanel agentId={agent.id} name={agent.name} memories={memories} />,
-          },
+          ...(standard ? [{ id: "overview", label: "Overview", content: overview }] : []),
+          { id: "conversation", label: "Conversation", content: conversation },
+          ...(standard
+            ? [{ id: "memory", label: "Memory", count: memories.length, content: <MemoryPanel agentId={agent.id} name={agent.name} memories={memories} /> }]
+            : []),
+          ...(viewer ? [{ id: "answers", label: "Your answers", count: mine.length, content: <YourAnswers runs={mine} agentName={agent.name} now={now} /> }] : []),
           {
             id: "skills",
             label: "Skills",
-            count: skills.length,
-            content: <SkillsPanel agentId={agent.id} agentSlug={agent.slug} initial={skills} />,
+            count: standard ? skills.length : liveSkills.length,
+            content: <SkillsPanel agentId={agent.id} agentSlug={agent.slug} agentName={agent.name} initial={skills} canManage={Boolean(canManage)} />,
           },
-          {
-            id: "handoffs",
-            label: "Hand-offs",
-            count: handoffs.length,
-            content: (
-              <HandoffsPanel
-                agentId={agent.id}
-                agentName={agent.name}
-                initial={handoffs}
-                skills={skills}
-                agents={allAgents.map((a) => ({ id: a.id, slug: a.slug, name: a.name }))}
-                canManage={Boolean(canManage)}
-              />
-            ),
-          },
-          { id: "settings", label: "Settings", content: settings },
+          ...(expert
+            ? [
+                {
+                  id: "handoffs",
+                  label: "Hand-offs",
+                  count: handoffs.length,
+                  content: (
+                    <HandoffsPanel
+                      agentId={agent.id}
+                      agentName={agent.name}
+                      initial={handoffs}
+                      skills={skills}
+                      agents={allAgents.map((a) => ({ id: a.id, slug: a.slug, name: a.name }))}
+                      canManage={Boolean(canManage)}
+                    />
+                  ),
+                },
+              ]
+            : []),
+          ...(standard ? [{ id: "settings", label: "Settings", content: settings }] : []),
         ]}
       />
     </main>

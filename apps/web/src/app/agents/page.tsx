@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { agentRoster, type AgentRosterRow } from "@ai-hub/db";
 import { money, rel } from "@/lib/format";
+import { viewContext } from "@/lib/viewServer";
+import { AgentDirectory } from "@/components/AgentDirectory";
 
 export const dynamic = "force-dynamic";
 
@@ -81,6 +83,26 @@ export default async function AgentsPage() {
     roster = await agentRoster();
   } catch (e) {
     error = e instanceof Error ? e.message : "Failed to load agents.";
+  }
+
+  // Simple sees who can help and with what; the org chart, with owners,
+  // functions and the week's figures, is Standard's and Expert's (docs/views.md).
+  const ctx = await viewContext();
+  if (ctx.view === "simple") {
+    return (
+      <main className="mx-auto max-w-[75rem] px-5 py-7 lg:px-8">
+        <header>
+          <div className="eyebrow">Agents</div>
+          <h1 className="mt-3 text-3xl md:text-4xl">Who can help.</h1>
+          <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
+            Each agent knows its area. Talk to it, or pick one of its tasks and fill in the blanks.
+          </p>
+        </header>
+        <div className="mt-6">
+          {error ? <div className="panel notice-warning p-4 text-sm text-[var(--warning)]">{error}</div> : <AgentDirectory roster={roster} canRun={ctx.can.run} />}
+        </div>
+      </main>
+    );
   }
 
   const now = Date.now();

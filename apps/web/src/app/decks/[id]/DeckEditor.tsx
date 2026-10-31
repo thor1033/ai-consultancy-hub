@@ -7,6 +7,8 @@ import { SlideFrame } from "@/components/slides/SlideFrame";
 import { addSlideJsonAction, deleteDeckAction, moveSlideAction, removeSlideAction, renameDeckAction, updateSlideJsonAction } from "../actions";
 import { liveSlides, useLiveDeck } from "../live";
 import { AgentTag, AskBox, Tray } from "../parts";
+import { SlideFields } from "./SlideFields";
+import { useView } from "@/components/ViewProvider";
 
 // A deck between presentations: its slides in order, the tray, and the ways
 // in — the question box, a slide as JSON, or Claude Code with the deck's id.
@@ -24,6 +26,10 @@ export function DeckEditor({ initial, canDelete, spec }: { initial: Deck; canDel
   const [adding, setAdding] = useState(false);
   const [title, setTitle] = useState(deck.title);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Slides are edited as fields until Expert, where the JSON is the editor;
+  // Standard can open the JSON too (docs/views.md).
+  const { view } = useView();
+  const [asJson, setAsJson] = useState(view === "expert");
 
   const act = (fn: () => Promise<{ deck: Deck } | { error: string }>, then?: () => void) =>
     start(async () => {
@@ -107,8 +113,8 @@ export function DeckEditor({ initial, canDelete, spec }: { initial: Deck; canDel
                   <AgentTag slide={s} />
                 </div>
                 <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
-                  <span className="mono mr-auto text-[var(--muted)]">
-                    {i + 1} · {s.kind} · {s.id}
+                  <span className={`mr-auto text-[var(--muted)] ${view === "expert" ? "mono" : ""}`}>
+                    {view === "expert" ? `${i + 1} · ${s.kind} · ${s.id}` : `Slide ${i + 1}`}
                   </span>
                   <button type="button" className="btn min-h-8 px-2" disabled={busy || i === 0} onClick={() => act(() => moveSlideAction(deck.id, s.id, "up"))} aria-label="Move earlier">
                     ↑
@@ -123,19 +129,33 @@ export function DeckEditor({ initial, canDelete, spec }: { initial: Deck; canDel
                     Remove
                   </button>
                 </div>
-                {editing === s.id && (
-                  <JsonEditor
-                    initial={JSON.stringify(contentOf(s), null, 2)}
-                    busy={busy}
-                    label="Save slide"
-                    onCancel={() => setEditing(null)}
-                    onSave={(json) => act(() => updateSlideJsonAction(deck.id, s.id, json), () => setEditing(null))}
-                  />
+                {editing === s.id &&
+                  (asJson ? (
+                    <JsonEditor
+                      initial={JSON.stringify(contentOf(s), null, 2)}
+                      busy={busy}
+                      label="Save slide"
+                      onCancel={() => setEditing(null)}
+                      onSave={(json) => act(() => updateSlideJsonAction(deck.id, s.id, json), () => setEditing(null))}
+                    />
+                  ) : (
+                    <SlideFields
+                      initial={contentOf(s)}
+                      busy={busy}
+                      onCancel={() => setEditing(null)}
+                      onSave={(json) => act(() => updateSlideJsonAction(deck.id, s.id, json), () => setEditing(null))}
+                    />
+                  ))}
+                {editing === s.id && view !== "simple" && (
+                  <button type="button" className="mt-2 text-xs text-[var(--muted)] underline-offset-2 hover:underline" onClick={() => setAsJson(!asJson)}>
+                    {asJson ? "Edit as fields" : "Edit as JSON"}
+                  </button>
                 )}
               </li>
             ))}
           </ol>
 
+          {view !== "simple" && (
           <div className="mt-4">
             {adding ? (
               <div className="panel p-4">
@@ -158,6 +178,10 @@ export function DeckEditor({ initial, canDelete, spec }: { initial: Deck; canDel
               </button>
             )}
           </div>
+          )}
+          {view === "simple" && (
+            <p className="mt-4 text-sm text-[var(--muted)]">To add or rework slides, ask in the box on the right: the agent drafts them for you.</p>
+          )}
         </section>
 
         <aside className="flex flex-col gap-4">
@@ -167,11 +191,13 @@ export function DeckEditor({ initial, canDelete, spec }: { initial: Deck; canDel
           <div className="panel p-4">
             <Tray deck={deck} onDeck={apply} presenting={deck.presenting} />
           </div>
-          <div className="panel p-4 text-xs text-[var(--muted)]">
-            <div className="eyebrow mb-2">From Claude Code</div>
-            Ask Claude to work on deck <span className="mono text-[var(--text)]">{deck.id}</span>. It uses the hub&apos;s
-            <span className="mono"> hub_deck_*</span> tools, and the changes appear here as they are made.
-          </div>
+          {view === "expert" && (
+            <div className="panel p-4 text-xs text-[var(--muted)]">
+              <div className="eyebrow mb-2">From Claude Code</div>
+              Ask Claude to work on deck <span className="mono text-[var(--text)]">{deck.id}</span>. It uses the hub&apos;s
+              <span className="mono"> hub_deck_*</span> tools, and the changes appear here as they are made.
+            </div>
+          )}
         </aside>
       </div>
     </div>

@@ -15,6 +15,8 @@ export interface PrincipalRow {
   roles: string[];
   agentId: string | null;
   enabled: boolean;
+  /** How the hub looks to this person (docs/views.md). Never a permission. */
+  preferences: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
@@ -49,7 +51,7 @@ const PRINCIPAL_COLS = `
   id, email,
   workos_user_id as "workosUserId",
   display_name   as "displayName",
-  roles, agent_id as "agentId", enabled,
+  roles, agent_id as "agentId", enabled, preferences,
   created_at     as "createdAt",
   updated_at     as "updatedAt"
 `;
@@ -205,6 +207,21 @@ export async function setPrincipalEnabled(id: string, enabled: boolean): Promise
   return rows.count > 0;
 }
 
+/**
+ * Set one of a person's own preferences, or clear it with null. Merged into
+ * the row's preferences, so setting the view leaves anything else there.
+ * Returns false when there is no such row (a person admitted by the email
+ * allowlist alone has none; their choice lives in the browser's cookie).
+ */
+export async function setPrincipalPreference(id: string, key: string, value: unknown): Promise<boolean> {
+  const sql = getSql();
+  const rows =
+    value === null || value === undefined
+      ? await sql`update principals set preferences = preferences - ${key}, updated_at = now() where id = ${id}`
+      : await sql`update principals set preferences = preferences || ${sql.json({ [key]: value } as never)}, updated_at = now() where id = ${id}`;
+  return rows.count > 0;
+}
+
 // --- credentials -----------------------------------------------------------
 
 export interface IssueCredentialInput {
@@ -284,6 +301,7 @@ export async function verifyCredential(
       roles: Array.isArray(raw.roles) ? (raw.roles as string[]) : [],
       agentId: (raw.agent_id as string | null) ?? null,
       enabled: Boolean(raw.enabled),
+      preferences: raw.preferences && typeof raw.preferences === "object" ? (raw.preferences as Record<string, unknown>) : {},
       createdAt: String(raw.created_at),
       updatedAt: String(raw.updated_at),
     },

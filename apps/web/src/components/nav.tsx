@@ -27,6 +27,11 @@ export interface NavItem {
   icon: React.ReactNode;
 }
 
+/** The icon for a navigation address; the labels and which items show are views.ts's. */
+export function navIcon(href: string): React.ReactNode {
+  return NAV.find((n) => n.href === href)?.icon ?? null;
+}
+
 const s = {
   width: 16,
   height: 16,
@@ -120,6 +125,19 @@ export const NAV: NavItem[] = [
         <rect x="3" y="4" width="18" height="6" />
         <rect x="3" y="14" width="18" height="6" />
         <path d="M7 7h.01M7 17h.01" />
+      </svg>
+    ),
+  },
+  {
+    href: "/settings",
+    label: "Settings",
+    icon: (
+      // Three sliders: how the hub looks to you.
+      <svg {...s}>
+        <path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0" />
+        <rect x="14" y="4" width="4" height="4" />
+        <rect x="8" y="10" width="4" height="4" />
+        <rect x="16" y="16" width="4" height="4" />
       </svg>
     ),
   },

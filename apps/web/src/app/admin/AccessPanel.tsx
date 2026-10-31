@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from"react";
+import { useView } from "@/components/ViewProvider";
 import {
   loadAccessAction,
   savePrincipalAction,
@@ -28,6 +29,10 @@ export function AccessPanel() {
   // The plaintext of a credential just issued. Held in component state only —
   // it is the one moment it exists outside a hash, and it dies with the tab.
   const [freshToken, setFreshToken] = useState<{ name: string; token: string } | null>(null);
+  // Below Expert, the page is about people and what they may read
+  // (docs/views.md). Sign-in protocol, machine credentials and the audit trail
+  // are for whoever wires the hub to other systems — one switch away.
+  const expert = useView().view === "expert";
 
   const apply = useCallback((out: AccessSnapshot | { error: string }) => {
     if ("error" in out) setError(out.error);
@@ -73,12 +78,16 @@ export function AccessPanel() {
         </div>
       )}
 
-      <OAuthStatusCard snap={snap} />
+      {expert && <OAuthStatusCard snap={snap} />}
 
       <section>
         <SectionHeading
           title="People"
-          subtitle="Who the hub knows. An OAuth sign-in proves identity; this is what grants it permission. Disabling a person takes every credential they hold out of service at once."
+          subtitle={
+            expert
+              ? "Who the hub knows. An OAuth sign-in proves identity; this is what grants it permission. Disabling a person takes every credential they hold out of service at once."
+              : "Who may use the hub, and how much they may do. Add someone by their work email; they sign in with their usual account. Switching a person off stops them at once."
+          }
         />
         <PrincipalList
           snap={snap}
@@ -93,6 +102,7 @@ export function AccessPanel() {
         />
       </section>
 
+      {expert && (
       <section>
         <SectionHeading
           title="Credentials"
@@ -130,11 +140,16 @@ export function AccessPanel() {
           }}
         />
       </section>
+      )}
 
       <section>
         <SectionHeading
           title="Knowledge"
-          subtitle="Which shared drives each person may open. A restricted collection is readable only by the people granted it — search, document reads and the collection list all narrow the same way, so there is no way round it."
+          subtitle={
+            expert
+              ? "Which shared drives each person may open. A restricted collection is readable only by the people granted it — search, document reads and the collection list all narrow the same way, so there is no way round it."
+              : "Which folders of documents each person may read. A private folder is readable only by the people you name — and so are the agents' answers drawn from it."
+          }
         />
         <KnowledgeList
           snap={snap}
@@ -156,6 +171,7 @@ export function AccessPanel() {
         />
       </section>
 
+      {expert && (
       <section>
         <SectionHeading
           title="Audit"
@@ -163,6 +179,7 @@ export function AccessPanel() {
         />
         <AuditList snap={snap} />
       </section>
+      )}
     </div>
   );
 }

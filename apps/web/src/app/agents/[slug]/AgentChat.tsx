@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
+import { useView } from "@/components/ViewProvider";
 import { useRouter } from "next/navigation";
 import { sendAgentMessageAction, type AgentChatMessage, type AgentTurnMeta } from "../actions";
 import { Markdown } from "@/components/Markdown";
@@ -18,6 +19,7 @@ const STARTERS = [
 
 export function AgentChat({ slug, name, enabled }: { slug: string; name: string; enabled: boolean }) {
   const router = useRouter();
+  const simple = useView().view === "simple";
   const [turns, setTurns] = useState<Turn[]>([]);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -69,8 +71,9 @@ export function AgentChat({ slug, name, enabled }: { slug: string; name: string;
           <div className="my-auto">
             <div className="eyebrow">New conversation</div>
             <p className="mt-2 max-w-xl text-[var(--text-soft)]">
-              {name} starts with its brief and everything it has loaded into memory. Nothing said here is kept unless
-              it decides to remember it.
+              {simple
+                ? `Ask ${name} anything in its area, in your own words. It keeps what matters for next time; the rest is forgotten when you leave.`
+                : `${name} starts with its brief and everything it has loaded into memory. Nothing said here is kept unless it decides to remember it.`}
             </p>
             <div className="mt-5 flex flex-wrap gap-2">
               {STARTERS.map((s) => (
@@ -176,10 +179,20 @@ function CopyButton({ text }: { text: string }) {
 }
 
 function MetaLine({ meta }: { meta: AgentTurnMeta }) {
+  // Simple says where the answer came from and nothing else; Standard adds the
+  // time and the tools; Expert the model and the cost (docs/views.md).
+  const { view } = useView();
+  if (view === "simple") {
+    return meta.sources ? (
+      <div className="mt-2 pl-4 text-xs text-[var(--muted)]">
+        Based on {meta.sources} passage{meta.sources === 1 ? "" : "s"} from your documents.
+      </div>
+    ) : null;
+  }
   const parts = [
-    meta.model,
+    view === "expert" ? meta.model : null,
     `${(meta.latencyMs / 1000).toFixed(1)}s`,
-    `$${meta.costUsd.toFixed(4)}`,
+    view === "expert" ? `$${meta.costUsd.toFixed(4)}` : null,
     meta.sources ? `${meta.sources} knowledge passage${meta.sources === 1 ? "" : "s"}` : null,
   ].filter(Boolean);
   return (

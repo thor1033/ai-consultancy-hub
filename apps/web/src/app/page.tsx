@@ -14,6 +14,8 @@ import { listDocuments, embedderStatus, type DocumentSummary } from "@ai-hub/rag
 import { listRegisteredServers } from "@/lib/mcpCatalog";
 import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 import { DAYS, cadence, money, rel } from "@/lib/format";
+import { viewContext } from "@/lib/viewServer";
+import { SimpleHome } from "@/components/SimpleHome";
 
 export const dynamic = "force-dynamic";
 
@@ -35,6 +37,11 @@ const names = (entries: unknown): string[] =>
     : [];
 
 export default async function OverviewPage() {
+  // Simple has its own home: what is waiting, who can help, what they know
+  // (docs/views.md). The overview below is Standard's and Expert's.
+  const ctx = await viewContext();
+  if (ctx.view === "simple") return <SimpleHome ctx={ctx} />;
+  const expert = ctx.view === "expert";
   // Each source is read independently: an empty knowledge base or an MCP server
   // that will not start should cost you that panel, not the whole page.
   const [roster, days, recent, docs, servers, schedules] = await Promise.all([
@@ -69,11 +76,13 @@ export default async function OverviewPage() {
 
   // ── what needs a person ────────────────────────────────────────────────────
   const attention: Attention[] = [];
-  if (!embedder.production) {
+  if (!embedder.production && (expert || ctx.can.admin)) {
     attention.push({
       level: "danger",
-      text: "Knowledge search is running on the development fallback",
-      detail: `Embeddings come from ${embedder.name}, so retrieval returns confident nonsense. Set VOYAGE_API_KEY and re-index.`,
+      text: expert ? "Knowledge search is running on the development fallback" : "Document search is not fully set up",
+      detail: expert
+        ? `Embeddings come from ${embedder.name}, so retrieval returns confident nonsense. Set VOYAGE_API_KEY and re-index.`
+        : "Agents find documents by matching words rather than meaning. Switch to Expert view for what to set.",
       href: "/knowledge",
     });
   }
@@ -138,7 +147,7 @@ export default async function OverviewPage() {
               ? `${runs} run${runs === 1 ? "" : "s"} by ${busy} agent${busy === 1 ? "" : "s"} this week, for ${money(spend)}.`
               : "No agent has run this week."}{" "}
             {roster.length} agent{roster.length === 1 ? "" : "s"}, {docs.length} document{docs.length === 1 ? "" : "s"} and{" "}
-            {servers.length} tool server{servers.length === 1 ? "" : "s"} on the hub.
+            {servers.length} {expert ? "tool server" : "connection"}{servers.length === 1 ? "" : "s"} on the hub.
           </p>
         </div>
         <div className="flex gap-2">
@@ -165,7 +174,7 @@ export default async function OverviewPage() {
         <Stat
           value={`${servers.filter((s) => s.enabled).length}`}
           sub={servers.some((s) => !s.enabled) ? `of ${servers.length}` : undefined}
-          label="Tool servers on"
+          label={expert ? "Tool servers on" : "Connections on"}
           node="var(--c-src)"
           outline
           href="/mcp"
@@ -346,14 +355,16 @@ export default async function OverviewPage() {
             ) : (
               <p>Nothing indexed yet.</p>
             )}
-            <p className="mt-1 flex items-center gap-1.5">
-              <span
-                aria-hidden
-                className="inline-block h-1.5 w-1.5"
-                style={{ background: embedder.production ? "var(--ai)" : "var(--brand)" }}
-              />
-              Embeddings: <span className="mono">{embedder.name}</span>
-            </p>
+            {expert && (
+              <p className="mt-1 flex items-center gap-1.5">
+                <span
+                  aria-hidden
+                  className="inline-block h-1.5 w-1.5"
+                  style={{ background: embedder.production ? "var(--ai)" : "var(--brand)" }}
+                />
+                Embeddings: <span className="mono">{embedder.name}</span>
+              </p>
+            )}
           </div>
         </section>
 
@@ -407,7 +418,7 @@ export default async function OverviewPage() {
 
         <section className="panel p-5 md:col-span-2 md:p-6 lg:col-span-1">
           <div className="flex items-baseline justify-between gap-2">
-            <div className="eyebrow">Tool servers</div>
+            <div className="eyebrow">{expert ? "Tool servers" : "Connections"}</div>
             <Link href="/mcp" className="text-xs text-[var(--muted)] hover:text-[var(--brand)]">
               Manage →
             </Link>

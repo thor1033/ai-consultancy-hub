@@ -614,3 +614,9 @@ alter table seed_applied add constraint seed_applied_kind_check
 -- when it is time to compare with upstream or credit a license.
 alter table agents add column if not exists source jsonb;
 alter table agent_skills add column if not exists source jsonb;
+
+-- A person's own settings for how the hub looks to them (docs/views.md):
+-- {"view": "simple" | "standard" | "expert"}. Never a permission — roles are
+-- that — only how much of the hub a person is shown. Kept on the row so the
+-- choice follows them to another device; the browser keeps a cookie too.
+alter table principals add column if not exists preferences jsonb not null default '{}'::jsonb;

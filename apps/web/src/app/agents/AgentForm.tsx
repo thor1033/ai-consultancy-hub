@@ -6,6 +6,7 @@ import type { Placement } from "@ai-hub/db";
 import { saveAgentAction, deleteAgentAction } from "./actions";
 import { MAILBOX_SERVERS, MODELS, agentToolName } from "./models";
 import type { ToolOption } from "./catalog";
+import { useView } from "@/components/ViewProvider";
 
 // One form for hiring an agent and for changing one, in the order a person
 // thinks about a new hire: who it is, its brief, what it may use, what it may
@@ -125,6 +126,11 @@ export function AgentForm({
   owners?: string[];
 }) {
   const router = useRouter();
+  const { atLeast } = useView();
+  // The deep dials — model, tool rounds, where it runs — are folded under
+  // Advanced until Expert (docs/views.md): changing them is rare, and getting
+  // them wrong is the commonest way to make an agent slow or expensive.
+  const [advanced, setAdvanced] = useState(atLeast("expert"));
   const creating = initial.id === null;
   const [v, setV] = useState<AgentFormValues>(initial);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -495,6 +501,22 @@ export function AgentForm({
           )}
         </Section>
 
+        <div className="border-t border-[var(--border-strong)] pt-4">
+          <button
+            type="button"
+            aria-expanded={advanced}
+            onClick={() => setAdvanced(!advanced)}
+            className="flex w-full items-baseline justify-between gap-3 text-left"
+          >
+            <span>
+              <span className="text-base font-bold">Advanced</span>
+              <span className="ml-2 text-sm text-[var(--muted)]">Model, tool rounds, and where it runs</span>
+            </span>
+            <span aria-hidden className="text-sm text-[var(--muted)]">{advanced ? "Hide" : "Show"}</span>
+          </button>
+        </div>
+        {advanced && (
+          <>
         <Section n="05" title="How it works" hint="The model it thinks with, and how many rounds of tool use one run may take before it stops and says so.">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
@@ -597,6 +619,8 @@ export function AgentForm({
             </details>
           )}
         </Section>
+          </>
+        )}
 
         {!creating && (
           <section className="border border-[var(--danger)] p-5" aria-labelledby="danger-title">

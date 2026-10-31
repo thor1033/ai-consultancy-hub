@@ -5,6 +5,7 @@ import { toolCallCounts, type ToolCallCount } from "@ai-hub/db";
 import { countMcpTools } from "@/lib/mcpCatalog";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { rel } from "@/lib/format";
+import { viewContext } from "@/lib/viewServer";
 import { CopyLine } from "./CopyLine";
 import { serverDirectory, type DirectoryEntry } from "./directory";
 
@@ -39,11 +40,14 @@ export default async function McpOverviewPage() {
   const hubUrl = `${base ?? ""}/api/mcp`;
   const agentsOn = roster.filter((a) => a.enabled);
   const skills = agentsOn.reduce((n, a) => n + a.skills, 0);
+  // Below Expert this page is "Connections" (docs/views.md): the same rows,
+  // without protocol names, tool prefixes or settings a person cannot change.
+  const expert = (await viewContext()).view === "expert";
 
   return (
     <main className="mx-auto max-w-[85rem] px-5 py-7 lg:px-8">
       <header className="min-w-0">
-        <div className="eyebrow">MCP servers</div>
+        <div className="eyebrow">{expert ? "MCP servers" : "Connections"}</div>
         <h1 className="mt-3 text-3xl md:text-4xl">What your agents can reach.</h1>
         <p className="mt-2 max-w-2xl text-[var(--text-soft)]">
           Each server is a live connection — a project board, a mailbox — that an agent calls as tools while it works.
@@ -67,14 +71,20 @@ export default async function McpOverviewPage() {
               <div className="eyebrow">No servers yet</div>
               <h2 className="mt-3 max-w-2xl text-2xl">Agents can only remember for now.</h2>
               <p className="mt-3 max-w-2xl text-[var(--text-soft)]">
-                Declare a remote server in <span className="mono text-sm">HUB_REMOTE_MCP_SERVERS</span> and it appears here
-                on the next page load, ready to give to an agent.
+                {expert ? (
+                  <>
+                    Declare a remote server in <span className="mono text-sm">HUB_REMOTE_MCP_SERVERS</span> and it appears here
+                    on the next page load, ready to give to an agent.
+                  </>
+                ) : (
+                  "Connections to your other systems — a project board, a mailbox — are added by whoever runs the hub. Once one is added, it shows here and can be given to an agent."
+                )}
               </p>
             </section>
           ) : (
             <ul className="mt-6 flex flex-col gap-3">
               {entries.map((e) => (
-                <ServerRow key={e.name} entry={e} now={now} />
+                <ServerRow key={e.name} entry={e} now={now} expert={expert} />
               ))}
             </ul>
           )}
@@ -91,8 +101,9 @@ export default async function McpOverviewPage() {
                 </Link>
               </div>
               <p className="mt-3 text-sm text-[var(--text-soft)]">
-                Every agent gets its own memory server, started for each run and scoped to that agent alone — one agent
-                can never read another&apos;s memory by asking. It is not listed above because nobody chooses it.
+                {expert
+                  ? "Every agent gets its own memory server, started for each run and scoped to that agent alone — one agent can never read another's memory by asking. It is not listed above because nobody chooses it."
+                  : "Every agent has a memory of its own that no other agent can read. It is not listed above because nobody has to switch it on."}
               </p>
               <dl className="mt-auto grid grid-cols-2 gap-3 pt-4">
                 <Fig k="Agents" v={`${roster.length}`} />
@@ -105,6 +116,12 @@ export default async function McpOverviewPage() {
                 <span aria-hidden className="inline-block h-2 w-2 bg-[var(--ai)]" />
                 The hub is a server too
               </div>
+              {!expert ? (
+                <p className="mt-3 text-sm text-[var(--text-soft)]">
+                  You can use the agents from Claude.ai too: in Claude.ai, open Settings → Connectors → Add custom connector, and
+                  paste the address below. You sign in with your usual account; nothing secret is pasted anywhere.
+                </p>
+              ) : (
               <p className="mt-3 text-sm text-[var(--text-soft)]">
                 Claude Code, Claude.ai and Cursor connect here and get every agent as a tool —{" "}
                 <span className="mono text-xs">hub_agent_*</span> for {agentsOn.length} agent{agentsOn.length === 1 ? "" : "s"}
@@ -115,18 +132,23 @@ export default async function McpOverviewPage() {
                 )}{" "}
                 — plus knowledge search and agent memory. Sign-in is OAuth, so nothing secret goes in the config.
               </p>
+              )}
               <div className="mt-4 flex flex-col gap-3">
                 <div>
                   <div className="mb-1 text-xs text-[var(--muted)]">Server URL</div>
                   <CopyLine text={hubUrl} label="server URL" />
                 </div>
-                <div>
-                  <div className="mb-1 text-xs text-[var(--muted)]">Claude Code</div>
-                  <CopyLine text={`claude mcp add --transport http ai-hub ${hubUrl}`} label="Claude Code command" />
-                </div>
-                <p className="text-xs text-[var(--muted)]">
-                  In Claude.ai: Settings → Connectors → Add custom connector, and paste the server URL.
-                </p>
+                {expert && (
+                  <>
+                    <div>
+                      <div className="mb-1 text-xs text-[var(--muted)]">Claude Code</div>
+                      <CopyLine text={`claude mcp add --transport http ai-hub ${hubUrl}`} label="Claude Code command" />
+                    </div>
+                    <p className="text-xs text-[var(--muted)]">
+                      In Claude.ai: Settings → Connectors → Add custom connector, and paste the server URL.
+                    </p>
+                  </>
+                )}
               </div>
             </section>
           </div>
@@ -136,7 +158,7 @@ export default async function McpOverviewPage() {
   );
 }
 
-function ServerRow({ entry: e, now }: { entry: DirectoryEntry; now: number }) {
+function ServerRow({ entry: e, now, expert }: { entry: DirectoryEntry; now: number; expert: boolean }) {
   return (
     <li>
       <Link
@@ -154,8 +176,12 @@ function ServerRow({ entry: e, now }: { entry: DirectoryEntry; now: number }) {
             {!e.enabled && <span className="eyebrow">Off</span>}
           </div>
           <div className="mt-1 flex flex-wrap items-center gap-x-2 text-xs text-[var(--muted)]">
-            <span className="mono">{e.name}</span>
-            <span>·</span>
+            {expert && (
+              <>
+                <span className="mono">{e.name}</span>
+                <span>·</span>
+              </>
+            )}
             <span>
               {e.connection.kind === "remote"
                 ? `Remote${e.connection.host ? ` · ${e.connection.host}` : ""}`
