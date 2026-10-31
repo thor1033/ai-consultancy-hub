@@ -345,6 +345,14 @@ create index if not exists agent_skills_agent_idx on agent_skills (agent_id, nam
 alter table agent_sessions add column if not exists agent_skill_id uuid
   references agent_skills(id) on delete set null;
 
+-- Where a run's time went, turn by turn (@ai-hub/agent RunTimeline): wait for
+-- the first token, thinking, writing, each tool call's duration and result
+-- size, tokens per turn, and the first request's size by part. Numbers and
+-- tool names only — never the prompt, answer or a tool's result — so the run
+-- page can show it to anyone who may see the run in the agent's list. Null for
+-- runs recorded before it existed.
+alter table agent_sessions add column if not exists timeline jsonb;
+
 -- How many rounds of tool use one agent may take before a run is cut off. Null
 -- means the runtime default (DEFAULT_MAX_ITERATIONS). A secretary working
 -- through an inbox needs more rounds than an agent that looks one thing up, and

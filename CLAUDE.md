@@ -54,12 +54,14 @@ paths against throwaway fixtures (fake Messages API / Graph / MCP servers), with
 API spend. Each script's header comment says how to run it and what it needs.
 Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 
-- No DB needed: `verify:loop` (agent), `verify:remote`, `verify:m365`, `verify:teams` (mcp),
+- No DB needed: `verify:loop`, `verify:bench` (agent; the bench's skill half runs when `DATABASE_URL` is set), `verify:remote`, `verify:m365`, `verify:teams` (mcp),
   `verify:github` (rag; its sync half runs when `DATABASE_URL` is set), `verify:large-args`,
   `verify:work-log` (web).
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access` (rag), `verify:credentials` (authz),
-  `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff` (web).
+  `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:run-timing` (web).
+- `bench:prompt` (agent) calls the real model and spends money; it says how many calls first. See
+  docs/agent-testing.md, "Prompt speed".
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.
 
 When adding behaviour, extend or add a verify script in the same style: drive the

@@ -41,6 +41,8 @@ export interface RecordSessionInput {
   latencyMs?: number;
   tokens?: unknown;
   traceId?: string;
+  /** Where the time went (@ai-hub/agent RunTimeline). */
+  timeline?: unknown;
 }
 
 export async function recordSession(input: RecordSessionInput): Promise<string> {
@@ -48,7 +50,7 @@ export async function recordSession(input: RecordSessionInput): Promise<string> 
   const [row] = await sql<{ id: string }[]>`
     insert into agent_sessions
       (prompt, system, model, effort, mcp_servers, transcript, tools_used,
-       output, status, cost_usd, latency_ms, tokens, trace_id,
+       output, status, cost_usd, latency_ms, tokens, trace_id, timeline,
        agent_id, principal_id, started_at, finished_at)
     values
       (${input.prompt}, ${input.system ?? null}, ${input.model ?? null},
@@ -58,6 +60,7 @@ export async function recordSession(input: RecordSessionInput): Promise<string> 
        ${input.output ?? null}, ${input.status ?? "succeeded"},
        ${input.costUsd ?? null}, ${input.latencyMs ?? null},
        ${sql.json((input.tokens ?? null) as never)}, ${input.traceId ?? null},
+       ${sql.json((input.timeline ?? null) as never)},
        ${input.agentId ?? null}, ${input.principalId ?? null}, now(), now())
     returning id
   `;
@@ -108,6 +111,7 @@ export interface FinishRunInput {
   latencyMs?: number;
   tokens?: unknown;
   traceId?: string;
+  timeline?: unknown;
 }
 
 export async function finishRun(id: string, result: FinishRunInput): Promise<void> {
@@ -123,9 +127,47 @@ export async function finishRun(id: string, result: FinishRunInput): Promise<voi
       latency_ms  = ${result.latencyMs ?? null},
       tokens      = ${sql.json((result.tokens ?? null) as never)},
       trace_id    = ${result.traceId ?? null},
+      timeline    = ${sql.json((result.timeline ?? null) as never)},
       finished_at = now()
     where id = ${id}
   `;
+}
+
+export interface RunTiming {
+  id: string;
+  agentId: string | null;
+  at: string;
+  status: string;
+  prompt: string;
+  skill: string | null;
+  model: string | null;
+  effort: string | null;
+  latencyMs: number | null;
+  costUsd: number | null;
+  tokens: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number } | null;
+  toolsUsed: string[];
+  error: string | null;
+  /** Null for a run recorded before timings were kept, or one still running. */
+  timeline: unknown;
+}
+
+/**
+ * One run, for its page: what the agent's run list already shows, plus where
+ * the time went. Deliberately not the transcript or the answer — the page is
+ * as visible as the run list, and that list shows a run's prompt, not what
+ * came back.
+ */
+export async function getRunTiming(id: string): Promise<RunTiming | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const sql = getSql();
+  const [row] = await sql<RunTiming[]>`
+    select s.id, s.agent_id as "agentId", coalesce(s.started_at, s.created_at) as at, s.status, s.prompt,
+           k.name as skill, s.model, s.effort, s.latency_ms as "latencyMs", s.cost_usd::float8 as "costUsd",
+           s.tokens, s.tools_used as "toolsUsed", s.error, s.timeline
+      from agent_sessions s
+      left join agent_skills k on k.id = s.agent_skill_id
+     where s.id = ${id}`;
+  return row ?? null;
 }
 
 /**

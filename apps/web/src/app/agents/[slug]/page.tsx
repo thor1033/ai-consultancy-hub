@@ -180,7 +180,13 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
                     }}
                   />
                   <div className="min-w-0">
-                    <p className="truncate text-sm">{r.prompt || <span className="text-[var(--muted)]">(no prompt)</span>}</p>
+                    <Link
+                      href={`/agents/${agent.slug}/runs/${r.id}`}
+                      title="Where this run's time went"
+                      className="block truncate text-sm hover:text-[var(--brand-ink)] hover:underline hover:underline-offset-2"
+                    >
+                      {r.prompt || <span className="text-[var(--muted)]">(no prompt)</span>}
+                    </Link>
                     <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-[var(--muted)]">
                       {r.skill && (
                         <span className="inline-flex items-center gap-1 text-[var(--text-soft)]">

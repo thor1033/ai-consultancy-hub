@@ -171,7 +171,7 @@ try {
     async (agentRef, p, principal) => { seen.push({ agentRef, p, principal }); return { kind: "running", runId: "deadbeef-0000" }; },
   );
   check("it starts the steward by slug, as the same principal, with the hand-off prompt", seen[0]?.agentRef === seeds.STEWARD_SLUG && seen[0]?.principal === PERSON && /session 11111111-2222/.test(seen[0]?.p ?? ""));
-  check("and returns the line the answer ends with, naming the run", /_Handed to the Context Steward \(run deadbeef\)/.test(started) && /\/approvals/.test(started), started.trim().slice(0, 80));
+  check("and returns the line the answer ends with, naming the run in full, so it can be looked up", /_Handed to the Context Steward \(run deadbeef-0000\)/.test(started) && /\/approvals/.test(started), started.trim().slice(0, 80));
   const refused = await handoff.handOffToSteward(
     { skill: { slug: "x", name: "X" }, sessionId: "s", agentSlug: "secretary", agentName: "Secretary", principal: PERSON },
     async () => ({ kind: "error", message: "You are not permitted to run agents." }),
@@ -199,7 +199,7 @@ try {
   const before = calls.length;
   const out = await runSkillForPrincipal({ skillRef: meeting.id, args: { meetingDate: "2026-10-30" }, principal: PERSON, deadlineMs: 60_000 });
   check("the Secretary's run finishes as done", out.kind === "done", out.kind === "error" ? out.message : out.kind);
-  const line = /_Handed to the Context Steward \(run ([0-9a-f]{8})\): it reads this meeting and proposes[^_]*\/approvals\._$/.exec(out.output ?? "");
+  const line = /_Handed to the Context Steward \(run ([0-9a-f-]{36})\): it reads this meeting and proposes[^_]*\/approvals\._$/.exec(out.output ?? "");
   check("its answer ends by saying the steward has it, naming the run", Boolean(line), (out.output ?? "").slice(-120));
 
   const rows = await untilFinished((r) => r.length >= 1 && r.every((s) => s.status !== "running"));
@@ -207,7 +207,7 @@ try {
   check("one steward run was started", rows.length === 1, `${rows.length}`);
   check("as the same person", sRun?.principalId === PERSON.id);
   check("not as a skill run of its own", sRun?.skillId === null);
-  check("its id is the one the answer named", Boolean(line) && sRun?.id.startsWith(line[1]));
+  check("its id is the one the answer named", Boolean(line) && sRun?.id === line[1]);
   check("pointed at the Secretary's session, by id, with the skill's name", /^Hand-off:/.test(sRun?.prompt ?? "") && sRun?.prompt.includes(`session ${out.runId}`) && sRun?.prompt.includes('"Verify meeting to PM"') && sRun?.prompt.includes("Verify Secretary"));
   check("and it finished", sRun?.status === "succeeded", sRun?.status);
 

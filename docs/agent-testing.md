@@ -122,6 +122,67 @@ brief or model change is the signal. This is where "do they do their job well"
 gets an answer, and it costs model spend on every run, which is why it is
 proposed for the test hub and run by hand or nightly, not on every push.
 
+## Prompt speed
+
+Two tools, for two questions.
+
+**"Why was that run slow?" — the run's page.** Every run now records where
+its time went, turn by turn (`@ai-hub/agent` `RunTimeline`, stored in
+`agent_sessions.timeline`). Click a run in an agent's *Recent runs* to open
+`/agents/<slug>/runs/<id>`:
+
+- **Where the time went:** one bar split into reading the prompt (the wait for
+  the first token), thinking, writing the answer, writing tool calls, and
+  waiting on tools, with a sentence naming the biggest part and what makes it
+  faster — and the second part too when it is nearly as big.
+- **Notes:** how many model calls the run took (each rereads everything before
+  it), the largest tool result and how many later turns reread it, how much
+  the prompt grew, the largest part of the first request, and how much came
+  from the prompt cache.
+- **Turn by turn**, to scale, with each tool call's time and result size.
+- **What the first request carried:** the brief, retrieved knowledge, tool
+  definitions, earlier chat turns and the request, approximately.
+
+It shows numbers and tool names only — never the answer or a tool's result —
+so it is visible to whoever can see the run in the agent's list. Runs from
+before this change say so.
+
+**"Which part of this prompt makes it slow?" — the bench.** The run page
+shows one run; the bench compares variants of a prompt, several times each,
+with the real model:
+
+```bash
+npm run bench:prompt -w @ai-hub/agent -- bench/secretary-meeting.json --out /tmp/bench.json
+```
+
+The example spec runs the Secretary's *Meeting → PM-tool change set* skill on
+a short test transcript, three ways (as is, effort low, no thinking), plus
+one variant per `##` section of the brief and the skill's template with that
+section removed (`"ablate": true`). It prints, per variant: median time,
+first run (cold, writing the prompt cache) and the median of the rest (warm),
+wait for the first token, thinking, writing, tokens in and out, and the change
+against the first variant. Then the exact token count of each part of the
+prompt (counted by the API's free token counter). The spec format is at the
+top of `packages/agent/bench-prompt.mjs`.
+
+It **spends money**: every run is a real call. It prints the number of calls
+before starting, refuses more than `--max-calls` (default 40), and prints what
+it spent. The example is 21 calls. It measures one model turn of the prompt and
+connects no tools; a slow tool shows on the run's page instead.
+
+**How to read the two together:** output tokens drive most of a turn's time,
+so a faster variant usually wrote or thought less — check its answer is still
+the one you want. A smaller prompt mostly shortens the wait for the first
+token, and on a run with several turns that wait repeats on every turn: the
+run page's "largest tool result" note is usually the bigger saving than
+trimming the brief.
+
+| Script | What it proves |
+|---|---|
+| `verify:loop` (agent) | the timeline puts a delay the fixture chose — before the first token, inside thinking, inside writing, inside a tool — where it happened, and holds no content |
+| `verify:run-timing` (web) | the verdicts for each kind of slowness; a real run stores its timeline; the run page renders it, shows the prompt's first line, never the answer, and 404s for another agent's run |
+| `verify:bench` (agent) | the real CLI against a stand-in API: refusals before spending, one variant per section, interleaving, a removed section really removed and faster, exact counts adding up, a skill spec sending the brief plus the filled template |
+
 ## Order
 
 1. **Now:** layer 1, run before every merge. Done.

@@ -241,6 +241,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         latencyMs: result.latencyMs,
         tokens: result.usage,
         traceId: result.traceId,
+        timeline: result.timeline,
       });
       sessionId = input.runId;
     } else {
@@ -258,6 +259,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         latencyMs: result.latencyMs,
         tokens: result.usage,
         traceId: result.traceId,
+        timeline: result.timeline,
         agentId: input.agentId ?? null,
         principalId: input.principalId ?? null,
       });

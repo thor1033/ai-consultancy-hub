@@ -212,7 +212,7 @@ try {
     const secRun = await finished(secRunId);
     check("the Secretary's run fills the skill's template from the schedule's arguments", secRun?.prompt === "Follow up the meetings that finished in the last 3 hours.", secRun?.prompt);
     check("and runs as the schedule's owner", secRun?.principalId === owner);
-    check("its answer says it was handed to the Context Steward", /_Handed to the Context Steward \(run [0-9a-f]{8}\)/.test(secRun?.output ?? ""), (secRun?.output ?? "").slice(-90));
+    check("its answer says it was handed to the Context Steward", /_Handed to the Context Steward \(run [0-9a-f-]{36}\)/.test(secRun?.output ?? ""), (secRun?.output ?? "").slice(-90));
     let stewardRun;
     for (const until = Date.now() + 30_000; Date.now() < until; await new Promise((r) => setTimeout(r, 200))) {
       [stewardRun] = await sql`

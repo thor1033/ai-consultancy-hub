@@ -76,7 +76,7 @@ export async function handOffToSteward(input: HandoffInput, start: StartAgent): 
     const out = await start(STEWARD_SLUG, prompt, input.principal);
     if (out.kind === "error") return `\n\n**Not handed to the Context Steward:** ${out.message}`;
     return (
-      `\n\n_Handed to the Context Steward (run ${out.runId.slice(0, 8)}): it reads this meeting and proposes what ` +
+      `\n\n_Handed to the Context Steward (run ${out.runId}): it reads this meeting and proposes what ` +
       `the firm should keep from it — decisions, definitions, corrections — on /approvals._`
     );
   } catch (err) {

@@ -10,7 +10,9 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "verify:loop": "node verify-loop.mjs"
+    "verify:loop": "node verify-loop.mjs",
+    "verify:bench": "node --env-file-if-exists=../../apps/web/.env.local verify-bench.mjs",
+    "bench:prompt": "node --env-file=../../apps/web/.env.local bench-prompt.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

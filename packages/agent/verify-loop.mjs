@@ -55,14 +55,18 @@ function check(label, ok, detail = "") {
 // max_tokens before a visible character. `requests` keeps every request body
 // the SDK actually sent, so a check can read `stream` and `max_tokens` off the
 // wire instead of off the code.
-const plan = { calls: 0, answerOn: Infinity, textEachTurn: false, thinkOnly: false, requests: [] };
+// `pace` slows the stream down by kind — before the first block, inside a
+// thinking block, inside a text block — so the timeline's split can be checked
+// against delays the fixture chose.
+const plan = { calls: 0, answerOn: Infinity, textEachTurn: false, thinkOnly: false, thinkFirst: false, pace: null, requests: [] };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
  * Writes one assistant message as the event stream the real API emits. Every
  * block is split across two deltas on purpose — a tool_use input that arrives
  * in two pieces of partial JSON is the thing streaming has to reassemble.
  */
-function writeStream(res, blocks, stopReason) {
+async function writeStream(res, blocks, stopReason) {
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
   const send = (event) => res.write(`event: ${event.type}\ndata: ${JSON.stringify(event)}\n\n`);
   const halves = (s) => [s.slice(0, Math.ceil(s.length / 2)), s.slice(Math.ceil(s.length / 2))];
@@ -81,7 +85,8 @@ function writeStream(res, blocks, stopReason) {
     },
   });
 
-  blocks.forEach((block, index) => {
+  if (plan.pace?.firstMs) await sleep(plan.pace.firstMs);
+  for (const [index, block] of blocks.entries()) {
     if (block.type === "text") {
       send({ type: "content_block_start", index, content_block: { type: "text", text: "" } });
       for (const piece of halves(block.text)) {
@@ -101,8 +106,10 @@ function writeStream(res, blocks, stopReason) {
       send({ type: "content_block_delta", index, delta: { type: "thinking_delta", thinking: block.thinking } });
       send({ type: "content_block_delta", index, delta: { type: "signature_delta", signature: "fixture-signature" } });
     }
+    const pause = block.type === "thinking" ? plan.pace?.thinkingMs : block.type === "text" ? plan.pace?.textMs : 0;
+    if (pause) await sleep(pause);
     send({ type: "content_block_stop", index });
-  });
+  }
 
   send({ type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 20 } });
   send({ type: "message_stop" });
@@ -124,6 +131,7 @@ const http = createServer(async (req, res) => {
     blocks.push({ type: "thinking", thinking: "Reading a 94KB project state against the transcript…" });
     stopReason = "max_tokens";
   } else if (answering) {
+    if (plan.thinkFirst) blocks.push({ type: "thinking", thinking: "Two events; the review needs the deck." });
     blocks.push({ type: "text", text: "Two meetings tomorrow: standup at 09:00, review at 13:00." });
     stopReason = "end_turn";
   } else {
@@ -160,8 +168,13 @@ async function run({
   maxTokens,
   textEachTurn = false,
   thinkOnly = false,
+  thinkFirst = false,
+  pace = null,
+  toolMs = 0,
   tools = TOOLS,
 } = {}) {
+  plan.thinkFirst = thinkFirst;
+  plan.pace = pace;
   plan.calls = 0;
   plan.answerOn = answerOn;
   plan.textEachTurn = textEachTurn;
@@ -175,6 +188,7 @@ async function run({
     toolExecutor: async (_name, input) => {
       toolCalls++;
       lastToolInput = input;
+      if (toolMs) await sleep(toolMs);
       return "two events";
     },
     ...(maxIterations === undefined ? {} : { maxIterations }),
@@ -340,6 +354,40 @@ try {
   check(
     "an agent with no tools takes exactly one turn and is never exhausted",
     plan.calls === 1 && plain.iterations === 1 && plain.exhausted === false,
+  );
+
+  // ── where the time went ──────────────────────────────────────────────────
+  // Two turns: a tool call, then a thought and an answer. The fixture holds
+  // the first block back 150 ms, thinks for 250 ms and writes for 100 ms; the
+  // tool takes 200 ms. The timeline has to put each where it happened.
+  const paced = await run({ answerOn: 2, thinkFirst: true, pace: { firstMs: 150, thinkingMs: 250, textMs: 100 }, toolMs: 200 });
+  const tl = paced.timeline;
+  const [t1, t2] = tl?.turns ?? [];
+  const near = (ms, want) => ms >= want - 20 && ms < want + 150;
+  check("the result carries a timeline, one entry per model turn", tl?.version === 1 && tl.turns.length === 2, `${tl?.turns?.length} turns`);
+  check("the wait for the first token is measured", near(t1?.firstTokenMs ?? -1, 150) && near(t2?.firstTokenMs ?? -1, 150), `${t1?.firstTokenMs} ms, ${t2?.firstTokenMs} ms`);
+  check("thinking is told apart from writing", near(t2?.thinkingMs ?? -1, 250) && near(t2?.writingMs ?? -1, 100), `thinking ${t2?.thinkingMs} ms, writing ${t2?.writingMs} ms`);
+  check("a turn that only called a tool did no thinking or writing", t1?.thinkingMs === 0 && t1?.writingMs === 0 && t1?.stopReason === "tool_use");
+  check(
+    "the tool call is timed under the turn that asked for it, with the size of what it returned",
+    t1?.tools?.length === 1 && t1.tools[0].name === "probe" && near(t1.tools[0].ms, 200) && t1.tools[0].resultChars === "two events".length && t2?.tools?.length === 0,
+    JSON.stringify(t1?.tools),
+  );
+  check("the second turn starts after the first turn and its tool", (t2?.startMs ?? 0) >= (t1?.totalMs ?? 0) + 190, `${t2?.startMs} ms`);
+  check(
+    "model time and tool time add up to nearly the whole run",
+    near(tl?.toolMs ?? -1, 200) && tl.modelMs + tl.toolMs <= paced.latencyMs && paced.latencyMs - (tl.modelMs + tl.toolMs) < 100,
+    `model ${tl?.modelMs} + tools ${tl?.toolMs} of ${paced.latencyMs} ms`,
+  );
+  check("each turn carries its own tokens", t1?.inputTokens === 100 && t1?.outputTokens === 20 && t2?.inputTokens === 100);
+  check(
+    "the prompt's shape is counted by part",
+    tl?.prompt?.prompt === Math.round("What is on tomorrow?".length / 4) && tl.prompt.tools > 0 && tl.prompt.brief > 0 && tl.prompt.context === 0 && tl.prompt.history === 0,
+    JSON.stringify(tl?.prompt),
+  );
+  check(
+    "and it holds no content: no prompt, answer or tool result in it",
+    !/tomorrow|two events|Two meetings|standup/i.test(JSON.stringify(tl)),
   );
 } finally {
   http.close();
