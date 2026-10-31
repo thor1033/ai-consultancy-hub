@@ -119,6 +119,33 @@ export async function upsertCollection(input: CollectionInput): Promise<Collecti
 }
 
 /**
+ * Make sure a collection has a row, without changing one that exists.
+ *
+ * For a sync that files into a collection it declares (a SharePoint folder):
+ * the row is created before the first document lands, so a restricted folder's
+ * files are never readable by everyone for the length of a sync. An existing
+ * row is left exactly as it is — its visibility is a person's decision on
+ * /admin, and a sync running every hour must not undo it. The caller is told
+ * what the row says, so it can report a declared-restricted folder that a
+ * person has opened.
+ */
+export async function ensureCollection(
+  name: string,
+  declared: { visibility: Visibility; label?: string; description?: string },
+): Promise<{ created: boolean; visibility: Visibility }> {
+  const sql = getSql();
+  const inserted = await sql<{ visibility: Visibility }[]>`
+    insert into collections (name, label, description, visibility)
+    values (${name}, ${declared.label ?? ""}, ${declared.description ?? ""}, ${declared.visibility})
+    on conflict (name) do nothing
+    returning visibility
+  `;
+  if (inserted.length) return { created: true, visibility: inserted[0].visibility };
+  const [row] = await sql<{ visibility: Visibility }[]>`select visibility from collections where name = ${name}`;
+  return { created: false, visibility: row.visibility };
+}
+
+/**
  * Grant a principal access to a collection.
  *
  * Creates the collection row if it does not exist yet, because granting access

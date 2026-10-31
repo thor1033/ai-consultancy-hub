@@ -8,6 +8,7 @@ import {
   listCollections,
   retrieveChunks,
   syncSource,
+  describeSync,
 } from "@ai-hub/rag";
 import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
 import type { KnowledgeSnapshot, RetrievedRow, DocDetail } from "./types";
@@ -87,11 +88,11 @@ export async function deleteDocumentAction(
 export async function syncSourceAction(
   type: string,
   collection?: string,
-): Promise<{ synced: number; chunks: number; snapshot: KnowledgeSnapshot } | { error: string }> {
+): Promise<{ synced: number; chunks: number; summary: string; snapshot: KnowledgeSnapshot } | { error: string }> {
   if (!(await sessionCan("document:write"))) return { error: NOT_ALLOWED };
   try {
     const result = await syncSource(type, { collection: collection?.trim() || undefined });
-    return { synced: result.documents, chunks: result.chunks, snapshot: await snapshot() };
+    return { synced: result.documents, chunks: result.chunks, summary: describeSync(result), snapshot: await snapshot() };
   } catch (e) {
     return { error: e instanceof Error ? e.message : "Sync failed." };
   }

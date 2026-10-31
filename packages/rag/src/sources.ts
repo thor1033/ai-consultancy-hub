@@ -1,4 +1,5 @@
 import { builtinServerConfig, connectMcpServers, remoteServerConfig, type ConnectedMcp } from "@ai-hub/mcp";
+import { ensureCollection, getSql } from "@ai-hub/db";
 import { ingestDocument, deleteDocumentsBySource } from "./ingest";
 
 // Pluggable knowledge sources (docs/knowledge-rag.md, Phase 3). A source fetches
@@ -25,7 +26,54 @@ export interface KnowledgeSource {
    * to remember.
    */
   readonly defaultCollection?: string;
-  fetch(): Promise<SourceDocument[]>;
+  /**
+   * Sync on the clock every this many minutes (apps/web/src/lib/sourceSync.ts),
+   * besides "Sync now". Unset: only when someone asks.
+   */
+  readonly autoSyncMinutes?: number;
+  /**
+   * Everything, every time: each sync re-reads and re-embeds every document.
+   * Right for a handful of project documents; a source with many files that
+   * rarely change implements `listing` instead.
+   */
+  fetch?(): Promise<SourceDocument[]>;
+  /** Incremental: say what exists and its version; only what changed is read. */
+  listing?(): Promise<SourceListing>;
+}
+
+/**
+ * One item of an incremental source. Nothing is read until the sync has
+ * decided the item changed: the listing is cheap, the read and the embedding
+ * are not.
+ */
+export interface SourceItem {
+  externalId: string;
+  title: string;
+  /** Changes whenever the content does. Same version and collection ⇒ not read again. */
+  version: string;
+  /** Each item names its own: one folder of a source can be one client's drawer. */
+  collection: string;
+  metadata?: Record<string, unknown>;
+  /** The text to index, or why there is none (a scanned PDF, a file too large). */
+  read(): Promise<{ content: string } | { skipped: string }>;
+}
+
+export interface SourceListing {
+  /**
+   * Every item the source holds right now. It must be complete: whatever is
+   * indexed from this source and missing here is deleted, so a listing that
+   * could not see everything has to throw rather than return part of it.
+   */
+  items: SourceItem[];
+  /**
+   * The collections the items file into, with the visibility each is created
+   * with if it has no row yet. Created before anything is filed in them.
+   */
+  collections: { name: string; visibility: "open" | "restricted"; label?: string }[];
+  /** Seen and deliberately not indexed, with why — reported, never silent. */
+  skipped: { path: string; reason: string }[];
+  /** Closes whatever the reads share (an MCP connection). */
+  close?(): Promise<void>;
 }
 
 export interface SourceInfo {
@@ -33,6 +81,7 @@ export interface SourceInfo {
   label: string;
   configured: boolean;
   defaultCollection?: string;
+  autoSyncMinutes?: number;
 }
 
 // Factories so `configured` is re-evaluated (env may change) on every read.
@@ -68,14 +117,39 @@ export function listSources(): SourceInfo[] {
     label: s.label,
     configured: s.configured,
     ...(s.defaultCollection ? { defaultCollection: s.defaultCollection } : {}),
+    ...(s.autoSyncMinutes ? { autoSyncMinutes: s.autoSyncMinutes } : {}),
   }));
 }
 
 export interface SyncResult {
   type: string;
   fetched: number;
+  /** Documents (re-)ingested by this sync. */
   documents: number;
   chunks: number;
+  /** Incremental sources only: items whose version had not changed, so were not read. */
+  unchanged?: number;
+  /** Incremental sources only: documents deleted because their item is gone. */
+  removed?: number;
+  skipped?: { path: string; reason: string }[];
+  /** Collections this sync created, with the visibility it gave them. */
+  createdCollections?: { name: string; visibility: "open" | "restricted" }[];
+  /** Things a person should know: a folder declared restricted that someone opened. */
+  warnings?: string[];
+}
+
+/** One line for a log or a page: what a sync did, including what it left out. */
+export function describeSync(r: SyncResult): string {
+  const parts = [`${r.documents} indexed`];
+  if (r.unchanged !== undefined) parts.push(`${r.unchanged} unchanged`);
+  if (r.removed) parts.push(`${r.removed} removed`);
+  if (r.skipped?.length) parts.push(`${r.skipped.length} skipped`);
+  let line = parts.join(", ") + ".";
+  if (r.createdCollections?.length) {
+    line += ` New collection${r.createdCollections.length > 1 ? "s" : ""}: ${r.createdCollections.map((c) => `${c.name} (${c.visibility})`).join(", ")}.`;
+  }
+  if (r.warnings?.length) line += ` ${r.warnings.join(" ")}`;
+  return line;
 }
 
 // Pulls every document from a source and upserts it (replace-by-source, so a
@@ -87,6 +161,14 @@ export async function syncSource(
   const source = getSource(type);
   if (!source) throw new Error(`Unknown source: ${type}`);
   if (!source.configured) throw new Error(`${source.label} is not configured.`);
+  if (source.listing) {
+    // Refused rather than ignored: each item's collection carries its
+    // visibility, and filing a restricted folder somewhere a person typed
+    // would be the one way around it.
+    if (opts.collection) throw new Error(`${source.label} files each folder into its own collection; leave the collection empty.`);
+    return syncListing(source);
+  }
+  if (!source.fetch) throw new Error(`${source.label} has nothing to sync.`);
 
   const docs = await source.fetch();
   const collection = opts.collection ?? source.defaultCollection;
@@ -104,6 +186,90 @@ export async function syncSource(
     chunks += r.chunks;
   }
   return { type, fetched: docs.length, documents: docs.length, chunks };
+}
+
+/**
+ * The incremental sync: make the index match the listing.
+ *
+ * Changed or new items are read and re-ingested; unchanged ones are not
+ * touched (no download, no embedding bill); items gone from the source are
+ * deleted from the index, so a file deleted or moved out of a folder stops
+ * being retrieved. That last step is why a listing must be complete or throw.
+ *
+ * An item that cannot be read this time (a file locked, a scan with no text)
+ * is skipped and reported; whatever was indexed for it before stays, since the
+ * file still exists and was readable then.
+ */
+async function syncListing(source: KnowledgeSource): Promise<SyncResult> {
+  const type = source.type;
+  const listing = await source.listing!();
+  try {
+    const createdCollections: { name: string; visibility: "open" | "restricted" }[] = [];
+    const warnings: string[] = [];
+    for (const c of listing.collections) {
+      const row = await ensureCollection(c.name, { visibility: c.visibility, label: c.label });
+      if (row.created) createdCollections.push({ name: c.name, visibility: row.visibility });
+      else if (c.visibility === "restricted" && row.visibility === "open") {
+        warnings.push(`${c.name} is declared restricted but someone set it to open on /admin; it was left open.`);
+      }
+    }
+
+    const sql = getSql();
+    const indexed = await sql<{ source: string; collection: string | null; version: string | null }[]>`
+      select source, collection, metadata->>'version' as version
+        from documents where source_type = ${type}
+    `;
+    const known = new Map(indexed.map((d) => [d.source, d]));
+
+    let documents = 0;
+    let unchanged = 0;
+    let chunks = 0;
+    const skipped = [...listing.skipped];
+    const seen = new Set<string>();
+    for (const item of listing.items) {
+      seen.add(item.externalId);
+      const was = known.get(item.externalId);
+      if (was && was.version === item.version && was.collection === item.collection) {
+        unchanged++;
+        continue;
+      }
+      const read = await item.read();
+      if ("skipped" in read) {
+        skipped.push({ path: String(item.metadata?.path ?? item.title), reason: read.skipped });
+        continue;
+      }
+      await deleteDocumentsBySource(type, item.externalId);
+      const r = await ingestDocument({
+        title: item.title,
+        content: read.content,
+        source: item.externalId,
+        sourceType: type,
+        collection: item.collection,
+        metadata: { ...item.metadata, version: item.version },
+      });
+      documents++;
+      chunks += r.chunks;
+    }
+
+    let removed = 0;
+    for (const d of indexed) {
+      if (!seen.has(d.source)) removed += await deleteDocumentsBySource(type, d.source);
+    }
+
+    return {
+      type,
+      fetched: listing.items.length,
+      documents,
+      chunks,
+      unchanged,
+      removed,
+      skipped,
+      createdCollections,
+      warnings,
+    };
+  } finally {
+    await listing.close?.();
+  }
 }
 
 // Very small storage-format/HTML → text: strip tags and collapse whitespace.

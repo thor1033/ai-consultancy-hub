@@ -9,6 +9,7 @@ import {
   syncSourceAction,
 } from "./actions";
 import type { DocRow, DocDetail, KnowledgeContext, KnowledgeSnapshot, RetrievedRow, SourceRow } from "./types";
+import { rel } from "@/lib/format";
 
 // What each connector needs before it can sync, in the deployer's words.
 const SOURCE_SETUP: Record<string, { what: string; env: string[] }> = {
@@ -19,6 +20,11 @@ const SOURCE_SETUP: Record<string, { what: string; env: string[] }> = {
   "pm-tool": {
     what: "Pulls each project's documents — business case, scope, plans, KPIs — from the PM-tool.",
     env: ["HUB_REMOTE_MCP_SERVERS (with a pm-tool entry)", "PM_TOOL_MCP_TOKEN"],
+  },
+  // One source per folder in HUB_SHAREPOINT_FOLDERS, typed sharepoint:<key>.
+  sharepoint: {
+    what: "Keeps one of the team's shared folders indexed, each folder in its own collection. Files added, changed or deleted there show up here within the hour.",
+    env: ["HUB_SHAREPOINT_FOLDERS", "M365_TEAMS_SITE_URL"],
   },
   // One source per repository in HUB_GITHUB_SOURCES, typed github:<key>.
   github: {
@@ -36,6 +42,22 @@ const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });
 
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+
+/**
+ * The short state of a source for the side panel. A source on the clock says
+ * when it last synced — and, louder, when that failed — because nobody presses
+ * "Sync now" on it, so this is the only place its breaking would show.
+ */
+function sourceState(s: SourceRow, now: number): { text: string; tone: "ok" | "off" | "bad" } {
+  if (!s.configured) return { text: "Not connected", tone: "off" };
+  const last = s.lastSync;
+  if (!s.autoSyncMinutes || !last) return { text: s.autoSyncMinutes ? "Waiting for first sync" : "Connected", tone: "ok" };
+  if (last.running && !last.at) return { text: "First sync running", tone: "ok" };
+  if (last.ok === false) return { text: `Sync failed ${rel(last.at, now).toLowerCase()}`, tone: "bad" };
+  return { text: `Synced ${rel(last.at, now).toLowerCase()}`, tone: "ok" };
+}
+
+const TONE = { ok: "var(--ai)", off: "var(--faint)", bad: "var(--danger)" } as const;
 
 type Result = KnowledgeSnapshot | { error: string };
 
@@ -332,24 +354,24 @@ function ScopeButton({
 }
 
 function SourceSummary({ sources, canWrite, onOpen }: { sources: SourceRow[]; canWrite: boolean; onOpen: () => void }) {
+  const [now] = useState(() => Date.now());
   if (!sources.length) return null;
   return (
     <div className="panel p-4">
       <div className="eyebrow mb-3">Sources</div>
       <ul className="flex flex-col gap-2.5">
-        {sources.map((s) => (
-          <li key={s.type} className="flex items-center justify-between gap-3 text-sm">
-            <span className="flex min-w-0 items-center gap-2">
-              <span
-                aria-hidden
-                className="inline-block h-2 w-2 shrink-0"
-                style={{ background: s.configured ? "var(--ai)" : "var(--faint)" }}
-              />
-              <span className="truncate">{s.label}</span>
-            </span>
-            <span className="shrink-0 text-xs text-[var(--muted)]">{s.configured ? "Connected" : "Not connected"}</span>
-          </li>
-        ))}
+        {sources.map((s) => {
+          const state = sourceState(s, now);
+          return (
+            <li key={s.type} className="flex items-center justify-between gap-3 text-sm">
+              <span className="flex min-w-0 items-center gap-2">
+                <span aria-hidden className="inline-block h-2 w-2 shrink-0" style={{ background: TONE[state.tone] }} />
+                <span className="truncate">{s.label}</span>
+              </span>
+              <span className={`shrink-0 text-xs ${state.tone === "bad" ? "text-[var(--danger)]" : "text-[var(--muted)]"}`}>{state.text}</span>
+            </li>
+          );
+        })}
       </ul>
       {canWrite && (
         <button type="button" className="mt-4 text-xs font-medium uppercase tracking-[0.18em] hover:text-[var(--brand)]" onClick={onOpen}>
@@ -506,6 +528,7 @@ function Sources({
   const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [now] = useState(() => Date.now());
 
   async function sync(type: string) {
     setBusy(type);
@@ -514,7 +537,7 @@ function Sources({
     const out = await syncSourceAction(type, collection);
     if ("error" in out) setError(out.error);
     else {
-      setNote(`Synced ${plural(out.synced, "document")} (${plural(out.chunks, "passage")}).`);
+      setNote(`Synced: ${out.summary}`);
       onSynced(out.snapshot);
     }
     setBusy(null);
@@ -557,9 +580,25 @@ function Sources({
               {setup && <p className="text-sm text-[var(--text-soft)]">{setup.what}</p>}
               {s.defaultCollection && (
                 <p className="text-xs text-[var(--muted)]">
-                  Filed under <code className="text-[var(--text-soft)]">{s.defaultCollection}</code> unless you name a collection above.
+                  Filed under <code className="text-[var(--text-soft)]">{s.defaultCollection}</code>
+                  {s.type.startsWith("sharepoint:") ? "." : " unless you name a collection above."}
                 </p>
               )}
+              {s.configured && s.autoSyncMinutes ? (
+                <div className="text-xs text-[var(--muted)]">
+                  <p>Syncs by itself every {plural(s.autoSyncMinutes, "minute")}.</p>
+                  {s.lastSync?.at && s.lastSync.ok !== false && (
+                    <p className="mt-1">
+                      Last sync {rel(s.lastSync.at, now).toLowerCase()}: {s.lastSync.summary}
+                    </p>
+                  )}
+                  {s.lastSync?.ok === false && (
+                    <p role="alert" className="mt-1 text-[var(--danger)]">
+                      Last sync failed {rel(s.lastSync.at, now).toLowerCase()}: {s.lastSync.error}
+                    </p>
+                  )}
+                </div>
+              ) : null}
               {s.configured ? (
                 <button type="button" onClick={() => sync(s.type)} disabled={busy !== null} className="btn-brand min-h-11 self-start">
                   {busy === s.type ? "Syncing…" : "Sync now"}
