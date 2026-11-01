@@ -20,7 +20,8 @@
     "verify:run-timing": "node --experimental-transform-types --env-file=.env.local verify-run-timing.mjs",
     "verify:asks": "node --experimental-transform-types --env-file=.env.local verify-asks.mjs",
     "verify:import": "node --experimental-transform-types --env-file=.env.local verify-import.mjs",
-    "verify:views": "node --experimental-transform-types --env-file=.env.local verify-views.mjs"
+    "verify:views": "node --experimental-transform-types --env-file=.env.local verify-views.mjs",
+    "verify:design-tools": "node --experimental-transform-types --env-file=.env.local verify-design-tools.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",

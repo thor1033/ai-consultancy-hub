@@ -21,6 +21,7 @@ import {
 } from "@ai-hub/db";
 import { approve, peopleToSendTo, reject, sendOn } from "@/lib/approvals";
 import { registerDeckTools } from "@/lib/mcp/deckTools";
+import { registerDesignTools } from "@/lib/mcp/designTools";
 import { remoteServerConfig, remoteServerInfo } from "@ai-hub/mcp";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
@@ -649,6 +650,10 @@ export async function buildHubMcpServer(
 
     registerDeckTools(server, principal, opts.baseUrl);
   }
+
+  // Designing agents and skills from the client: the agent form's rules, as
+  // tools, for whoever may manage agents (lib/mcp/designTools.ts).
+  if (await may("agent:manage")) registerDesignTools(server, principal, opts.baseUrl);
 
   // --- The person's own systems, through the one door ----------------------
   //

@@ -62,7 +62,7 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds`, `verify:patterns` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access` (rag), `verify:credentials` (authz),
   `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing`,
-  `verify:import`, `verify:views` (web).
+  `verify:import`, `verify:views`, `verify:design-tools` (web).
 - `bench:prompt` (agent) calls the real model and spends money; it says how many calls first. See
   docs/agent-testing.md, "Prompt speed".
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.

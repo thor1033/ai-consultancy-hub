@@ -442,6 +442,24 @@ try {
   const big = await upload(`big-${stamp}.txt`, new Uint8Array(15 * 1024 * 1024 + 1).fill(97));
   check("a file over the limit is refused with the limit", "error" in big && /limit is 15 MB/.test(big.error), big.error);
   check("nothing was added for any refused file", (await sql`select count(*)::int as n from documents where source = any(${["scan", "old", "broken", "big"].map((n) => `${n}-${stamp}`).flatMap((b) => [`${b}.pdf`, `${b}.doc`, `${b}.docx`, `${b}.txt`])})`)[0].n === 0);
+
+  // ── 7. the agent form saves through the shared rules ───────────────────────
+  console.log("\n— the agent form —");
+  const { saveAgentAction, saveSkillAction } = await import("./src/app/agents/actions.ts");
+  signIn(PEOPLE.analyst, "standard");
+  const refusedSave = await saveAgentAction(null, { slug: "", name: `Form ${stamp}` });
+  check("someone who may not manage agents cannot save one from the form", "error" in refusedSave && !(await db.getAgent(`form-${stamp}`)));
+  signIn(PEOPLE.admin, "expert");
+  const formSaved = await saveAgentAction(null, { slug: "", name: `Form ${stamp}`, description: "From the form", instructions: "Brief.", model: "", mcpServers: [{ name: "microsoft365" }], knowledgeCollections: [], knowledgeAll: false, keepsMemory: true });
+  const formRow = await db.getAgent(`form-${stamp}`);
+  if (formRow) made.agents.push(formRow);
+  check("an admin saves a new agent from the form", "ok" in formSaved && formRow?.description === "From the form" && formRow?.mcpServers?.some((e) => e.name === "microsoft365"), JSON.stringify(formSaved));
+  const formEdit = await saveAgentAction(formRow.id, { slug: formRow.slug, name: formRow.name, description: "Edited", instructions: "Brief.", model: "claude-opus-4-8", mcpServers: [{ name: "microsoft365" }], knowledgeCollections: [], knowledgeAll: false, keepsMemory: true });
+  check("and edits it", "ok" in formEdit && (await db.getAgent(formRow.id))?.description === "Edited" && (await db.getAgent(formRow.id))?.model === "claude-opus-4-8");
+  const formSkill = await saveSkillAction({ agentId: formRow.id, slug: `form-skill-${stamp}`, name: "Form skill", description: "", promptTemplate: "Do {{x}}", parameters: [{ name: "x", description: "" }] });
+  check("and gives it a skill", "skills" in formSkill && formSkill.skills.length === 1, JSON.stringify(formSkill).slice(0, 120));
+  const crossSkill = await saveSkillAction({ id: formSkill.skills?.[0]?.id, agentId: agent.id, slug: `form-skill-${stamp}`, name: "Hijacked", description: "", promptTemplate: "x", parameters: [] });
+  check("a skill id saved under another agent is refused before anything changes", "error" in crossSkill && (await db.listSkills(formRow.id))[0]?.name === "Form skill", JSON.stringify(crossSkill));
 } finally {
   await sql`delete from documents where (title like ${`%${stamp}%`} or source like ${`%${stamp}%`}) and source_type = 'upload'`.catch(() => {});
   await sql`delete from agent_sessions where principal_id = any(${Object.values(PEOPLE).map((p) => p.id)})`.catch(() => {});
