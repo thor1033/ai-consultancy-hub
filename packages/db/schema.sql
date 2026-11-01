@@ -666,3 +666,46 @@ alter table agent_sessions add column if not exists content_expired_at timestamp
 alter table proposals add column if not exists content_expired_at timestamptz;
 create index if not exists agent_sessions_retention_idx
   on agent_sessions (created_at) where content_expired_at is null;
+
+-- Sensitivity labels (docs/sensitivity.md, docs/data-protection-review.md 2.3).
+-- Set once on the source — a collection, a connection — and inherited by the
+-- documents in it and the runs that touch it, so nobody labels single items.
+--
+--   internal      the default
+--   confidential  never in memory wider than its collection; never returned
+--                 to an outside client (the hub's MCP server, local agents)
+--   special       GDPR Art. 9 material: never remembered, no transcript,
+--                 never traced, never leaves the hub
+--
+-- A run records the highest label it touched, so what it left behind (its
+-- answer, read from outside) is treated by that label too.
+alter table collections add column if not exists sensitivity text not null default 'internal';
+alter table collections drop constraint if exists collections_sensitivity_check;
+alter table collections add constraint collections_sensitivity_check
+  check (sensitivity in ('internal', 'confidential', 'special'));
+alter table mcp_servers add column if not exists sensitivity text not null default 'internal';
+alter table mcp_servers drop constraint if exists mcp_servers_sensitivity_check;
+alter table mcp_servers add constraint mcp_servers_sensitivity_check
+  check (sensitivity in ('internal', 'confidential', 'special'));
+alter table agent_sessions add column if not exists sensitivity text not null default 'internal';
+alter table agent_sessions drop constraint if exists agent_sessions_sensitivity_check;
+alter table agent_sessions add constraint agent_sessions_sensitivity_check
+  check (sensitivity in ('internal', 'confidential', 'special'));
+
+-- The read log (F11): who read a confidential or special collection, and
+-- through which door — a run, a chat, the hub's MCP server, the Documents
+-- page. Which document, never what was asked: the question is the person's,
+-- and it would make the log itself sensitive. Swept with the audit trail;
+-- part of a person's export, and removed with them.
+create table if not exists knowledge_reads (
+  id           uuid primary key default gen_random_uuid(),
+  at           timestamptz not null default now(),
+  principal_id text,
+  door         text not null check (door in ('run', 'chat', 'mcp', 'page')),
+  collection   text not null,
+  sensitivity  text not null check (sensitivity in ('confidential', 'special')),
+  document_id  uuid references documents(id) on delete set null,
+  run_id       uuid references agent_sessions(id) on delete set null
+);
+create index if not exists knowledge_reads_at_idx on knowledge_reads (at desc);
+create index if not exists knowledge_reads_principal_idx on knowledge_reads (principal_id);

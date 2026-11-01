@@ -1,4 +1,4 @@
-import { getPrincipal, openCollectionNames, restrictedCollectionNames, type MemoryPlace, type MemoryReach } from "@ai-hub/db";
+import { collectionSensitivities, getPrincipal, openCollectionNames, restrictedCollectionNames, type MemoryPlace, type MemoryReach } from "@ai-hub/db";
 import { defaultVisibility, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 
 /*
@@ -56,15 +56,20 @@ export async function memoryReachForId(principalId: string | null | undefined): 
   return memoryReachFor({ id: principalId, roles: row?.enabled ? row.roles : [] });
 }
 
-/** Which of these collections are open to everyone signed in. Unfiled (null) never is. */
+/**
+ * Which of these collections are open to everyone signed in. Unfiled (null)
+ * never is, and neither is a labelled one (docs/sensitivity.md): a
+ * confidential collection's memory stays with its readers even if someone
+ * made the collection itself open.
+ */
 async function openOf(collections: (string | null)[]): Promise<Set<string>> {
   const names = [...new Set(collections.filter((c): c is string => Boolean(c)))];
   if (!names.length) return new Set();
-  const [open, restricted] = await Promise.all([openCollectionNames(), restrictedCollectionNames()]);
+  const [open, restricted, labelled] = await Promise.all([openCollectionNames(), restrictedCollectionNames(), collectionSensitivities()]);
   const openSet = new Set(open);
   const restrictedSet = new Set(restricted);
   const unclassifiedOpen = defaultVisibility() === "open";
-  return new Set(names.filter((n) => openSet.has(n) || (unclassifiedOpen && !restrictedSet.has(n))));
+  return new Set(names.filter((n) => !labelled.has(n) && (openSet.has(n) || (unclassifiedOpen && !restrictedSet.has(n)))));
 }
 
 /** The scope a run starts with. */

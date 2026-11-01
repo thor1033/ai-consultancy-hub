@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { RetentionPolicy, RetentionSweep, SubjectHits } from "@ai-hub/db";
+import type { KnowledgeReadRow, RetentionPolicy, RetentionSweep, SubjectHits } from "@ai-hub/db";
 import { erasePersonAction, findSubjectAction, runRetentionNowAction } from "./dataActions";
 
 // People's data (docs/retention.md): how long the hub keeps things, a
@@ -12,17 +12,81 @@ export function DataPanel({
   policy,
   lastSweep,
   people,
+  reads,
 }: {
   policy: RetentionPolicy;
   lastSweep: { at: string; detail: Record<string, unknown> } | null;
   people: { id: string; email: string | null; name: string }[];
+  reads: KnowledgeReadRow[];
 }) {
   return (
     <div className="space-y-8">
       <Retention policy={policy} lastSweep={lastSweep} />
       <PersonData people={people} />
       <FindSubject />
+      <ReadLog reads={reads} days={policy.auditDays} />
     </div>
+  );
+}
+
+const DOORS: Record<string, string> = {
+  run: "an agent's answer",
+  chat: "a conversation",
+  mcp: "Claude Code",
+  page: "the Documents page",
+};
+
+// The read log (docs/sensitivity.md): who read material labelled
+// confidential or special, and how. Never what they asked.
+function ReadLog({ reads, days }: { reads: KnowledgeReadRow[]; days: number }) {
+  const [filter, setFilter] = useState("");
+  const collections = [...new Set(reads.map((r) => r.collection))].sort();
+  const shown = filter ? reads.filter((r) => r.collection === filter) : reads;
+  return (
+    <Section
+      title="Who read confidential material"
+      subtitle={`Every time someone read a document in a collection labelled confidential or special — opened it, or was given it in an agent's answer. What they asked is never recorded. Kept ${days} days, like the audit trail.`}
+    >
+      {reads.length === 0 ? (
+        <p className="panel p-4 text-sm text-[var(--muted)]">Nothing yet. Label a collection confidential or special under People and access to start the log.</p>
+      ) : (
+        <>
+          {collections.length > 1 && (
+            <label className="mb-3 block max-w-xs">
+              <span className="mb-1 block text-xs text-[var(--muted)]">Collection</span>
+              <select className="field" value={filter} onChange={(e) => setFilter(e.target.value)}>
+                <option value="">All</option>
+                {collections.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
+          <ul className="panel divide-y divide-[var(--border)]">
+            {shown.map((r) => (
+              <li key={r.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 px-4 py-2.5 text-sm">
+                <span className="font-medium">{r.who ?? "Someone no longer here"}</span>
+                <span className="text-[var(--text-soft)]">
+                  read {r.document ? `“${r.document}”` : "a document since removed"} in {r.collection}
+                </span>
+                <span className="text-xs text-[var(--muted)]">
+                  through {DOORS[r.door] ?? r.door} ·{" "}
+                  {new Date(r.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}
+                  {r.sensitivity === "special" ? " · special category" : ""}
+                </span>
+                {r.runId && (
+                  <a className="text-xs underline" href={`/runs/${r.runId}`}>
+                    the run
+                  </a>
+                )}
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
+    </Section>
   );
 }
 
@@ -78,7 +142,7 @@ function Retention({ policy, lastSweep }: { policy: RetentionPolicy; lastSweep: 
           {typeof result === "string"
             ? result
             : result
-              ? `Done: ${result.answersExpired} answers and ${result.transcriptsDropped} conversation records removed, ${result.proposalsExpired} decided changes cleared, ${result.auditDeleted} old audit entries deleted.`
+              ? `Done: ${result.answersExpired} answers and ${result.transcriptsDropped} conversation records removed, ${result.proposalsExpired} decided changes cleared, ${result.auditDeleted} old audit entries and ${result.readsDeleted} old read-log entries deleted.`
               : lastSweep
                 ? `Last ran ${new Date(lastSweep.at).toLocaleString("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })}.`
                 : "Not run yet."}

@@ -39,6 +39,10 @@ and during the run it can only get narrower.
 "Its person" needs a person. A run with nobody behind it that touched
 anything restricted does not remember at all, and the model is told why.
 
+A collection labelled confidential or special (docs/sensitivity.md) is never
+"open", whatever its visibility says. A run that touched special material has
+no memory at all, and neither does any run it started.
+
 A memory write after an outside read is also **held for approval** (F10). The
 place it would be kept in is part of the proposal, so approving it does not
 widen it.

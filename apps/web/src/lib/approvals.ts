@@ -1,4 +1,5 @@
 import type { Principal } from "@ai-hub/authz";
+import { identifierRefusal } from "@ai-hub/mcp/detect";
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { authorize } from "@ai-hub/authz";
 import {
@@ -160,6 +161,9 @@ export const MEMORY_PLACE_ARG = "__place";
  */
 export const MEMORY_WRITE_TOOLS: ReadonlySet<string> = new Set(["memory_write", "memory_set_active", "memory_forget"]);
 
+/** Tools that write a memory's content: refused when it carries an identifier. */
+const REMEMBERING_TOOLS: ReadonlySet<string> = new Set(["memory_write", "knowledge_remember_for"]);
+
 /**
  * The tool list the model sees, and the executor behind it.
  *
@@ -193,6 +197,14 @@ export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; e
         if (!ctx.memory.place) return `Not remembered: ${ctx.memory.why}, so there is nobody it could be kept for.`;
         input = { ...rest, [MEMORY_PLACE_ARG]: JSON.stringify(ctx.memory.place) };
       }
+    }
+    // A memory carrying a CPR, card or account number is refused here, before
+    // it could become a proposal a person approves without noticing the number
+    // (docs/sensitivity.md). The store refuses it too; this says so sooner.
+    if (tool && REMEMBERING_TOOLS.has(tool.name)) {
+      const args = (input ?? {}) as { key?: unknown; content?: unknown };
+      const refusal = identifierRefusal(`${String(args.key ?? "")}\n${String(args.content ?? "")}`);
+      if (refusal) return refusal;
     }
     if (tool && isHeld(tool)) {
       const proposal = await hold(tool, input, ctx);

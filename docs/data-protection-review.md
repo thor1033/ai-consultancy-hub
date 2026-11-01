@@ -387,6 +387,29 @@ Neon's restore window to them.
 - **The Secretary's memory writes will wait for approval.** That happens
   whenever it has read the mailbox in the same run.
 
+**Phase 4 is done** (docs/sensitivity.md). It is on the same branch and not
+deployed.
+
+| | What changed | Proven by |
+|---|---|---|
+| F7 · labels | Collections and connections are internal, confidential or special. Admin-only and audited. A labelled collection must be restricted. A run carries the highest label it touched, through hand-offs, asks and chat follow-ups. Special runs get no memory, no transcript and no trace. Confidential memory never goes wider than its collection | `verify:sensitivity` (web), 70 checks |
+| 2.4 · detection | CPR numbers (checked by date), card numbers (Luhn) and IBANs (mod-97) are refused in every memory write: the gate, the memory server, the Steward, the store and the hub's memory tools. They are masked in what is stored about a run; the live answer is unchanged | the same |
+| F8 · egress | The hub's MCP server, local agents and the REST routes leave out labelled collections and connections. A labelled run's answer comes back as a link to the hub. Settings tells each person where answers go | the same |
+| F11 · read log | Every read of a confidential or special collection is logged: by a run, a chat or the Documents page. Admins see it under People's data. It is swept with the audit trail, exported and erased with the person | the same |
+| Steward | It does not read labelled conversations | the same |
+
+Not in phase 4:
+- Detecting names. "Find everything about a name" covers requests about a
+  person.
+- A per-collection switch to let confidential material leave anyway. The
+  label decides; ask if a client needs the exception.
+- Requiring organisation Claude accounts. That is set in WorkOS or the
+  identity provider.
+
+**When this deploys,** nothing is labelled. Label the collections and
+connections that hold client HR, health or financial material on `/admin` and
+on their connection pages.
+
 ## Questions for a lawyer, and for us
 
 1. In the client-owned model, with break-glass access only, are we a

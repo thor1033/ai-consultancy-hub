@@ -32,6 +32,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import postgres from "postgres";
 import { z } from "zod";
+import { identifierRefusal } from "../detect.mjs";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const HUB_URL = (process.env.HUB_BASE_URL ?? "").replace(/\/+$/, "");
@@ -242,6 +243,10 @@ readTool(
           join principals p on p.id = s.principal_id
           left join agents a on a.id = s.agent_id
          where s.principal_id = any(${ids}::text[])
+           -- A conversation that touched confidential or special material is
+           -- not steward material: what it proposes is kept for everyone
+           -- (docs/sensitivity.md).
+           and s.sensitivity = 'internal'
            and coalesce(s.started_at, s.created_at) > ${from}
            and (a.slug is null or a.slug <> ${SELF})
            and s.status in ('succeeded', 'failed')
@@ -292,6 +297,7 @@ readTool(
           left join agents a on a.id = s.agent_id
          where s.id::text = ${sessionId}
            and s.principal_id = any(${ids}::text[])
+           and s.sensitivity = 'internal'
            and (a.slug is null or a.slug <> ${SELF})`;
       if (!r) return failed("No such chat among the ones the steward may read. Ids come from knowledge_recent_chats.");
       const person = r.personName || r.personEmail;
@@ -445,8 +451,9 @@ const SOURCE = z.object({
  */
 async function sourceAllows(source, collection) {
   if (source.kind === "chat") {
-    const [s] = await sql`select principal_id as "principalId" from agent_sessions where id::text = ${source.id}`;
+    const [s] = await sql`select principal_id as "principalId", sensitivity from agent_sessions where id::text = ${source.id}`;
     if (!s) return "The source chat does not exist.";
+    if (s.sensitivity !== "internal") return `The source chat touched ${s.sensitivity} material; the steward is not allowed to use it.`;
     if (!s.principalId) return "The source chat has no person behind it (a workbench run); it is not steward material.";
     if (!(await readerIds()).includes(s.principalId)) return "The source chat belongs to someone who has not allowed the steward to read it.";
     if (!(await mayRead(s.principalId, collection))) {
@@ -515,6 +522,8 @@ writeTool(
   async ({ agentSlug, key, content, source }) =>
     attempt(async () => {
       if (agentSlug === SELF) return failed("That is your own memory: use memory_write.");
+      const identifiers = identifierRefusal(`${key}\n${content}`);
+      if (identifiers) return failed(identifiers);
       const [a] = await sql`select id, name from agents where slug = ${agentSlug}`;
       if (!a) return failed(`No agent "${agentSlug}".`);
       const refusal = source.kind === "chat" ? await sourceAllows(source, NOTES_COLLECTION).then((r) => (r && /not exist|workbench|not allowed/.test(r) ? r : null)) : null;

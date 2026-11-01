@@ -71,7 +71,9 @@ COPY --from=proddeps /app/node_modules ./packages/mcp/node_modules
 COPY packages/db/migrate.mjs packages/db/schema.sql packages/db/release.mjs packages/db/release-seeds.mjs ./packages/db/
 # The seeded agents and the store they are written through, as TypeScript:
 # release-seeds.mjs runs them with --experimental-transform-types. They import
-# nothing but each other and `postgres`, which the link below provides.
+# each other, `postgres` (the link below provides it) and, by relative path,
+# packages/mcp/servers/detect.mjs, which the standalone output already carries
+# (next.config's outputFileTracingIncludes ships every servers/*.mjs).
 COPY packages/db/src ./packages/db/src
 RUN ln -s /app/packages/mcp/node_modules /app/packages/db/node_modules
 

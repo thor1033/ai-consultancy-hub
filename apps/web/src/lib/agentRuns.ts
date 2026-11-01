@@ -1,4 +1,19 @@
-import { getAgent, getSkill, startRun, failRun, runsOnHub, askedAgents, type Agent, type SkillWithAgent, knowledgeScope, retrievalScope } from "@ai-hub/db";
+import {
+  getAgent,
+  getSkill,
+  startRun,
+  failRun,
+  runsOnHub,
+  askedAgents,
+  type Agent,
+  type SkillWithAgent,
+  knowledgeScope,
+  retrievalScope,
+  recordKnowledgeReads,
+  runSensitivity,
+  setRunSensitivity,
+  type Sensitivity,
+} from "@ai-hub/db";
 import { runHandoffs } from "@/lib/handoffs";
 import { ASK_MAX_DEPTH, ASK_TIMEOUT_MS, type Asks } from "@/lib/askAgents";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
@@ -46,7 +61,15 @@ import { loadHubConnections } from "@/lib/connections";
 export const DEFAULT_DEADLINE_MS = 45_000;
 
 export type AgentRunOutcome =
-  | { kind: "done"; runId: string; output: string; toolsUsed: string[]; sources: number }
+  | {
+      kind: "done";
+      runId: string;
+      output: string;
+      toolsUsed: string[];
+      sources: number;
+      /** The highest label it touched; above internal, the answer may not leave the hub (lib/sensitivity.ts). */
+      sensitivity: Sensitivity;
+    }
   | { kind: "running"; runId: string; agentName: string }
   | { kind: "error"; message: string };
 
@@ -91,6 +114,10 @@ export async function cooperation(agent: Agent, principal: Principal, runId: str
         allowed,
         start: async (slug, task) => {
           const out = await runAgentForPrincipal({ agentRef: slug, prompt: task, principal, deadlineMs: ASK_TIMEOUT_MS, parent: { sessionId: runId, depth: depth + 1 } });
+          // Its answer comes back into this run, and so does its label
+          // (docs/sensitivity.md). Set on its row as it started, so it is
+          // there even while it is still going.
+          if (out.kind !== "error") await setRunSensitivity(runId, await runSensitivity(out.runId));
           return out.kind === "done" ? { kind: "done", runId: out.runId, output: out.output } : out.kind === "running" ? { kind: "running", runId: out.runId } : out;
         },
       };
@@ -148,6 +175,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
   // Which collection each passage came from: what this run touched, which
   // decides where its memory is kept (docs/memory-scopes.md).
   let retrieved: (string | null)[] = [];
+  let reads: { collection: string | null; documentId: string }[] = [];
   const scope = retrievalScope(knowledgeScope(agent));
   if (scope) {
     try {
@@ -156,6 +184,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
         context = chunksToContext(chunks);
         sources = chunks.length;
         retrieved = chunks.map((c) => c.collection);
+        reads = chunks.map((c) => ({ collection: c.collection, documentId: c.documentId }));
       }
     } catch {
       /* retrieval unavailable — answer without it */
@@ -180,6 +209,11 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     depth,
   });
   const together = await cooperation(agent, input.principal, runId, depth);
+  // The read log (docs/sensitivity.md): which confidential or special
+  // documents this run was given, for whom.
+  if (reads.length) await recordKnowledgeReads({ principalId: input.principal.id, door: "run", reads, runId });
+  // A run started by another carries what that one read, and its label.
+  const inherited = input.parent ? await runSensitivity(input.parent.sessionId) : undefined;
 
   // Started before the race so it is never abandoned: whichever way the race
   // goes, this promise owns finishing or failing the row.
@@ -197,6 +231,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     principal: { id: input.principal.id, roles: input.principal.roles },
     retrieved,
     depth,
+    sensitivity: inherited,
     remoteBearer: input.principal.accessToken,
     serverEntries: agent.mcpServers,
     runId,
@@ -241,6 +276,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     output: raced.out.result.text ?? "",
     toolsUsed: raced.out.result.toolsUsed ?? [],
     sources,
+    sensitivity: raced.out.sensitivity,
   };
 }
 

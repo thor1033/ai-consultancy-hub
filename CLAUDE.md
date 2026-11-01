@@ -62,8 +62,9 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds`, `verify:patterns` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access` (rag), `verify:credentials` (authz),
   `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing`,
-  `verify:import`, `verify:views`, `verify:design-tools`, `verify:connections`, `verify:data-protection`, `verify:memory-scopes`, `verify:retention` (web). verify:retention sweeps the whole
-  database by the default policy, as production does — run it on a development database.
+  `verify:import`, `verify:views`, `verify:design-tools`, `verify:connections`, `verify:data-protection`, `verify:memory-scopes`, `verify:retention`, `verify:sensitivity` (web). verify:retention sweeps the whole
+  database by the default policy, as production does, and verify:sensitivity sweeps audit and read-log entries over a year old — run
+  them on a development database.
 - `bench:prompt` (agent) calls the real model and spends money; it says how many calls first. See
   docs/agent-testing.md, "Prompt speed".
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.
@@ -105,6 +106,10 @@ commit or print `.env*` files; `*.bak` is gitignored because backups held secret
 - Retention (docs/retention.md): content in `agent_sessions` and `proposals` expires (`content_expired_at`,
   `transcript_dropped_at`); anything new that stores what a person asked or was told must be covered by
   `sweepRetention`, `exportPerson` and `erasePerson` in packages/db/src/personalData.ts.
+- Sensitivity (docs/sensitivity.md): collections and connections are labelled `internal`, `confidential` or `special`;
+  a run carries the highest label it touched (`labelRun`, lib/sensitivity.ts). Anything that returns knowledge or an
+  answer to a client outside the hub (MCP, local agents, REST) goes through `outsideAccess` / `mayLeave`. CPR, card and
+  IBAN numbers (`@ai-hub/mcp/detect`) are refused in memory and masked in what is stored about a run.
 - Failures must surface in the output a person reads — never return an empty or
   truncated agent answer as success.
 - Schema changes go in `packages/db/schema.sql` and must stay idempotent

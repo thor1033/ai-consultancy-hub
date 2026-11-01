@@ -26,6 +26,13 @@ export interface RunAgentInput {
   toolExecutor?: (name: string, input: unknown) => Promise<string>;
   /** Arbitrary metadata attached to the Langfuse trace (e.g. skillId, tenantId). */
   metadata?: Record<string, unknown>;
+  /**
+   * False: send nothing to Langfuse for this run — not even its shape. For a
+   * run that touched special-category material (docs/sensitivity.md), whose
+   * tool names and timings can say what it was about. Default: traced when
+   * Langfuse is configured.
+   */
+  trace?: boolean;
 }
 
 export interface RunAgentResult {

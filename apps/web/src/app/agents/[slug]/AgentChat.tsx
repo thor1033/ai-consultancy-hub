@@ -40,7 +40,8 @@ export function AgentChat({ slug, name, enabled }: { slug: string; name: string;
     start(async () => {
       const res = await sendAgentMessageAction(
         slug,
-        next.map(({ role, content }) => ({ role, content })),
+        // Each answer's run goes back with it, so the hub knows what earlier turns touched.
+        next.map(({ role, content, meta }) => ({ role, content, ...(meta?.runId ? { runId: meta.runId } : {}) })),
       );
       if ("error" in res) {
         setError(res.error);

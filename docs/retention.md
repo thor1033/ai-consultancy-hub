@@ -14,7 +14,7 @@ button.
 | A run's **transcript**: every message and everything its tools read | 7 days | `HUB_RETAIN_TRANSCRIPTS_DAYS` |
 | A run's **question, answer and error** | 90 days | `HUB_RETAIN_ANSWERS_DAYS` |
 | A **decided** proposal's arguments, result, reason and notes | 90 days after the decision | the same |
-| The **audit trail** | 365 days, except records of erasure, which are kept | `HUB_RETAIN_AUDIT_DAYS` |
+| The **audit trail**, and the read log of confidential material (docs/sensitivity.md) | 365 days, except records of erasure, which are kept | `HUB_RETAIN_AUDIT_DAYS` |
 | Documents, memories, decks, schedules | until someone removes them | none |
 
 The settings have guard rails:
@@ -88,9 +88,9 @@ user, as retention has left it:
 **Find everything about a name** is for a request about someone who may never
 have used the hub, such as a client's employee named in a meeting. It searches
 questions, answers and transcripts, memories, documents, proposals, decks and
-people. The person reading the results decides what to remove. Automatic
-masking of names in other people's content is phase 4, which covers
-detection.
+people. The person reading the results decides what to remove. CPR, card and
+account numbers are masked automatically (docs/sensitivity.md); names are
+not.
 
 Exports, erasures and searches are all on the audit trail (`data.exported`,
 `data.erased`, `data.searched`), with who did them. A search reveals what the

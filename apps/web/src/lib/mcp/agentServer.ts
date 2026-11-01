@@ -17,6 +17,7 @@ import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
 import { heldText, hold, needsApproval, withReason } from "@/lib/approvals";
 import { loadHubConnections } from "@/lib/connections";
+import { connectionsKeptInside, outsideAccess } from "@/lib/sensitivity";
 
 /*
  * One agent, served to the Claude Code session it was synced into.
@@ -68,7 +69,17 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
   // not dialled — and the sub-agent is told so in the server's instructions,
   // which Claude Code shows its model, rather than finding a tool missing.
   const disabled = await disabledMcpServerNames();
-  const missing = unavailableServers((agent.mcpServers ?? []).map(entryName), disabled);
+  // A local agent's model runs in someone's own Claude account, so it is
+  // outside the hub: a connection labelled confidential or special is not
+  // dialled for it, and the model is told why (docs/sensitivity.md).
+  const inside = await connectionsKeptInside();
+  const missing = [
+    ...unavailableServers((agent.mcpServers ?? []).map(entryName), disabled),
+    ...(agent.mcpServers ?? [])
+      .map(entryName)
+      .filter((n) => inside.has(n) && !disabled.has(n))
+      .map((name) => ({ name, reason: "labelled confidential, so it stays inside the hub — run this agent on the hub to use it" })),
+  ];
   const note = unavailabilityNote(missing);
   if (note) console.warn(`[agent-mcp] ${agent.slug}: unavailable servers — ${missing.map((m) => m.name).join(", ")}`);
   const server = new McpServer(
@@ -114,7 +125,8 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
   const scope = knowledgeScope(agent);
   const curated = retrievalScope(scope);
   if (curated && (await authorize(principal, "rag:search"))) {
-    const access = await knowledgeAccessFor(principal);
+    // As the caller, and as for any client outside the hub: nothing labelled.
+    const { access } = await outsideAccess(await knowledgeAccessFor(principal));
     const drawers = scope.kind === "collections" ? scope.names : null;
     server.registerTool(
       "hub_search_knowledge",
@@ -192,7 +204,7 @@ export async function buildAgentMcpServer(principal: Principal, agent: Agent): P
   // and a server switched off in /mcp is off here too.
   const entries = (agent.mcpServers ?? [])
     .map((entry) => ({ entry, name: entryName(entry) }))
-    .filter(({ name }) => name && name !== "memory" && isKnownServer(name) && !disabled.has(name));
+    .filter(({ name }) => name && name !== "memory" && isKnownServer(name) && !disabled.has(name) && !inside.has(name));
 
   const bearer = principal.accessToken;
   const taken = new Set(["hub_search_knowledge", "hub_get_document"]);

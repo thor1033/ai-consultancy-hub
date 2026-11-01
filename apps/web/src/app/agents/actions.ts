@@ -32,6 +32,8 @@ import {
   getHandoff,
   type Handoff,
   getRunStatus,
+  recordKnowledgeReads,
+  highestRunSensitivity,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
@@ -146,6 +148,8 @@ export async function loadMemoriesAction(agentId: string) {
 export interface AgentChatMessage {
   role: "user" | "assistant";
   content: string;
+  /** An answer's run, so a follow-up inherits what that turn touched (docs/sensitivity.md). */
+  runId?: string;
 }
 
 export interface AgentTurnMeta {
@@ -155,6 +159,7 @@ export interface AgentTurnMeta {
   toolsUsed: string[];
   servers: string[];
   sources: number;
+  runId: string;
 }
 
 // Spelled out rather than inferred: this crosses the server-action boundary,
@@ -213,6 +218,7 @@ export async function sendAgentMessageAction(
   let context: string | undefined;
   let sources = 0;
   let retrieved: (string | null)[] = [];
+  let reads: { collection: string | null; documentId: string }[] = [];
   const scope = retrievalScope(knowledgeScope(agent));
   if (scope) {
     try {
@@ -221,11 +227,18 @@ export async function sendAgentMessageAction(
         context = chunksToContext(chunks);
         sources = chunks.length;
         retrieved = chunks.map((c) => c.collection);
+        reads = chunks.map((c) => ({ collection: c.collection, documentId: c.documentId }));
       }
     } catch {
       /* retrieval unavailable — answer without it */
     }
   }
+  // Earlier turns' answers are in this one's prompt, and so is their label:
+  // a follow-up to an answer drawn from special material is special too.
+  const carried = await highestRunSensitivity(
+    clean.filter((m) => m.role === "assistant" && m.runId).map((m) => m.runId!),
+    principal.id,
+  );
 
   // A row first, as every other run path does: the conversation's turn is a
   // run like any other, so the agents it asks hang off it and the hand-offs
@@ -239,6 +252,8 @@ export async function sendAgentMessageAction(
     effort: agent.effort ?? undefined,
     mcpServers: servers,
   });
+  // The read log (docs/sensitivity.md): confidential or special documents this turn was given.
+  if (reads.length) await recordKnowledgeReads({ principalId: principal.id, door: "chat", reads, runId });
   try {
     const together = await cooperation(agent, principal, runId, 0);
     const { result, servers: used } = await runSession({
@@ -255,6 +270,7 @@ export async function sendAgentMessageAction(
       principalId: principal.id,
       principal: { id: principal.id, roles: principal.roles },
       retrieved,
+      sensitivity: carried,
       runId,
       keepsMemory: together.keepsMemory,
       asks: together.asks,
@@ -280,6 +296,7 @@ export async function sendAgentMessageAction(
         toolsUsed: result.toolsUsed,
         servers: used,
         sources,
+        runId,
       },
     };
   } catch (e) {

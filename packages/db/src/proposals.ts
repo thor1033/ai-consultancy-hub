@@ -41,6 +41,8 @@ export interface Proposal {
   principalName: string | null;
   assignedToName: string | null;
   assignedByName: string | null;
+  /** The label of the run that proposed it (docs/sensitivity.md); its arguments may carry that material. */
+  runSensitivity: "internal" | "confidential" | "special";
   runPrompt: string | null;
   /** When the run that made it started — proposals are shown grouped by run. */
   runAt: string | null;
@@ -68,6 +70,7 @@ const COLUMNS = `
   pr.display_name as "principalName",
   pt.display_name as "assignedToName",
   pb.display_name as "assignedByName",
+  coalesce(s.sensitivity, 'internal') as "runSensitivity",
   s.prompt as "runPrompt",
   s.created_at as "runAt"
 `;

@@ -25,6 +25,7 @@ import { registerDesignTools } from "@/lib/mcp/designTools";
 import { remoteServerConfig, remoteServerInfo } from "@ai-hub/mcp";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
+import { connectionsKeptInside, mayLeave, outsideAccess, withheldAnswer } from "@/lib/sensitivity";
 import {
   retrieveChunks,
   listCollections,
@@ -70,7 +71,12 @@ export async function buildHubMcpServer(
   // lookup would be, at a quarter of the queries. Every knowledge tool below
   // narrows through it — including hub_get_document, which would otherwise be
   // the way around the filter on search.
-  const access = await knowledgeAccessFor(principal);
+  //
+  // And narrowed again for leaving the hub (docs/sensitivity.md): what this
+  // server returns lands in whatever Claude account the person connected,
+  // possibly a personal one. Collections labelled confidential or special
+  // are not searched, listed or opened from here; they are read in the hub.
+  const { access, kept } = await outsideAccess(await knowledgeAccessFor(principal));
 
   // Resolve the bound agent once, before the server is described, so the
   // instructions can name it and a stale binding fails closed. The lookup only
@@ -97,8 +103,10 @@ export async function buildHubMcpServer(
   const reachable = new Map<string, { name: string; readOnly: boolean }>();
   if (principal.accessToken) {
     const disabled = await disabledMcpServerNames();
+    // A connection labelled confidential or special is not handed out (docs/sensitivity.md).
+    const inside = await connectionsKeptInside();
     for (const info of remoteServerInfo()) {
-      if (disabled.has(info.name) || !info.forwardIdentity) continue;
+      if (disabled.has(info.name) || !info.forwardIdentity || inside.has(info.name)) continue;
       const prev = reachable.get(info.url);
       if (!prev || (prev.readOnly && !info.readOnly)) {
         reachable.set(info.url, { name: info.name, readOnly: info.readOnly });
@@ -117,6 +125,9 @@ export async function buildHubMcpServer(
         "this repository. Prefer it over guessing, and cite the document titles " +
         "it returns." +
         (canRunAgents ? ` ${LARGE_ARG_RULE}` : "") +
+        (kept.length
+          ? " Some of the organisation's material is labelled confidential and stays inside the hub: it is not searchable from here, and an agent answer drawn from it is replaced by a link to read it in the hub."
+          : "") +
         (reachable.size
           ? " The organisation's own systems are also served here" +
             ` (${[...reachable.values()].map((r) => r.name).join(", ")}), under your own ` +
@@ -445,7 +456,7 @@ export async function buildHubMcpServer(
             args: big.args,
             principal,
           });
-          return text(renderOutcome(outcome, skill.name));
+          return text(renderOutcome(outcome, skill.name, opts.baseUrl));
         },
       );
     }
@@ -500,11 +511,13 @@ export async function buildHubMcpServer(
         if (!run) return text(`No run ${runId} belongs to you.`);
         // Writes the run wanted to make and could not: the caller is the one
         // who can approve them, so they travel with the status.
+        // A labelled run's answer, and what it wanted to write, stay in the hub (docs/sensitivity.md).
+        const inside = !mayLeave(run.sensitivity);
         const held = (await listProposals({ runId, status: "pending" })).map((p) => ({
           proposal: p.id,
           tool: p.tool,
           server: p.server,
-          args: p.args,
+          args: inside ? KEPT_INSIDE : p.args,
           reason: p.reason,
         }));
         const heldNote = held.length
@@ -523,7 +536,8 @@ export async function buildHubMcpServer(
         }
         return text({
           status: run.status,
-          output: run.output,
+          output: inside ? withheldAnswer(run.sensitivity, run.id, opts.baseUrl) : run.output,
+          ...(inside ? { withheld: run.sensitivity } : {}),
           toolsUsed: run.toolsUsed,
           finishedAt: run.finishedAt,
           ...heldNote,
@@ -564,7 +578,7 @@ export async function buildHubMcpServer(
             agent: p.agentSlug,
             tool: p.tool,
             server: p.server,
-            args: p.args,
+            args: mayLeave(p.runSensitivity) ? p.args : KEPT_INSIDE,
             reason: p.reason,
             description: p.description,
             status: p.status,
@@ -572,7 +586,7 @@ export async function buildHubMcpServer(
             ...(p.assignedTo
               ? { sentTo: p.assignedTo === principal.id ? "you" : p.assignedToName || p.assignedTo, sentBy: p.assignedByName || p.assignedBy, ...(p.assignNote ? { sentNote: p.assignNote } : {}) }
               : {}),
-            ...(p.result ? { result: p.result.slice(0, 2000) } : {}),
+            ...(p.result && mayLeave(p.runSensitivity) ? { result: p.result.slice(0, 2000) } : {}),
             ...(p.error ? { error: p.error } : {}),
           })),
         );
@@ -682,13 +696,17 @@ export async function buildHubMcpServer(
 
   async function describeOutcome(agentRef: string, task: string) {
     const outcome = await runAgentForPrincipal({ agentRef, prompt: task, principal });
-    return renderOutcome(outcome, agentRef);
+    return renderOutcome(outcome, agentRef, opts.baseUrl);
   }
 }
+
+/** What stands in for a labelled run's write arguments outside the hub. */
+const KEPT_INSIDE = { keptInsideTheHub: "This came from confidential material; open the hub's Approvals page to read it." };
 
 function renderOutcome(
   outcome: Awaited<ReturnType<typeof runAgentForPrincipal>>,
   label: string,
+  baseUrl?: string,
 ) {
   if (outcome.kind === "error") return `Could not run it: ${outcome.message}`;
   if (outcome.kind === "running") {
@@ -701,10 +719,14 @@ function renderOutcome(
       next: `This is taking more than a moment. Call hub_run_status with runId "${outcome.runId}" in a few seconds to collect the result. The run is still going.`,
     };
   }
+  // An answer drawn from confidential or special material is read in the hub
+  // (docs/sensitivity.md); the client gets where, not what.
+  const leaves = mayLeave(outcome.sensitivity);
   return {
     status: "done",
     runId: outcome.runId,
-    output: outcome.output,
+    output: leaves ? outcome.output : withheldAnswer(outcome.sensitivity, outcome.runId, baseUrl),
+    ...(leaves ? {} : { withheld: outcome.sensitivity }),
     ...(outcome.toolsUsed.length ? { toolsUsed: outcome.toolsUsed } : {}),
     ...(outcome.sources ? { knowledgeSources: outcome.sources } : {}),
   };

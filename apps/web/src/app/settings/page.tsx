@@ -52,6 +52,7 @@ export default async function SettingsPage() {
 function YourData() {
   const p = retentionPolicy();
   return (
+    <>
     <section className="panel mt-6 p-5 md:p-6">
       <div className="eyebrow">Your data</div>
       <p className="mt-2 max-w-2xl text-sm text-[var(--text-soft)]">
@@ -66,5 +67,18 @@ function YourData() {
         To have your data erased, ask an admin of this hub; they can do it from the Admin page.
       </p>
     </section>
+    <section className="panel mt-6 p-5 md:p-6">
+      <div className="eyebrow">Where your answers go</div>
+      <p className="mt-2 max-w-2xl text-sm text-[var(--text-soft)]">
+        Here in the hub, answers stay in the hub. When you use the hub from Claude Code or Claude.ai, what it sends back — search
+        results, documents, an agent&apos;s answer — is kept by that Claude account, on that account&apos;s terms. Use your
+        organisation&apos;s Claude account for work, not a personal one.
+      </p>
+      <p className="mt-2 max-w-2xl text-sm text-[var(--text-soft)]">
+        Material your admins marked confidential never goes there: you get a link to read it here instead. Card numbers, bank
+        account numbers and CPR numbers are never remembered, and are removed from what the hub stores about a conversation.
+      </p>
+    </section>
+    </>
   );
 }

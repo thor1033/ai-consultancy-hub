@@ -33,6 +33,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import postgres from "postgres";
 import { z } from "zod";
+import { identifierRefusal } from "../detect.mjs";
 
 const AGENT_ID = process.env.HUB_AGENT_ID;
 const DATABASE_URL = process.env.DATABASE_URL;
@@ -203,6 +204,10 @@ server.registerTool(
   },
   async ({ key, content, active, __place }) => {
     const isActive = active ?? true;
+    // CPR, card and account numbers are never kept (docs/sensitivity.md). Told
+    // to the agent in words, so it can write the fact without the number.
+    const refusal = identifierRefusal(`${key}\n${content}`);
+    if (refusal) return text(refusal);
     const place = placeFor(__place);
     if (place.error) return text(place.error);
     const [row] = await sql`

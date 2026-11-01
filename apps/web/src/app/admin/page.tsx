@@ -3,7 +3,7 @@ import { AccessPanel } from "./AccessPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { viewContext } from "@/lib/viewServer";
 import { sessionCan } from "@/lib/sessionPrincipal";
-import { lastRetentionSweep, listPrincipals, retentionPolicy } from "@ai-hub/db";
+import { lastRetentionSweep, listKnowledgeReads, listPrincipals, retentionPolicy, type KnowledgeReadRow } from "@ai-hub/db";
 import { DataPanel } from "./DataPanel";
 
 export const dynamic = "force-dynamic";
@@ -21,9 +21,13 @@ export default async function AdminPage() {
   // People's data is loaded here, on the server, so it is shown to admins only —
   // the panel above fetches through its own admin-checked actions.
   const admin = Boolean(await sessionCan("admin:manage"));
-  const [people, lastSweep] = admin
-    ? await Promise.all([listPrincipals().catch(() => []), lastRetentionSweep().catch(() => null)])
-    : [[], null];
+  const [people, lastSweep, reads] = admin
+    ? await Promise.all([
+        listPrincipals().catch(() => []),
+        lastRetentionSweep().catch(() => null),
+        listKnowledgeReads({ limit: 100 }).catch(() => [] as KnowledgeReadRow[]),
+      ])
+    : [[], null, [] as KnowledgeReadRow[]];
   return (
     <main className="mx-auto max-w-[80rem] space-y-12 px-5 py-7 lg:px-8">
       <div>
@@ -50,6 +54,7 @@ export default async function AdminPage() {
             policy={retentionPolicy()}
             lastSweep={lastSweep ? { at: new Date(lastSweep.at).toISOString(), detail: lastSweep.detail } : null}
             people={people.map((p) => ({ id: p.id, email: p.email, name: p.displayName }))}
+            reads={reads.map((r) => ({ ...r, at: new Date(r.at).toISOString() }))}
           />
         </div>
       )}

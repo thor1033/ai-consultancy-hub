@@ -60,6 +60,8 @@ export interface RetentionSweep {
   answersExpired: number;
   proposalsExpired: number;
   auditDeleted: number;
+  /** Read-log entries (docs/sensitivity.md) older than the audit period. */
+  readsDeleted: number;
 }
 
 /** One pass of the policy. Idempotent: what was cleared is stamped and skipped next time. */
@@ -90,12 +92,15 @@ export async function sweepRetention(policy: RetentionPolicy = retentionPolicy()
   const audit = await sql`
     delete from auth_events
      where at < now() - ${age(policy.auditDays)} and event <> 'data.erased'`;
+  // The read log is part of the audit trail, and goes with it.
+  const reads = await sql`delete from knowledge_reads where at < now() - ${age(policy.auditDays)}`;
 
   return {
     transcriptsDropped: transcripts.count,
     answersExpired: answers.count,
     proposalsExpired: proposals.count,
     auditDeleted: audit.count,
+    readsDeleted: reads.count,
   };
 }
 
@@ -128,6 +133,8 @@ export interface PersonExport {
   collectionsGranted: string[];
   credentials: { name: string; prefix: string; createdAt: string; revokedAt: string | null }[];
   auditTrail: { at: string; event: string; detail: unknown }[];
+  /** Their reads of confidential and special collections (docs/sensitivity.md). */
+  readLog: { at: string; door: string; collection: string; document: string | null }[];
 }
 
 /** Everything the hub holds about a person as a user of it. Content as stored now: what retention removed is gone. */
@@ -136,7 +143,7 @@ export async function exportPerson(principalId: string): Promise<PersonExport> {
   const [person] = await sql<NonNullable<PersonExport["person"]>[]>`
     select id, email, display_name as "displayName", roles, enabled, created_at as "createdAt", preferences
       from principals where id = ${principalId}`;
-  const [runs, proposals, memories, schedules, decks, grants, credentials, audit] = await Promise.all([
+  const [runs, proposals, memories, schedules, decks, grants, credentials, audit, reads] = await Promise.all([
     sql<PersonExport["runs"]>`
       select s.id, coalesce(s.started_at, s.created_at) as at, a.name as agent, k.name as skill, s.status,
              s.prompt as question, s.output as answer, (s.content_expired_at is not null) as "removedAfterRetention"
@@ -171,6 +178,10 @@ export async function exportPerson(principalId: string): Promise<PersonExport> {
         from api_credentials where principal_id = ${principalId}`,
     sql<PersonExport["auditTrail"]>`
       select at, event, detail from auth_events where principal_id = ${principalId} order by at desc`,
+    sql<PersonExport["readLog"]>`
+      select r.at, r.door, r.collection, d.title as document
+        from knowledge_reads r left join documents d on d.id = r.document_id
+       where r.principal_id = ${principalId} order by r.at desc`,
   ]);
   return {
     exportedAt: new Date().toISOString(),
@@ -184,6 +195,7 @@ export async function exportPerson(principalId: string): Promise<PersonExport> {
     collectionsGranted: grants.map((g) => g.collection),
     credentials,
     auditTrail: audit,
+    readLog: reads,
   };
 }
 
@@ -193,6 +205,7 @@ export interface Erasure {
   memoriesUnattributed: number;
   localCalls: number;
   auditEvents: number;
+  reads: number;
   principal: boolean;
 }
 
@@ -205,7 +218,8 @@ export interface Erasure {
  *
  * What it does not do: find their name inside other people's questions,
  * answers or documents. That is findSubject's job, for a person to read and
- * decide on — automatic masking is phase 4 (detection).
+ * decide on. Detection (docs/sensitivity.md) masks CPR, card and account
+ * numbers at rest; it does not, and should not, guess at names.
  *
  * One transaction: a half-erased person is worse than either end state. The
  * erasure itself is recorded (event data.erased, no content), and that record
@@ -219,6 +233,7 @@ export async function erasePerson(principalId: string, actor: string): Promise<E
     const unattributed = await tx`update agent_memories set written_by = null where written_by = ${principalId}`;
     const localCalls = await tx`delete from agent_local_calls where principal_id = ${principalId}`;
     const audit = await tx`delete from auth_events where principal_id = ${principalId}`;
+    const reads = await tx`delete from knowledge_reads where principal_id = ${principalId}`;
     const principal = await tx`delete from principals where id = ${principalId}`;
     return {
       runs: runs.count,
@@ -226,6 +241,7 @@ export async function erasePerson(principalId: string, actor: string): Promise<E
       memoriesUnattributed: unattributed.count,
       localCalls: localCalls.count,
       auditEvents: audit.count,
+      reads: reads.count,
       principal: principal.count > 0,
     };
   });

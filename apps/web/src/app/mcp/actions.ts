@@ -1,7 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createHubConnection, deleteHubConnection, listHubConnections, listMcpServers, setMcpServerEnabled, updateHubConnection } from "@ai-hub/db";
+import {
+  createHubConnection,
+  deleteHubConnection,
+  listHubConnections,
+  listMcpServers,
+  setMcpServerEnabled,
+  updateHubConnection,
+  setServerSensitivity,
+  isSensitivity,
+  recordAuthEvent,
+  type Sensitivity,
+} from "@ai-hub/db";
 import { sessionCan } from "@/lib/sessionPrincipal";
 import { CONNECTION_NAME, checkConnectionUrl, connectionName, loadHubConnections, reservedConnectionName, tokenPurpose, urlPurpose } from "@/lib/connections";
 import { openSecret, sealSecret } from "@/lib/secretBox";
@@ -37,6 +48,27 @@ export async function setServerEnabledAction(
   revalidatePath("/mcp");
   revalidatePath(`/mcp/${name}`);
   revalidatePath("/");
+  return { ok: true };
+}
+
+/**
+ * Label a connection (docs/sensitivity.md): what it returns is treated as
+ * that label in every run that has it. Admin-only, on the audit trail. A
+ * labelled connection is no longer handed to Claude Code — not through the
+ * hub's MCP server, not to a local agent.
+ */
+export async function setServerSensitivityAction(name: string, sensitivity: Sensitivity): Promise<{ ok: true } | { error: string }> {
+  const admin = await sessionCan("admin:manage");
+  if (!admin) return { error: "Only an admin can label a connection." };
+  if (!isSensitivity(sensitivity)) return { error: "That is not a label." };
+  try {
+    const out = await setServerSensitivity(name, sensitivity);
+    if ("error" in out) return out;
+    await recordAuthEvent({ event: "connection.sensitivity", actor: admin.email ?? admin.id, detail: { connection: name, sensitivity } });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not label the connection." };
+  }
+  revalidatePath(`/mcp/${name}`);
   return { ok: true };
 }
 

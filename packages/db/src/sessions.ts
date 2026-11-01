@@ -1,4 +1,22 @@
 import { getSql } from "./client";
+// By path, not by package: the release image runs this module outside the web
+// bundle, and the file ships with the MCP servers (docs/sensitivity.md).
+import { maskDeep, maskIdentifiers } from "../../mcp/servers/detect.mjs";
+import type { Sensitivity } from "./sensitivity";
+
+// What is stored about a run is masked at rest (docs/sensitivity.md): CPR,
+// card and account numbers in the question, the answer, the error and the
+// transcript are replaced before the row is written. The live answer the
+// person reads as the run finishes is not this — it is never changed.
+const mask = (text: string | null | undefined): string | null => (text == null ? null : maskIdentifiers(text).text);
+
+/**
+ * The transcript as stored: masked, or — for a run that touched special
+ * material — not kept at all, from the start, stamped the way retention
+ * stamps one it dropped so every page already says why it is empty.
+ */
+const storedTranscript = (transcript: unknown[] | undefined, sensitivity: Sensitivity | undefined) =>
+  sensitivity === "special" ? { value: [] as unknown[], dropped: true } : { value: maskDeep(transcript ?? []).value, dropped: false };
 
 // The record of one agent turn: prompt, model, connected MCP servers, tools
 // used, and the full transcript. Written by runSession on every /agents run, so
@@ -43,25 +61,29 @@ export interface RecordSessionInput {
   traceId?: string;
   /** Where the time went (@ai-hub/agent RunTimeline). */
   timeline?: unknown;
+  /** The highest label the run touched (docs/sensitivity.md). */
+  sensitivity?: Sensitivity;
 }
 
 export async function recordSession(input: RecordSessionInput): Promise<string> {
   const sql = getSql();
+  const transcript = storedTranscript(input.transcript, input.sensitivity);
   const [row] = await sql<{ id: string }[]>`
     insert into agent_sessions
       (prompt, system, model, effort, mcp_servers, transcript, tools_used,
        output, status, cost_usd, latency_ms, tokens, trace_id, timeline,
-       agent_id, principal_id, started_at, finished_at)
+       agent_id, principal_id, started_at, finished_at, sensitivity, transcript_dropped_at)
     values
-      (${input.prompt}, ${input.system ?? null}, ${input.model ?? null},
+      (${mask(input.prompt) ?? ""}, ${input.system ?? null}, ${input.model ?? null},
        ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
-       ${sql.json((input.transcript ?? []) as never)},
+       ${sql.json(transcript.value as never)},
        ${sql.json((input.toolsUsed ?? []) as never)},
-       ${input.output ?? null}, ${input.status ?? "succeeded"},
+       ${mask(input.output)}, ${input.status ?? "succeeded"},
        ${input.costUsd ?? null}, ${input.latencyMs ?? null},
        ${sql.json((input.tokens ?? null) as never)}, ${input.traceId ?? null},
        ${sql.json((input.timeline ?? null) as never)},
-       ${input.agentId ?? null}, ${input.principalId ?? null}, now(), now())
+       ${input.agentId ?? null}, ${input.principalId ?? null}, now(), now(),
+       ${input.sensitivity ?? "internal"}, ${transcript.dropped ? sql`now()` : null})
     returning id
   `;
   return row.id;
@@ -96,7 +118,7 @@ export async function startRun(input: StartRunInput): Promise<string> {
        status, agent_id, agent_skill_id, principal_id, started_at,
        parent_session_id, depth)
     values
-      (${input.prompt}, ${input.system ?? null}, ${input.model ?? null},
+      (${mask(input.prompt) ?? ""}, ${input.system ?? null}, ${input.model ?? null},
        ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
        ${sql.json([] as never)},
        'running', ${input.agentId ?? null}, ${input.skillId ?? null},
@@ -117,16 +139,27 @@ export interface FinishRunInput {
   tokens?: unknown;
   traceId?: string;
   timeline?: unknown;
+  /** The highest label the run touched (docs/sensitivity.md). Only ever raises the row's. */
+  sensitivity?: Sensitivity;
 }
 
 export async function finishRun(id: string, result: FinishRunInput): Promise<void> {
   const sql = getSql();
+  const transcript = storedTranscript(result.transcript, result.sensitivity);
+  const label = result.sensitivity ?? "internal";
+  // The row's own label counts too: an agent this run asked may have raised
+  // it to special mid-run (lib/agentRuns.ts), and then nothing it read is kept.
   await sql`
     update agent_sessions set
       status      = 'succeeded',
-      transcript  = ${sql.json((result.transcript ?? []) as never)},
+      transcript  = case when sensitivity = 'special' then '[]'::jsonb else ${sql.json(transcript.value as never)} end,
+      transcript_dropped_at = case when sensitivity = 'special' or ${transcript.dropped}
+                                   then coalesce(transcript_dropped_at, now()) else transcript_dropped_at end,
+      sensitivity = case when ${label} = 'special' or sensitivity = 'special' then 'special'
+                         when ${label} = 'confidential' or sensitivity = 'confidential' then 'confidential'
+                         else 'internal' end,
       tools_used  = ${sql.json((result.toolsUsed ?? []) as never)},
-      output      = ${result.output ?? null},
+      output      = ${mask(result.output)},
       model       = coalesce(${result.model ?? null}, model),
       cost_usd    = ${result.costUsd ?? null},
       latency_ms  = ${result.latencyMs ?? null},
@@ -219,7 +252,7 @@ export async function getRunTiming(id: string): Promise<RunTiming | null> {
  */
 export async function appendRunOutput(id: string, line: string): Promise<void> {
   const sql = getSql();
-  await sql`update agent_sessions set output = coalesce(output, '') || ${line} where id = ${id}`;
+  await sql`update agent_sessions set output = coalesce(output, '') || ${mask(line) ?? ""} where id = ${id}`;
 }
 
 /**
@@ -233,7 +266,7 @@ export async function failRun(id: string, error: string): Promise<void> {
   const sql = getSql();
   await sql`
     update agent_sessions
-       set status = 'failed', error = ${error.slice(0, 2000)}, finished_at = now()
+       set status = 'failed', error = ${mask(error.slice(0, 2000))}, finished_at = now()
      where id = ${id}
   `;
 }
@@ -249,6 +282,8 @@ export interface RunStatus {
   toolsUsed: string[];
   startedAt: string | null;
   finishedAt: string | null;
+  /** The highest label it touched (docs/sensitivity.md). */
+  sensitivity: Sensitivity;
 }
 
 /**
@@ -271,7 +306,8 @@ export async function getRunStatus(
            prompt, output, error,
            tools_used   as "toolsUsed",
            started_at   as "startedAt",
-           finished_at  as "finishedAt"
+           finished_at  as "finishedAt",
+           sensitivity
       from agent_sessions
      where id = ${id} and principal_id = ${principalId}
   `;

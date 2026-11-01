@@ -9,6 +9,8 @@ export interface McpServerRow {
   label: string;
   description: string;
   enabled: boolean;
+  /** Its label (docs/sensitivity.md); internal until someone says otherwise. */
+  sensitivity: "internal" | "confidential" | "special";
   createdAt: string;
   updatedAt: string;
 }
@@ -16,7 +18,7 @@ export interface McpServerRow {
 export async function listMcpServers(): Promise<McpServerRow[]> {
   const sql = getSql();
   return sql<McpServerRow[]>`
-    select name, label, description, enabled,
+    select name, label, description, enabled, sensitivity,
            created_at as "createdAt",
            updated_at as "updatedAt"
     from mcp_servers

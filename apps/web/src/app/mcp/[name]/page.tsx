@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { Suspense, cache } from "react";
 import { notFound } from "next/navigation";
-import { listHubConnections, listServerRuns, toolCallCounts, type ServerRun, type ToolCallCount } from "@ai-hub/db";
+import { listHubConnections, listServerRuns, serverSensitivities, toolCallCounts, type ServerRun, type ToolCallCount } from "@ai-hub/db";
 import { describeMcpServer, type McpToolInfo } from "@/lib/mcpCatalog";
 import { sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
 import { rel } from "@/lib/format";
@@ -9,6 +9,7 @@ import { serverDirectory } from "../directory";
 import { ServerSwitch } from "../ServerSwitch";
 import { ToolList, type ToolRow } from "./ToolList";
 import { ConnectionSettings } from "./ConnectionSettings";
+import { ServerLabel } from "./ServerLabel";
 import { hubRemoteProblem } from "@ai-hub/mcp";
 import { hiddenPromptLabel, privateRun } from "@/lib/runPrivacy";
 
@@ -53,6 +54,8 @@ export default async function McpDetailPage({ params }: { params: Promise<{ name
   // out of the registry, and this is where it gets fixed.
   const added = canManage ? ((await listHubConnections().catch(() => [])).find((r) => r.name === name) ?? null) : null;
   const problem = added ? hubRemoteProblem(name) : null;
+  // Its label (docs/sensitivity.md); only admins see or set it.
+  const sensitivity = canManage ? ((await serverSensitivities().catch(() => new Map())).get(name) ?? "internal") : "internal";
   const now = Date.now();
   const c = server.connection;
 
@@ -152,6 +155,7 @@ export default async function McpDetailPage({ params }: { params: Promise<{ name
               users={server.users.filter((u) => u.enabled).map((u) => u.name)}
             />
           )}
+          {canManage && server.name !== "memory" && <ServerLabel name={server.name} sensitivity={sensitivity} />}
           <section className="panel p-5 md:p-6">
             <div className="eyebrow">Used by</div>
             {server.users.length === 0 ? (

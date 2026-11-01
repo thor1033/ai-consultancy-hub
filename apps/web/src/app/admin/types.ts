@@ -83,6 +83,8 @@ export interface AccessSnapshot {
 export interface AccessCollection {
   name: string;
   visibility: "open" | "restricted";
+  /** Its sensitivity label (docs/sensitivity.md). */
+  sensitivity: "internal" | "confidential" | "special";
   documentCount: number;
   /** Principal ids explicitly granted access. Only meaningful while restricted. */
   grantedTo: string[];

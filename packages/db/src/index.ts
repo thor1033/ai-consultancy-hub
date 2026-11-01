@@ -198,3 +198,20 @@ export {
   findSubject,
 } from "./personalData";
 export type { RetentionPolicy, RetentionSweep, PersonExport, Erasure, SubjectHits } from "./personalData";
+export {
+  SENSITIVITIES,
+  isSensitivity,
+  highestSensitivity,
+  atLeast,
+  collectionSensitivities,
+  serverSensitivities,
+  collectionsKeptInside,
+  setCollectionSensitivity,
+  setServerSensitivity,
+  setRunSensitivity,
+  runSensitivity,
+  highestRunSensitivity,
+  recordKnowledgeReads,
+  listKnowledgeReads,
+} from "./sensitivity";
+export type { Sensitivity, ReadDoor, KnowledgeRead, KnowledgeReadRow } from "./sensitivity";

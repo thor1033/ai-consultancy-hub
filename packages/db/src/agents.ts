@@ -1,4 +1,5 @@
 import { getSql } from "./client";
+import { identifierRefusal } from "../../mcp/servers/detect.mjs";
 import type { ImportSource } from "./skillmd";
 
 // Standing agents and the memory they keep between conversations. Agents are now
@@ -369,6 +370,11 @@ export async function rememberMemory(
   place: MemoryPlace = SHARED_MEMORY,
   meta: { writtenBy?: string | null; sourceRunId?: string | null } = {},
 ): Promise<AgentMemory> {
+  // CPR, card and account numbers are never kept in memory, whoever writes
+  // (docs/sensitivity.md). The message is the one an agent reads, so it can
+  // write the fact without the number.
+  const refusal = identifierRefusal(`${key}\n${content}`);
+  if (refusal) throw new Error(refusal);
   const sql = getSql();
   const ref = place.scope === "agent" ? "" : place.ref;
   if (place.scope !== "agent" && !ref) throw new Error(`A ${place.scope} memory needs to say whose.`);

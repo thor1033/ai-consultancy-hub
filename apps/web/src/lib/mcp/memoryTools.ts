@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
+import { identifierRefusal } from "@ai-hub/mcp/detect";
 import {
   listMemories,
   rememberMemory,
@@ -116,6 +117,9 @@ export function registerMemoryTools(server: McpServer, agentId: string, principa
       },
     },
     async ({ key, content, active }) => {
+      // A CPR, card or account number is refused by the store (docs/sensitivity.md); said, not thrown.
+      const refusal = identifierRefusal(`${key}\n${content}`);
+      if (refusal) return { content: [{ type: "text" as const, text: refusal }], isError: true };
       const saved = await rememberMemory(agentId, key, content, active ?? true, mine, { writtenBy: principal.id });
       return text({
         saved: saved.key,

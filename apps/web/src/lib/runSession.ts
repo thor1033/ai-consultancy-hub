@@ -14,12 +14,13 @@ import {
   type McpServerConfig,
   type MemoryServerReach,
 } from "@ai-hub/mcp";
-import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames, ASK_SERVER } from "@ai-hub/db";
+import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames, ASK_SERVER, setRunSensitivity, runSensitivity, highestSensitivity, type Sensitivity } from "@ai-hub/db";
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { gate } from "@/lib/approvals";
 import { askExecutor, askTool, ASK_TOOL, type Asks } from "@/lib/askAgents";
 import { loadHubConnections } from "@/lib/connections";
 import { initialMemoryScope, memoryReachFor, memoryReachForId, narrowToPersonal } from "@/lib/memoryScope";
+import { labelRun, specialNote } from "@/lib/sensitivity";
 
 // The code-owned servers the hub starts itself.
 const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
@@ -183,12 +184,19 @@ export interface RunSessionInput {
   principal?: { id: string; roles: string[] };
   retrieved?: (string | null)[];
   depth?: number;
+  /**
+   * The label this run starts at, inherited from the run that started it (an
+   * ask, a hand-off): its prompt carries what that run read (docs/sensitivity.md).
+   */
+  sensitivity?: Sensitivity;
 }
 
 export interface RunSessionOutput {
   sessionId: string;
   servers: string[];
   result: RunAgentResult;
+  /** The highest label the run touched. What may leave the hub depends on it. */
+  sensitivity: Sensitivity;
 }
 
 async function fileMeetingNotes(): Promise<string> {
@@ -218,15 +226,24 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
   const missing = unavailableServers(input.servers ?? [], disabled);
   const note = unavailabilityNote(missing);
   if (note) console.warn(`[run] ${input.agentId ?? "workbench"}: unavailable servers — ${missing.map((m) => m.name).join(", ")}`);
-  const system = note ? [input.system, note].filter(Boolean).join("\n\n") : input.system;
+
+  // The highest label this run touches (docs/sensitivity.md): what it
+  // retrieved, the connections it has, what started it. Known before the
+  // model is called, so a special run is never given memory or a trace, and
+  // recorded on the row at once, so an agent it asks inherits it.
+  const touched = await labelRun({ retrieved: input.retrieved ?? [], servers, floor: input.sensitivity });
+  const special = () => touched.label === "special";
+  if (input.runId && touched.label !== "internal") await setRunSensitivity(input.runId, touched.label);
+  const system = [input.system, note, special() ? specialNote(touched.sources) : null].filter(Boolean).join("\n\n") || undefined;
 
   // An agent gets its own memory without having to select it: an agent that
   // could be configured to forget everything is just a chat window. The one
   // exception is on purpose: a worker briefed by an agent that remembers, so
-  // that nothing from one job colours the next.
+  // that nothing from one job colours the next. And a run on special
+  // material has none at all: nothing from it may be kept.
   const memoryAt = servers.indexOf("memory");
-  if (input.agentId && input.keepsMemory !== false && memoryAt < 0) servers.push("memory");
-  if ((input.keepsMemory === false || !input.agentId) && memoryAt >= 0) servers.splice(memoryAt, 1);
+  if (input.agentId && input.keepsMemory !== false && memoryAt < 0 && !special()) servers.push("memory");
+  if ((input.keepsMemory === false || !input.agentId || special()) && memoryAt >= 0) servers.splice(memoryAt, 1);
 
   let mcp: ConnectedMcp | undefined;
   const held = new Set<string>();
@@ -279,6 +296,15 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
               const out = await ask.execute(args);
               outside.from ??= "another agent";
               if (memory) narrowToPersonal(memory, "it asked another agent, whose answer can carry what that agent read");
+              // The asked agent's run raises this one's label (lib/agentRuns.ts):
+              // its answer is here now. Special means nothing more is remembered.
+              if (input.runId) {
+                touched.label = highestSensitivity([touched.label, await runSensitivity(input.runId)]);
+                if (special() && memory) {
+                  memory.place = null;
+                  memory.why = "it asked an agent that read special-category material";
+                }
+              }
               return out;
             }
             if (gated) return gated.execute(name, args);
@@ -299,6 +325,8 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       // that will be held is the one that asks the model for its reason.
       tools: tools.length ? tools : undefined,
       toolExecutor,
+      // Special material is not traced at all, not even its shape.
+      trace: !special(),
       metadata: input.agentId
         ? { source: "agent", agentId: input.agentId, servers }
         : { source: "workbench", servers },
@@ -327,6 +355,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         tokens: result.usage,
         traceId: result.traceId,
         timeline: result.timeline,
+        sensitivity: touched.label,
       });
       sessionId = input.runId;
     } else {
@@ -347,6 +376,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         timeline: result.timeline,
         agentId: input.agentId ?? null,
         principalId: input.principalId ?? null,
+        sensitivity: touched.label,
       });
     }
 
@@ -360,7 +390,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       }
     }
 
-    return { sessionId, servers, result };
+    return { sessionId, servers, result, sensitivity: touched.label };
   } finally {
     await mcp?.close();
   }

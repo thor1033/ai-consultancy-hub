@@ -103,7 +103,8 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   );
 
   const client = getAnthropic();
-  const langfuse = getLangfuse();
+  // A run may opt out of tracing entirely (special material, docs/sensitivity.md).
+  const langfuse = input.trace === false ? null : getLangfuse();
 
   // Frozen system prompt with a cache breakpoint. Prompt caching only kicks in
   // above the model's minimum cacheable prefix (~4096 tokens on Opus 4.8), so

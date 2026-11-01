@@ -3,6 +3,7 @@ import { retrieveChunks } from "@ai-hub/rag";
 import { knowledgeAccessFor } from "@ai-hub/authz";
 import { errorResponse } from "@/lib/apiError";
 import { guard } from "@/lib/authz";
+import { outsideAccess } from "@/lib/sensitivity";
 
 export const runtime = "nodejs";
 
@@ -27,7 +28,9 @@ export async function POST(req: Request) {
 
   try {
     const k = typeof b.k === "number" ? b.k : 5;
-    const chunks = await retrieveChunks(b.query, await knowledgeAccessFor(gate.principal), k);
+    // A client outside the hub: nothing labelled confidential or special (lib/sensitivity.ts).
+    const { access } = await outsideAccess(await knowledgeAccessFor(gate.principal));
+    const chunks = await retrieveChunks(b.query, access, k);
     return NextResponse.json({ query: b.query, chunks });
   } catch (err) {
     return errorResponse(err);

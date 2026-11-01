@@ -13,6 +13,9 @@ import {
   grantCollection,
   revokeCollectionGrant,
   getSql,
+  setCollectionSensitivity,
+  isSensitivity,
+  type Sensitivity,
 } from "@ai-hub/db";
 import {
   issueApiCredential,
@@ -134,6 +137,7 @@ async function snapshot(): Promise<AccessSnapshot> {
       collections: collectionRows.map((c) => ({
         name: c.name,
         visibility: c.visibility,
+        sensitivity: c.sensitivity,
         documentCount: c.documentCount,
         grantedTo: grantsByCollection.get(c.name) ?? [],
         unclassified: !c.classified,
@@ -305,6 +309,14 @@ export async function setCollectionVisibilityAction(
   const actor = await operator();
   if (!actor) return { error: DENIED };
   try {
+    // A labelled collection stays restricted (docs/sensitivity.md): opening it
+    // to everyone would contradict the label rather than change who reads it.
+    if (visibility === "open") {
+      const row = (await listCollectionRows()).find((c) => c.name === name);
+      if (row && row.sensitivity !== "internal") {
+        return { error: `"${name}" is labelled ${row.sensitivity}. Set its label to internal before opening it to everyone.` };
+      }
+    }
     await upsertCollection({ name, visibility });
     await recordAuthEvent({
       event: "collection.visibility",
@@ -314,6 +326,25 @@ export async function setCollectionVisibilityAction(
     return await snapshot();
   } catch (e) {
     return fail(e, "Could not change that collection.");
+  }
+}
+
+/**
+ * Label a collection (docs/sensitivity.md). Admin-only, on the audit trail.
+ * Takes effect on the next run, search or connection: nothing already
+ * remembered or sent out is changed by a label set afterwards.
+ */
+export async function setCollectionSensitivityAction(name: string, sensitivity: Sensitivity): Promise<Result<AccessSnapshot>> {
+  const actor = await operator();
+  if (!actor) return { error: DENIED };
+  if (!isSensitivity(sensitivity)) return { error: "That is not a label." };
+  try {
+    const out = await setCollectionSensitivity(name, sensitivity, defaultVisibility());
+    if ("error" in out) return out;
+    await recordAuthEvent({ event: "collection.sensitivity", actor, detail: { collection: name, sensitivity } });
+    return await snapshot();
+  } catch (e) {
+    return fail(e, "Could not label that collection.");
   }
 }
 

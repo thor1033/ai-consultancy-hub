@@ -9,7 +9,8 @@ import {
   retrieveChunks,
   syncSource,
 } from "@ai-hub/rag";
-import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
+import { recordKnowledgeReads } from "@ai-hub/db";
+import { sessionKnowledgeAccess, sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
 import { MAX_UPLOAD_BYTES, type KnowledgeSnapshot, type RetrievedRow, type DocDetail } from "./types";
 import { loadHubConnections } from "@/lib/connections";
 
@@ -111,6 +112,9 @@ export async function getDocumentAction(
   try {
     const doc = await getDocument(id, await sessionKnowledgeAccess());
     if (!doc) return { error: "Document not found." };
+    // The read log (docs/sensitivity.md): opening a confidential or special document is a read.
+    const who = await sessionPrincipal();
+    await recordKnowledgeReads({ principalId: who?.id ?? null, door: "page", reads: [{ collection: doc.collection, documentId: doc.id }] });
     return {
       id: doc.id,
       title: doc.title,
@@ -156,6 +160,9 @@ export async function testRetrievalAction(
   if (!query.trim()) return { error: "Enter a query to test retrieval." };
   try {
     const chunks = await retrieveChunks(query, await sessionKnowledgeAccess(), k);
+    // Its previews are reads too (docs/sensitivity.md).
+    const who = await sessionPrincipal();
+    await recordKnowledgeReads({ principalId: who?.id ?? null, door: "page", reads: chunks.map((c) => ({ collection: c.collection, documentId: c.documentId })) });
     return {
       chunks: chunks.map((c) => ({
         title: c.title,

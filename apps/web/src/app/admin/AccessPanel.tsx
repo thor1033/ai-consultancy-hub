@@ -9,9 +9,11 @@ import {
   issueCredentialAction,
   revokeCredentialAction,
   setCollectionVisibilityAction,
+  setCollectionSensitivityAction,
   grantCollectionAction,
   revokeCollectionAction,
 } from"./accessActions";
+import { SENSITIVITY_WORDS } from "@/lib/sensitivityWords";
 import type {
   AccessSnapshot,
   AccessCredential,
@@ -162,6 +164,7 @@ export function AccessPanel() {
               ),
             )
           }
+          onLabel={(c, label) => run(`k:${c.name}`, () => setCollectionSensitivityAction(c.name, label))}
           onGrant={(collection, principalId) =>
             run(`k:${collection}`, () => grantCollectionAction(collection, principalId))
           }
@@ -549,12 +552,14 @@ function KnowledgeList({
   snap,
   busy,
   onToggle,
+  onLabel,
   onGrant,
   onRevoke,
 }: {
   snap: AccessSnapshot;
   busy: string | null;
   onToggle: (c: AccessCollection) => void;
+  onLabel: (c: AccessCollection, label: AccessCollection["sensitivity"]) => void;
   onGrant: (collection: string, principalId: string) => void;
   onRevoke: (collection: string, principalId: string) => void;
 }) {
@@ -618,6 +623,7 @@ function KnowledgeList({
           principals={snap.principals}
           busy={busy ===`k:${c.name}`}
           onToggle={() => onToggle(c)}
+          onLabel={(label) => onLabel(c, label)}
           onGrant={(pid) => onGrant(c.name, pid)}
           onRevoke={(pid) => onRevoke(c.name, pid)}
         />
@@ -631,6 +637,7 @@ function CollectionRowView({
   principals,
   busy,
   onToggle,
+  onLabel,
   onGrant,
   onRevoke,
 }: {
@@ -638,6 +645,7 @@ function CollectionRowView({
   principals: AccessPrincipal[];
   busy: boolean;
   onToggle: () => void;
+  onLabel: (label: AccessCollection["sensitivity"]) => void;
   onGrant: (principalId: string) => void;
   onRevoke: (principalId: string) => void;
 }) {
@@ -664,6 +672,11 @@ function CollectionRowView({
                 unclassified
               </span>
             )}
+            {c.sensitivity !== "internal" && (
+              <span className="border border-[var(--danger)] px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-[var(--danger)]">
+                {SENSITIVITY_WORDS[c.sensitivity].label}
+              </span>
+            )}
           </div>
           <div className="mono mt-1 text-xs text-[var(--muted)]">
             {c.documentCount} {c.documentCount === 1 ?"document" :"documents"}
@@ -672,10 +685,32 @@ function CollectionRowView({
               :" · readable by everyone"}
           </div>
         </div>
-        <button onClick={onToggle} disabled={busy} className="chip shrink-0 disabled:opacity-50">
-          {c.visibility ==="open" ?"Restrict" :"Open to all"}
-        </button>
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <label className="sr-only" htmlFor={`label-${c.name}`}>
+            Sensitivity of {c.name}
+          </label>
+          <select
+            id={`label-${c.name}`}
+            className="field w-auto py-1 text-xs"
+            value={c.sensitivity}
+            disabled={busy}
+            onChange={(e) => onLabel(e.target.value as AccessCollection["sensitivity"])}
+            title={SENSITIVITY_WORDS[c.sensitivity].means}
+          >
+            {(["internal", "confidential", "special"] as const).map((l) => (
+              <option key={l} value={l}>
+                {SENSITIVITY_WORDS[l].label}
+              </option>
+            ))}
+          </select>
+          <button onClick={onToggle} disabled={busy} className="chip shrink-0 disabled:opacity-50">
+            {c.visibility ==="open" ?"Restrict" :"Open to all"}
+          </button>
+        </div>
       </div>
+      {c.sensitivity !== "internal" && (
+        <p className="mt-2 text-xs text-[var(--text-soft)]">{SENSITIVITY_WORDS[c.sensitivity].means}</p>
+      )}
 
       {c.visibility ==="restricted" && (
         <div className="mt-3 border-t border-[var(--border)] pt-3">
