@@ -36,7 +36,9 @@ hub/
   memory that survives between conversations.
 - **Knowledge** (`/knowledge`) — documents indexed into pgvector, retrievable by agents
   and syncable from a source connector (the PM-tool, Teams meeting notes and GitHub
-  repository docs ship as three).
+  repository docs ship as three). The team's shared SharePoint folders sync on their
+  own every hour, each into its own collection — one restricted collection per
+  client ([docs/shared-folders.md](docs/shared-folders.md)).
 - **MCP servers** (`/mcp`) — what agents can reach. Remote servers are declared in
   `HUB_REMOTE_MCP_SERVERS`; the agent-scoped `memory` server is resolved in code.
   `microsoft365` gives the secretary agent read-only mail and calendar — it cannot

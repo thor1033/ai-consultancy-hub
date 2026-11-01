@@ -515,6 +515,10 @@ const summariseItem = (i) => ({
   ...(i.folder ? { items: i.folder.childCount ?? null } : { size: humanSize(i.size) }),
   path: itemPath(i),
   modified: localTime(i.lastModifiedDateTime),
+  // To the second, and zone-free: `modified` is for a person and rounds to the
+  // minute, which would let the knowledge-base sync miss an edit made within a
+  // minute of the last one.
+  modifiedAt: i.lastModifiedDateTime ?? null,
   modifiedBy: i.lastModifiedBy?.user?.displayName ?? null,
   webUrl: i.webUrl ?? null,
 });

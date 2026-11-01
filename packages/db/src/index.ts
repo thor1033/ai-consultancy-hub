@@ -139,11 +139,14 @@ export {
   openCollectionNames,
   grantedCollectionNames,
   upsertCollection,
+  ensureCollection,
   grantCollection,
   revokeCollectionGrant,
   listGrants,
 } from "./collections";
 export type { CollectionRow, CollectionInput, GrantRow, Visibility } from "./collections";
+export { claimSourceSync, finishSourceSync, listSourceSyncs } from "./sourceSyncs";
+export type { SourceSyncRow } from "./sourceSyncs";
 export {
   listSkills,
   listRunnableSkills,

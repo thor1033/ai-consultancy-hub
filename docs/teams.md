@@ -18,7 +18,8 @@ Microsoft Teams:
   someone pasting a `.vtt` into `meeting-to-pm`.
 - **The team's files** — the Files tab (a SharePoint document library): list
   folders, search, and read Word, PowerPoint, Excel, PDF, `.vtt` and text files
-  as text.
+  as text. The same tools keep the shared folders indexed in the knowledge base
+  ([shared-folders.md](shared-folders.md)).
 
 It cannot upload, edit, move, share or delete anything. As with
 `microsoft365`, that is a property of

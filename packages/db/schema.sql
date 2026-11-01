@@ -720,3 +720,21 @@ alter table principals add column if not exists access_expires_at timestamptz;
 alter table principals add column if not exists access_reason text;
 alter table principals add column if not exists access_granted_by text;
 alter table principals add column if not exists access_granted_at timestamptz;
+
+-- The last sync of each knowledge source that syncs on the clock
+-- (packages/rag/src/sharepoint.ts, apps/web/src/lib/sourceSync.ts). One row per
+-- source. It is two things at once:
+--
+--   a claim   every machine ticks, so a sync starts only where an update of
+--             started_at wins (claimSourceSync); a crashed sync is reclaimed
+--             once its interval has passed, so a dead machine cannot wedge it.
+--   a record  /knowledge shows what the last sync did or why it failed — a sync
+--             nobody watches must still say when it stopped working.
+create table if not exists source_syncs (
+  source_type  text primary key,
+  started_at   timestamptz,
+  finished_at  timestamptz,
+  ok           boolean,
+  summary      text not null default '',
+  error        text
+);

@@ -12,7 +12,8 @@
     "typecheck": "tsc --noEmit",
     "verify:pm-tool": "node verify-pm-tool.mjs",
     "verify:github": "node --experimental-transform-types verify-github.mjs",
-    "verify:access": "node --experimental-transform-types --env-file=../../apps/web/.env.local verify-access.mjs"
+    "verify:access": "node --experimental-transform-types --env-file=../../apps/web/.env.local verify-access.mjs",
+    "verify:sharepoint": "node --experimental-transform-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --env-file=../../apps/web/.env.local verify-sharepoint.mjs"
   },
   "devDependencies": {
     "@types/node": "^22",

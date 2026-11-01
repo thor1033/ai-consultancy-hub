@@ -21,6 +21,7 @@ export {
   getSource,
   listSources,
   syncSource,
+  describeSync,
   confluenceSource,
   pmToolSource,
   teamsNotesSource,
@@ -31,9 +32,12 @@ export {
 export type {
   KnowledgeSource,
   SourceDocument,
+  SourceItem,
+  SourceListing,
   SourceInfo,
   SyncResult,
 } from "./sources";
+export { sharepointFolderSources, loadSharepointFolders, folderSlug, SHAREPOINT_SYNC_MINUTES_DEFAULT } from "./sharepoint";
 export { retrieveChunks, chunksToContext } from "./retrieve";
 export { accessPredicate, collectionReadable } from "./access";
 export type { RetrievedChunk, RetrieveOptions } from "./retrieve";
