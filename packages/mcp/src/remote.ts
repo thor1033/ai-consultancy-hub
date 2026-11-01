@@ -17,9 +17,18 @@ import type { McpHttpConfig } from "./manager";
 //   }'
 //
 // Fails closed, exactly like HUB_API_TOKENS: malformed config ⇒ no remote servers.
+//
+// A second source: connections an admin added on the Connections page
+// (docs/connections.md). They live in the database with their address and
+// token sealed; the web app opens them and hands them here with
+// setHubRemoteServers, so every reader below sees both sources the same way.
+// The environment wins on a name both declare: the deployment's own config is
+// the one that cannot be changed from a browser.
 
 export interface RemoteServerInfo {
   name: string;
+  /** Where it is declared: the deployment's HUB_REMOTE_MCP_SERVERS, or the Connections page. */
+  source: "env" | "hub";
   label: string;
   description: string;
   url: string;
@@ -74,9 +83,66 @@ interface RemoteEntry {
   forwardIdentity?: boolean;
 }
 
+/** A connection added on the page, opened by the web app. */
+export interface HubRemoteServer {
+  url: string;
+  label: string;
+  description: string;
+  /** Null when the server needs no token. */
+  token: string | null;
+}
+
+/**
+ * Held on globalThis, not in this module: Next bundles this package into more
+ * than one module graph (the instrumentation's and the routes'), and each
+ * would otherwise keep its own copy, so a connection loaded by a page would be
+ * missing from a scheduled run.
+ */
+const HUB_KEY = Symbol.for("ai-hub.mcp.hubRemoteServers");
+type HubState = { servers: Record<string, HubRemoteServer>; problems: Record<string, string> };
+const hubState = (): HubState => {
+  const g = globalThis as unknown as Record<symbol, HubState | undefined>;
+  return (g[HUB_KEY] ??= { servers: {}, problems: {} });
+};
+
+/**
+ * Replace the connections added on the page. `problems` are the ones that
+ * exist but cannot be used — an address or token that no longer opens — so a
+ * run can say why instead of calling them undeclared.
+ */
+export function setHubRemoteServers(servers: Record<string, HubRemoteServer>, problems: Record<string, string> = {}): void {
+  const state = hubState();
+  state.servers = { ...servers };
+  state.problems = { ...problems };
+}
+
+/** Why a connection added on the page cannot be used, or null. */
+export function hubRemoteProblem(name: string): string | null {
+  return hubState().problems[name] ?? null;
+}
+
+function envNames(): Set<string> {
+  return new Set(Object.keys(loadEnvEntries()));
+}
+
+/** Whether a name is declared by the deployment's environment (and so cannot be added on the page). */
+export function isEnvRemoteServer(name: string): boolean {
+  return envNames().has(name);
+}
+
+function loadEntries(): Record<string, RemoteEntry & { source: "env" | "hub" }> {
+  const out: Record<string, RemoteEntry & { source: "env" | "hub" }> = {};
+  for (const [name, h] of Object.entries(hubState().servers)) {
+    out[name] = { url: h.url, label: h.label, description: h.description, token: h.token ?? undefined, source: "hub" };
+  }
+  // Second, so the environment wins on a shared name.
+  for (const [name, e] of Object.entries(loadEnvEntries())) out[name] = { ...e, source: "env" };
+  return out;
+}
+
 // Parsed per call rather than cached: the map is tiny, and a cached parse makes
 // env changes in dev look like the config was ignored.
-function loadEntries(): Record<string, RemoteEntry> {
+function loadEnvEntries(): Record<string, RemoteEntry> {
   const raw = process.env.HUB_REMOTE_MCP_SERVERS;
   if (!raw) return {};
   try {
@@ -93,6 +159,8 @@ function loadEntries(): Record<string, RemoteEntry> {
 }
 
 function bearerToken(entry: RemoteEntry): string | undefined {
+  // tokenEnv names another variable: only the environment's own entries may.
+  // A connection added on the page carries its token inline, or none.
   if (entry.tokenEnv) return process.env[entry.tokenEnv] || undefined;
   return entry.token || undefined;
 }
@@ -159,10 +227,13 @@ export function remoteServerForwardsIdentity(name: string): boolean {
 export function remoteServerInfo(): RemoteServerInfo[] {
   return Object.entries(loadEntries()).map(([name, entry]) => ({
     name,
+    source: entry.source,
     label: entry.label ?? name,
     description: entry.description ?? "",
     url: entry.url!,
-    configured: Boolean(bearerToken(entry)) || Boolean(entry.headers),
+    // A connection added on the page was saved with the token it needs, or
+    // deliberately without one; only an env entry can point at a variable that is unset.
+    configured: entry.source === "hub" || Boolean(bearerToken(entry)) || Boolean(entry.headers),
     readOnly: remoteServerReadOnly(name),
     forwardIdentity: entry.forwardIdentity === true,
   }));

@@ -345,6 +345,14 @@ create index if not exists agent_skills_agent_idx on agent_skills (agent_id, nam
 alter table agent_sessions add column if not exists agent_skill_id uuid
   references agent_skills(id) on delete set null;
 
+-- Where a run's time went, turn by turn (@ai-hub/agent RunTimeline): wait for
+-- the first token, thinking, writing, each tool call's duration and result
+-- size, tokens per turn, and the first request's size by part. Numbers and
+-- tool names only — never the prompt, answer or a tool's result — so the run
+-- page can show it to anyone who may see the run in the agent's list. Null for
+-- runs recorded before it existed.
+alter table agent_sessions add column if not exists timeline jsonb;
+
 -- How many rounds of tool use one agent may take before a run is cut off. Null
 -- means the runtime default (DEFAULT_MAX_ITERATIONS). A secretary working
 -- through an inbox needs more rounds than an agent that looks one thing up, and
@@ -541,6 +549,177 @@ create table if not exists seed_applied (
   applied_at  timestamptz not null default now(),
   primary key (kind, key)
 );
+
+-- ---------------------------------------------------------------------------
+-- Agents working together (docs/agent-patterns.md).
+-- ---------------------------------------------------------------------------
+
+-- Whether an agent keeps memory between runs. Every agent did, by construction:
+-- "an agent that could be configured to forget everything is just a chat
+-- window". A worker that is meant to start clean every time — the goldfish in
+-- the long-memory/short-hands pattern — is the exception that proves the rule:
+-- it is briefed by an agent that remembers, does one job with a small prompt,
+-- and nothing it did leaks into the next job. Default true, so every existing
+-- agent keeps remembering.
+alter table agents add column if not exists keeps_memory boolean not null default true;
+
+-- Which pattern an agent was made from, if any: {"slug": "cluster",
+-- "instance": "research", "role": "coordinator"}. A label, not a binding: the
+-- rows a pattern creates are the person's from then on, and this only says
+-- where they came from so the org chart can show the set together.
+alter table agents add column if not exists pattern jsonb;
+
+-- A run started by another run: a hand-off when the parent finished, or an
+-- ask while it was going. `depth` is how far down the chain this is (a person
+-- or the clock starts at 0), and it is what bounds the chain: an ask is
+-- offered only below one depth and a hand-off fires only below another, so
+-- two agents that hand to each other stop, rather than run forever.
+alter table agent_sessions add column if not exists parent_session_id uuid
+  references agent_sessions(id) on delete set null;
+alter table agent_sessions add column if not exists depth int not null default 0;
+create index if not exists agent_sessions_parent_idx on agent_sessions (parent_session_id);
+
+-- Hand-offs as data: when a run of `from` (any run, or a run of one skill)
+-- finishes, the hub starts `to` with `prompt`, as the same person. The prompt
+-- is a template: {{sessionId}} the finished run, {{output}} its answer,
+-- {{prompt}} what it was asked, {{agentName}} and {{skillName}}. `note` is
+-- what the finished run's answer says the next agent will do. The first of
+-- these was written in code (the Secretary's meeting skills to the Context
+-- Steward); rows let a pattern wire a pipeline and a person switch one off.
+create table if not exists agent_handoffs (
+  id            uuid primary key default gen_random_uuid(),
+  from_agent_id uuid not null references agents(id) on delete cascade,
+  skill_id      uuid references agent_skills(id) on delete cascade,   -- null ⇒ any run of the agent
+  to_agent_id   uuid not null references agents(id) on delete cascade,
+  prompt        text not null,
+  note          text not null default '',
+  enabled       boolean not null default true,
+  created_at    timestamptz not null default now(),
+  check (from_agent_id <> to_agent_id)
+);
+create index if not exists agent_handoffs_from_idx on agent_handoffs (from_agent_id);
+create index if not exists agent_handoffs_to_idx on agent_handoffs (to_agent_id);
+
+-- A seed may declare the hand-offs into its agent, so they are recorded and
+-- merged like its skills. The constraint is replaced rather than altered so
+-- this stays idempotent.
+alter table seed_applied drop constraint if exists seed_applied_kind_check;
+alter table seed_applied add constraint seed_applied_kind_check
+  check (kind in ('agent', 'skill', 'memory', 'handoff'));
+
+-- Where an agent or a skill was imported from, when it was (docs/skill-import.md):
+-- {"kind":"github","url":…,"rawUrl":…,"repo":…,"ref":…,"path":…,"license":…,
+--  "importedAt":…,"sha256":…}. A record, never a binding: the brief is the
+-- row's from the moment it is created, and the source says where to look
+-- when it is time to compare with upstream or credit a license.
+alter table agents add column if not exists source jsonb;
+alter table agent_skills add column if not exists source jsonb;
+
+-- A person's own settings for how the hub looks to them (docs/views.md):
+-- {"view": "simple" | "standard" | "expert"}. Never a permission — roles are
+-- that — only how much of the hub a person is shown. Kept on the row so the
+-- choice follows them to another device; the browser keeps a cookie too.
+alter table principals add column if not exists preferences jsonb not null default '{}'::jsonb;
+
+-- Connections added on the Connections page (docs/connections.md): a remote MCP
+-- server declared in the database rather than in HUB_REMOTE_MCP_SERVERS, so
+-- hooking up a client's system needs no deploy. The address and the token are
+-- sealed by the web app (AES-256-GCM, lib/secretBox.ts) before they get here:
+-- an address can carry a key in its path, and a token is a credential. A row
+-- with url_sealed is such a connection; one without is a bundled or
+-- env-declared server's control-plane row, as before.
+alter table mcp_servers add column if not exists url_sealed text;
+alter table mcp_servers add column if not exists token_sealed text;
+alter table mcp_servers add column if not exists added_by text;
+
+-- Memory scopes (docs/data-protection-review.md, 2.1; docs/memory-scopes.md).
+-- A memory belonged to its agent and nothing else, so everything one person's
+-- run remembered — from a restricted collection, a mailbox, a connected system
+-- — was loaded into everyone's runs of that agent. Now each memory has a scope:
+--
+--   agent       everyone who uses the agent (scope_ref '')
+--   collection  only people who may read that collection (scope_ref = its name)
+--   personal    only the person whose run wrote it (scope_ref = principal id)
+--
+-- The scope is derived from what the writing run touched, never chosen by the
+-- model. Existing rows become `agent`: that is what they were.
+alter table agent_memories add column if not exists scope text not null default 'agent';
+alter table agent_memories add column if not exists scope_ref text not null default '';
+alter table agent_memories add column if not exists written_by text;
+alter table agent_memories add column if not exists source_run_id uuid references agent_sessions(id) on delete set null;
+alter table agent_memories drop constraint if exists agent_memories_scope_check;
+alter table agent_memories add constraint agent_memories_scope_check
+  check (scope in ('agent', 'collection', 'personal') and ((scope = 'agent') = (scope_ref = '')));
+-- A key is unique within a scope: two people may each keep their own "next-steps".
+alter table agent_memories drop constraint if exists agent_memories_agent_id_key_key;
+create unique index if not exists agent_memories_scoped_key
+  on agent_memories (agent_id, key, scope, scope_ref);
+
+-- Retention (docs/retention.md, docs/data-protection-review.md 2.2). Keep the
+-- outcome, drop the evidence: a run's full transcript (every tool result —
+-- emails, records) is dropped after a short window; its question and answer
+-- after a longer one; what is left is the numbers (tools, cost, timings). A
+-- decided proposal's arguments go with the answers. Stamped, so the sweep is
+-- idempotent and a page can say "removed after N days" instead of "empty".
+alter table agent_sessions add column if not exists transcript_dropped_at timestamptz;
+alter table agent_sessions add column if not exists content_expired_at timestamptz;
+alter table proposals add column if not exists content_expired_at timestamptz;
+create index if not exists agent_sessions_retention_idx
+  on agent_sessions (created_at) where content_expired_at is null;
+
+-- Sensitivity labels (docs/sensitivity.md, docs/data-protection-review.md 2.3).
+-- Set once on the source — a collection, a connection — and inherited by the
+-- documents in it and the runs that touch it, so nobody labels single items.
+--
+--   internal      the default
+--   confidential  never in memory wider than its collection; never returned
+--                 to an outside client (the hub's MCP server, local agents)
+--   special       GDPR Art. 9 material: never remembered, no transcript,
+--                 never traced, never leaves the hub
+--
+-- A run records the highest label it touched, so what it left behind (its
+-- answer, read from outside) is treated by that label too.
+alter table collections add column if not exists sensitivity text not null default 'internal';
+alter table collections drop constraint if exists collections_sensitivity_check;
+alter table collections add constraint collections_sensitivity_check
+  check (sensitivity in ('internal', 'confidential', 'special'));
+alter table mcp_servers add column if not exists sensitivity text not null default 'internal';
+alter table mcp_servers drop constraint if exists mcp_servers_sensitivity_check;
+alter table mcp_servers add constraint mcp_servers_sensitivity_check
+  check (sensitivity in ('internal', 'confidential', 'special'));
+alter table agent_sessions add column if not exists sensitivity text not null default 'internal';
+alter table agent_sessions drop constraint if exists agent_sessions_sensitivity_check;
+alter table agent_sessions add constraint agent_sessions_sensitivity_check
+  check (sensitivity in ('internal', 'confidential', 'special'));
+
+-- The read log (F11): who read a confidential or special collection, and
+-- through which door — a run, a chat, the hub's MCP server, the Documents
+-- page. Which document, never what was asked: the question is the person's,
+-- and it would make the log itself sensitive. Swept with the audit trail;
+-- part of a person's export, and removed with them.
+create table if not exists knowledge_reads (
+  id           uuid primary key default gen_random_uuid(),
+  at           timestamptz not null default now(),
+  principal_id text,
+  door         text not null check (door in ('run', 'chat', 'mcp', 'page')),
+  collection   text not null,
+  sensitivity  text not null check (sensitivity in ('confidential', 'special')),
+  document_id  uuid references documents(id) on delete set null,
+  run_id       uuid references agent_sessions(id) on delete set null
+);
+create index if not exists knowledge_reads_at_idx on knowledge_reads (at desc);
+create index if not exists knowledge_reads_principal_idx on knowledge_reads (principal_id);
+
+-- Temporary access (docs/client-deployment.md, "Break-glass access"). On a
+-- client's own hub the vendor has no standing access: an admin of the client
+-- grants it for hours, with a reason, and it ends by itself. A row with
+-- access_expires_at is live only until then — at sign-in, on every bearer
+-- token and credential, for schedules — and a person the deployment names as
+-- vendor (HUB_VENDOR_ACCESS) is live only with such a grant.
+alter table principals add column if not exists access_expires_at timestamptz;
+alter table principals add column if not exists access_reason text;
+alter table principals add column if not exists access_granted_by text;
+alter table principals add column if not exists access_granted_at timestamptz;
 
 -- The last sync of each knowledge source that syncs on the clock
 -- (packages/rag/src/sharepoint.ts, apps/web/src/lib/sourceSync.ts). One row per

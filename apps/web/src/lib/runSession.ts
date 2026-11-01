@@ -8,24 +8,33 @@ import {
   remoteServerConfig,
   remoteServerNames,
   remoteConfigError,
+  hubRemoteProblem,
   BUILTIN_SERVER_NAMES,
   type ConnectedMcp,
   type McpServerConfig,
+  type MemoryServerReach,
 } from "@ai-hub/mcp";
-import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames } from "@ai-hub/db";
+import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames, ASK_SERVER, setRunSensitivity, runSensitivity, highestSensitivity, type Sensitivity } from "@ai-hub/db";
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { gate } from "@/lib/approvals";
+import { askExecutor, askTool, ASK_TOOL, type Asks } from "@/lib/askAgents";
+import { loadHubConnections } from "@/lib/connections";
+import { initialMemoryScope, memoryReachFor, memoryReachForId, narrowToPersonal } from "@/lib/memoryScope";
+import { labelRun, specialNote } from "@/lib/sensitivity";
 
 // The code-owned servers the hub starts itself.
 const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
 
 /**
  * The selectable MCP servers for a workbench session — the code-owned ones plus
- * any remote servers this deployment declares (HUB_REMOTE_MCP_SERVERS). Remote
- * servers are env-driven, so this is a function, not a constant.
+ * any remote servers this deployment declares (HUB_REMOTE_MCP_SERVERS), plus
+ * `agents`, which is no server at all: an entry by that name on an agent lets
+ * it ask the agents the entry lists (lib/askAgents.ts), and the tool is built
+ * in this process. Remote servers are env-driven, so this is a function, not
+ * a constant.
  */
 export function knownServers(): string[] {
-  return [...LOCAL_SERVERS, ...remoteServerNames()];
+  return [...LOCAL_SERVERS, ASK_SERVER, ...remoteServerNames()];
 }
 
 export function isKnownServer(name: string): boolean {
@@ -51,13 +60,18 @@ export function unavailableServers(names: readonly string[], disabled: Set<strin
   const malformed = remoteConfigError();
   const out: UnavailableServer[] = [];
   for (const name of names) {
-    if (!name || name === "memory") continue;
+    if (!name || name === "memory" || name === ASK_SERVER) continue;
     if (!isKnownServer(name)) {
+      // A connection added on the page that exists but cannot be opened says
+      // so, rather than reading as a name nobody declared.
+      const problem = hubRemoteProblem(name);
       out.push({
         name,
-        reason: malformed
-          ? `${malformed}, so this deployment has no remote servers at all`
-          : "not declared on this deployment (not a bundled server, and not in HUB_REMOTE_MCP_SERVERS)",
+        reason: problem
+          ? problem
+          : malformed
+            ? `${malformed}, so this deployment has no remote servers at all`
+            : "not declared on this deployment (not a bundled server, not in HUB_REMOTE_MCP_SERVERS, and not added on the Connections page)",
       });
     } else if (disabled.has(name)) {
       out.push({ name, reason: "switched off on /mcp" });
@@ -96,8 +110,12 @@ export function resolveServer(
   remoteBearer?: string,
   /** The agent's own entry for this server, for per-agent settings such as a mailbox. */
   entry?: McpEntry,
+  /** Whose memory the run may have (docs/memory-scopes.md); omitted ⇒ shared memory only. */
+  memory?: MemoryServerReach,
 ): McpServerConfig | null {
-  if (name === "memory") return agentId ? memoryServerConfig(agentId) : null;
+  if (name === "memory") return agentId ? memoryServerConfig(agentId, memory) : null;
+  // Not a process: the ask tool is built in runSession from the entry's list.
+  if (name === ASK_SERVER) return null;
   return builtinServerConfig(name, builtinOptionsFrom(entry)) ?? remoteServerConfig(name, { bearer: remoteBearer });
 }
 
@@ -112,6 +130,17 @@ export interface RunSessionInput {
    * the session so a run can be traced back to the agent that made it.
    */
   agentId?: string;
+  /**
+   * Whether the agent keeps memory between runs. Default true: its memory
+   * server is attached. False attaches none, so a worker meant to start clean
+   * every time does (docs/agent-patterns.md).
+   */
+  keepsMemory?: boolean;
+  /**
+   * The agents this run may ask, and how to start one. Present only when the
+   * agent's entry lists some and the run is shallow enough (lib/askAgents.ts).
+   */
+  asks?: Asks;
   system?: string;
   model?: ModelId;
   effort?: "low" | "medium" | "high" | "max";
@@ -145,12 +174,29 @@ export interface RunSessionInput {
    * person reads in the same answer that the steward is on it.
    */
   afterRun?: (result: RunAgentResult) => Promise<string | null>;
+  /**
+   * Memory scopes (docs/memory-scopes.md). The run's person with their roles,
+   * when the caller has them (else looked up by principalId); the collection of
+   * every passage retrieval gave this run; and how deep it is (an ask or a
+   * hand-off is 1). Together they decide whose memory the run may load and
+   * where what it remembers is kept.
+   */
+  principal?: { id: string; roles: string[] };
+  retrieved?: (string | null)[];
+  depth?: number;
+  /**
+   * The label this run starts at, inherited from the run that started it (an
+   * ask, a hand-off): its prompt carries what that run read (docs/sensitivity.md).
+   */
+  sensitivity?: Sensitivity;
 }
 
 export interface RunSessionOutput {
   sessionId: string;
   servers: string[];
   result: RunAgentResult;
+  /** The highest label the run touched. What may leave the hub depends on it. */
+  sensitivity: Sensitivity;
 }
 
 async function fileMeetingNotes(): Promise<string> {
@@ -168,6 +214,9 @@ async function fileMeetingNotes(): Promise<string> {
 // Runs one ad-hoc agent session (the practitioner's workflow) with the chosen MCP
 // servers connected, then persists it so it can be distilled into a Skill.
 export async function runSession(input: RunSessionInput): Promise<RunSessionOutput> {
+  // Connections added on the Connections page join the registry first (lib/connections.ts).
+  await loadHubConnections();
+
   // Known and not globally disabled by the control plane. What that drops is
   // told to the model and written into the output, never swallowed.
   const disabled = await disabledMcpServerNames();
@@ -177,18 +226,49 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
   const missing = unavailableServers(input.servers ?? [], disabled);
   const note = unavailabilityNote(missing);
   if (note) console.warn(`[run] ${input.agentId ?? "workbench"}: unavailable servers — ${missing.map((m) => m.name).join(", ")}`);
-  const system = note ? [input.system, note].filter(Boolean).join("\n\n") : input.system;
 
-  // An agent always gets its own memory, without having to select it: an agent
-  // that could be configured to forget everything is just a chat window.
-  if (input.agentId && !servers.includes("memory")) servers.push("memory");
+  // The highest label this run touches (docs/sensitivity.md): what it
+  // retrieved, the connections it has, what started it. Known before the
+  // model is called, so a special run is never given memory or a trace, and
+  // recorded on the row at once, so an agent it asks inherits it.
+  const touched = await labelRun({ retrieved: input.retrieved ?? [], servers, floor: input.sensitivity });
+  const special = () => touched.label === "special";
+  if (input.runId && touched.label !== "internal") await setRunSensitivity(input.runId, touched.label);
+  const system = [input.system, note, special() ? specialNote(touched.sources) : null].filter(Boolean).join("\n\n") || undefined;
+
+  // An agent gets its own memory without having to select it: an agent that
+  // could be configured to forget everything is just a chat window. The one
+  // exception is on purpose: a worker briefed by an agent that remembers, so
+  // that nothing from one job colours the next. And a run on special
+  // material has none at all: nothing from it may be kept.
+  const memoryAt = servers.indexOf("memory");
+  if (input.agentId && input.keepsMemory !== false && memoryAt < 0 && !special()) servers.push("memory");
+  if ((input.keepsMemory === false || !input.agentId || special()) && memoryAt >= 0) servers.splice(memoryAt, 1);
 
   let mcp: ConnectedMcp | undefined;
   const held = new Set<string>();
+  // Set by the gate (or below, for an ask) once the run reads outside content.
+  const outside: { from: string | null } = { from: null };
+  // Whose memory this run may load, and where what it remembers goes.
+  const memoryReach = servers.includes("memory")
+    ? input.principal
+      ? await memoryReachFor(input.principal)
+      : await memoryReachForId(input.principalId)
+    : null;
+  const memory = servers.includes("memory")
+    ? await initialMemoryScope({
+        principalId: input.principalId ?? null,
+        retrieved: input.retrieved ?? [],
+        depth: input.depth ?? 0,
+        continues: Boolean(input.history?.length),
+      })
+    : undefined;
   try {
     const entryFor = (name: string) => input.serverEntries?.find((e) => entryName(e) === name);
     const configs = servers
-      .map((name) => resolveServer(name, input.agentId, input.remoteBearer, entryFor(name)))
+      .map((name) =>
+        resolveServer(name, input.agentId, input.remoteBearer, entryFor(name), memoryReach ? { ...memoryReach, runId: input.runId ?? null } : undefined),
+      )
       .filter((c): c is McpServerConfig => c !== null);
     if (configs.length > 0) mcp = await connectMcpServers(configs);
     const gated = mcp
@@ -198,8 +278,39 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
           principalId: input.principalId,
           entries: input.serverEntries,
           held,
+          outside,
+          memory,
         })
       : undefined;
+
+    // The hub's own tool for asking another agent sits beside the servers'
+    // tools. It is not gated: an ask starts a run, which changes nothing
+    // outside the hub, and the asked agent's own writes are held as always.
+    const ask = input.asks?.allowed.length ? { tool: askTool(input.asks.allowed), execute: askExecutor(input.asks) } : null;
+    const tools = [...(gated?.tools ?? []), ...(ask ? [ask.tool] : [])];
+    const toolExecutor =
+      ask || gated
+        ? async (name: string, args: unknown) => {
+            if (ask && name === ASK_TOOL) {
+              // Another agent's answer can carry what it read; it counts as outside.
+              const out = await ask.execute(args);
+              outside.from ??= "another agent";
+              if (memory) narrowToPersonal(memory, "it asked another agent, whose answer can carry what that agent read");
+              // The asked agent's run raises this one's label (lib/agentRuns.ts):
+              // its answer is here now. Special means nothing more is remembered.
+              if (input.runId) {
+                touched.label = highestSensitivity([touched.label, await runSensitivity(input.runId)]);
+                if (special() && memory) {
+                  memory.place = null;
+                  memory.why = "it asked an agent that read special-category material";
+                }
+              }
+              return out;
+            }
+            if (gated) return gated.execute(name, args);
+            return `No tool named ${name}.`;
+          }
+        : undefined;
 
     const result = await runAgent({
       prompt: input.prompt,
@@ -212,8 +323,10 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       // Writes are held for a person (lib/approvals.ts); reads pass through.
       // The tool list and the executor come from the same gate, so a tool
       // that will be held is the one that asks the model for its reason.
-      tools: gated?.tools,
-      toolExecutor: gated?.execute,
+      tools: tools.length ? tools : undefined,
+      toolExecutor,
+      // Special material is not traced at all, not even its shape.
+      trace: !special(),
       metadata: input.agentId
         ? { source: "agent", agentId: input.agentId, servers }
         : { source: "workbench", servers },
@@ -241,6 +354,8 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         latencyMs: result.latencyMs,
         tokens: result.usage,
         traceId: result.traceId,
+        timeline: result.timeline,
+        sensitivity: touched.label,
       });
       sessionId = input.runId;
     } else {
@@ -258,8 +373,10 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         latencyMs: result.latencyMs,
         tokens: result.usage,
         traceId: result.traceId,
+        timeline: result.timeline,
         agentId: input.agentId ?? null,
         principalId: input.principalId ?? null,
+        sensitivity: touched.label,
       });
     }
 
@@ -273,7 +390,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       }
     }
 
-    return { sessionId, servers, result };
+    return { sessionId, servers, result, sensitivity: touched.label };
   } finally {
     await mcp?.close();
   }

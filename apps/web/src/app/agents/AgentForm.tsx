@@ -6,6 +6,7 @@ import type { Placement } from "@ai-hub/db";
 import { saveAgentAction, deleteAgentAction } from "./actions";
 import { MAILBOX_SERVERS, MODELS, agentToolName } from "./models";
 import type { ToolOption } from "./catalog";
+import { useView } from "@/components/ViewProvider";
 
 // One form for hiring an agent and for changing one, in the order a person
 // thinks about a new hire: who it is, its brief, what it may use, what it may
@@ -34,7 +35,20 @@ export interface AgentFormValues {
   mailboxes: Record<string, string>;
   /** Servers this agent may write through WITHOUT a person approving each call. */
   writesAllowed: string[];
+  /** Whether it keeps memory between runs. Off only for a worker meant to start clean every time. */
+  keepsMemory: boolean;
+  /** Slugs of the agents it may ask while it runs (the "agents" entry). */
+  asks: string[];
 }
+
+/** Another agent on the hub, offered as one this agent may ask. */
+export interface AskableAgent {
+  slug: string;
+  name: string;
+  description: string;
+}
+
+const ASK_SERVER = "agents";
 
 export type KnowledgeMode = "none" | "all" | "selected";
 
@@ -92,9 +106,12 @@ export function AgentForm({
   localFiles,
   functions = [],
   owners = [],
+  agents = [],
 }: {
   initial: AgentFormValues;
   tools: ToolOption[];
+  /** The other agents on the hub, for the "may ask" list. */
+  agents?: AskableAgent[];
   collections: string[];
   defaultMaxIterations: number;
   maxIterationsCeiling: number;
@@ -109,6 +126,11 @@ export function AgentForm({
   owners?: string[];
 }) {
   const router = useRouter();
+  const { atLeast } = useView();
+  // The deep dials — model, tool rounds, where it runs — are folded under
+  // Advanced until Expert (docs/views.md): changing them is rare, and getting
+  // them wrong is the commonest way to make an agent slow or expensive.
+  const [advanced, setAdvanced] = useState(atLeast("expert"));
   const creating = initial.id === null;
   const [v, setV] = useState<AgentFormValues>(initial);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);
@@ -145,8 +167,10 @@ export function AgentForm({
             name,
             ...(mailbox && MAILBOX_SERVERS.has(name) ? { mailbox } : {}),
             ...(v.writesAllowed.includes(name) ? { writes: "allow" } : {}),
+            ...(name === ASK_SERVER ? { agents: v.asks } : {}),
           };
         }),
+        keepsMemory: v.keepsMemory,
         enabled: v.enabled,
         placement: v.placement,
         functionName: v.functionName,
@@ -260,17 +284,32 @@ export function AgentForm({
           <div className="mt-1.5 text-xs text-[var(--muted)]">{words ? `${words} words` : "Empty — the agent runs on its tools and memory alone."}</div>
         </Section>
 
-        <Section n="03" title="What it may use" hint="Each tool is a live connection the agent can call while it works. Memory is always on.">
+        <Section n="03" title="What it may use" hint="Each tool is a live connection the agent can call while it works. Memory is on unless this is a worker meant to start clean.">
           <ul className="grid gap-2 sm:grid-cols-2">
-            <li className="inset flex items-start gap-3 p-3.5 opacity-80">
-              <input type="checkbox" checked disabled className="mt-0.5 h-4 w-4" aria-label="Memory, always on" />
-              <span className="min-w-0">
-                <span className="flex items-center gap-2 text-sm font-medium">
-                  <span aria-hidden className="inline-block h-2 w-2 bg-[var(--c-mem)]" />
-                  Memory
+            <li>
+              <label
+                className={`flex cursor-pointer items-start gap-3 border p-3.5 transition-colors ${
+                  v.keepsMemory ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4 accent-[var(--text)]"
+                  checked={v.keepsMemory}
+                  onChange={(e) => set("keepsMemory", e.target.checked)}
+                />
+                <span className="min-w-0">
+                  <span className="flex items-center gap-2 text-sm font-medium">
+                    <span aria-hidden className="inline-block h-2 w-2 bg-[var(--c-mem)]" />
+                    Memory
+                  </span>
+                  <span className="mt-0.5 block text-xs text-[var(--muted)]">
+                    {v.keepsMemory
+                      ? "Its own, kept between runs."
+                      : "Off: it starts every run with nothing but the prompt. For a worker briefed by an agent that remembers."}
+                  </span>
                 </span>
-                <span className="mt-0.5 block text-xs text-[var(--muted)]">Its own, kept between runs. Always attached.</span>
-              </span>
+              </label>
             </li>
             {tools.map((t) => {
               const on = v.servers.includes(t.name);
@@ -323,6 +362,39 @@ export function AgentForm({
                       </span>
                     </label>
                   )}
+                  {on && t.name === ASK_SERVER && (
+                    <div className="mt-2 border border-[var(--border-strong)] p-3">
+                      <span className="mb-1.5 block text-xs text-[var(--muted)]">Which agents it may ask</span>
+                      {agents.filter((a) => a.slug !== v.slug).length === 0 ? (
+                        <p className="text-xs text-[var(--muted)]">No other agents on the hub yet.</p>
+                      ) : (
+                        <ul className="grid gap-1.5">
+                          {agents
+                            .filter((a) => a.slug !== v.slug)
+                            .map((a) => {
+                              const picked = v.asks.includes(a.slug);
+                              return (
+                                <li key={a.slug}>
+                                  <label className="flex cursor-pointer items-start gap-2">
+                                    <input
+                                      type="checkbox"
+                                      className="mt-0.5 h-4 w-4 accent-[var(--text)]"
+                                      checked={picked}
+                                      onChange={() => set("asks", picked ? v.asks.filter((s) => s !== a.slug) : [...v.asks, a.slug])}
+                                    />
+                                    <span className="min-w-0 text-sm">
+                                      {a.name} <span className="mono text-xs text-[var(--muted)]">{a.slug}</span>
+                                      {a.description && <span className="block text-xs text-[var(--muted)]">{a.description}</span>}
+                                    </span>
+                                  </label>
+                                </li>
+                              );
+                            })}
+                        </ul>
+                      )}
+                      {v.asks.length === 0 && <p className="mt-1.5 text-xs text-[var(--warning)]">Nothing ticked: saved like this, it can ask nobody.</p>}
+                    </div>
+                  )}
                   {on && MAILBOX_SERVERS.has(t.name) && (
                     <label className="mt-2 block">
                       <span className="mb-1 block text-xs text-[var(--muted)]">Mailbox this agent reads</span>
@@ -334,7 +406,7 @@ export function AgentForm({
                         placeholder="deployment default (M365_MAILBOX)"
                       />
                       <span className="mt-1 block text-xs text-[var(--muted)]">
-                        One shared mailbox per agent, e.g. <span className="mono">secretary@teqneo.co</span>. It must be
+                        One shared mailbox per agent, e.g. <span className="mono">secretary@yourcompany.com</span>. It must be
                         inside the access policy&apos;s group, or Graph refuses it. Read-only either way.
                       </span>
                     </label>
@@ -429,6 +501,22 @@ export function AgentForm({
           )}
         </Section>
 
+        <div className="border-t border-[var(--border-strong)] pt-4">
+          <button
+            type="button"
+            aria-expanded={advanced}
+            onClick={() => setAdvanced(!advanced)}
+            className="flex w-full items-baseline justify-between gap-3 text-left"
+          >
+            <span>
+              <span className="text-base font-bold">Advanced</span>
+              <span className="ml-2 text-sm text-[var(--muted)]">Model, tool rounds, and where it runs</span>
+            </span>
+            <span aria-hidden className="text-sm text-[var(--muted)]">{advanced ? "Hide" : "Show"}</span>
+          </button>
+        </div>
+        {advanced && (
+          <>
         <Section n="05" title="How it works" hint="The model it thinks with, and how many rounds of tool use one run may take before it stops and says so.">
           <div className="grid gap-4 sm:grid-cols-2">
             <label className="block">
@@ -531,6 +619,8 @@ export function AgentForm({
             </details>
           )}
         </Section>
+          </>
+        )}
 
         {!creating && (
           <section className="border border-[var(--danger)] p-5" aria-labelledby="danger-title">

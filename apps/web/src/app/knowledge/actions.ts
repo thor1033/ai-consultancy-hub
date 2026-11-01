@@ -10,8 +10,10 @@ import {
   syncSource,
   describeSync,
 } from "@ai-hub/rag";
-import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
-import type { KnowledgeSnapshot, RetrievedRow, DocDetail } from "./types";
+import { recordKnowledgeReads } from "@ai-hub/db";
+import { sessionKnowledgeAccess, sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
+import { MAX_UPLOAD_BYTES, type KnowledgeSnapshot, type RetrievedRow, type DocDetail } from "./types";
+import { loadHubConnections } from "@/lib/connections";
 
 const NOT_ALLOWED = "You do not have permission to change the knowledge base.";
 
@@ -53,6 +55,56 @@ export async function addDocumentAction(input: {
   }
 }
 
+/**
+ * A file someone chose on the Documents page: Word, PowerPoint, Excel, PDF,
+ * a transcript or plain text, read to text by the same reader the Teams
+ * server uses (@ai-hub/mcp/fileText) and ingested like a pasted document.
+ * Nothing of the file is kept but its text. Everything that goes wrong is
+ * said in words a person can act on: the wrong format, too big, scanned.
+ */
+export async function addFileAction(form: FormData): Promise<KnowledgeSnapshot | { error: string }> {
+  if (!(await sessionCan("document:write"))) return { error: NOT_ALLOWED };
+  const file = form.get("file");
+  if (!(file instanceof File) || file.size === 0) return { error: "Choose a file first." };
+  // Loaded here, not at the top: pdf.js is large, and only this action needs it.
+  const { canRead, fileText, READABLE } = await import("@ai-hub/mcp/fileText");
+  if (!canRead(file.name)) {
+    return { error: `"${file.name}" is not a kind of file the hub can read. It reads ${READABLE}. Old .doc, .xls and .ppt files need saving in the current format first.` };
+  }
+  if (file.size > MAX_UPLOAD_BYTES) {
+    return { error: `"${file.name}" is ${(file.size / 1024 / 1024).toFixed(1)} MB; the limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB. Split it, or paste the part that matters.` };
+  }
+  let text: string | null;
+  try {
+    text = await fileText(file.name, new Uint8Array(await file.arrayBuffer()));
+  } catch (e) {
+    return { error: `Could not read "${file.name}": ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (!text?.trim()) {
+    return {
+      error: /\.pdf$/i.test(file.name)
+        ? `"${file.name}" has no text in it — it is probably scanned pages, which are pictures. Use a PDF with selectable text, or paste the text.`
+        : `"${file.name}" has no text in it.`,
+    };
+  }
+  const str = (k: string) => {
+    const v = form.get(k);
+    return typeof v === "string" ? v.trim() : "";
+  };
+  try {
+    await ingestDocument({
+      title: str("title") || file.name.replace(/\.[^.]+$/, ""),
+      source: str("source") || file.name,
+      collection: str("collection") || undefined,
+      sourceType: "upload",
+      content: text,
+    });
+    return await snapshot();
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Ingest failed." };
+  }
+}
+
 // Lazily loads a document's full chunked content + metadata for the expandable
 // row, so the list stays light and content is only fetched when inspected.
 export async function getDocumentAction(
@@ -61,6 +113,9 @@ export async function getDocumentAction(
   try {
     const doc = await getDocument(id, await sessionKnowledgeAccess());
     if (!doc) return { error: "Document not found." };
+    // The read log (docs/sensitivity.md): opening a confidential or special document is a read.
+    const who = await sessionPrincipal();
+    await recordKnowledgeReads({ principalId: who?.id ?? null, door: "page", reads: [{ collection: doc.collection, documentId: doc.id }] });
     return {
       id: doc.id,
       title: doc.title,
@@ -89,6 +144,7 @@ export async function syncSourceAction(
   type: string,
   collection?: string,
 ): Promise<{ synced: number; chunks: number; summary: string; snapshot: KnowledgeSnapshot } | { error: string }> {
+  await loadHubConnections();
   if (!(await sessionCan("document:write"))) return { error: NOT_ALLOWED };
   try {
     const result = await syncSource(type, { collection: collection?.trim() || undefined });
@@ -105,6 +161,9 @@ export async function testRetrievalAction(
   if (!query.trim()) return { error: "Enter a query to test retrieval." };
   try {
     const chunks = await retrieveChunks(query, await sessionKnowledgeAccess(), k);
+    // Its previews are reads too (docs/sensitivity.md).
+    const who = await sessionPrincipal();
+    await recordKnowledgeReads({ principalId: who?.id ?? null, door: "page", reads: chunks.map((c) => ({ collection: c.collection, documentId: c.documentId })) });
     return {
       chunks: chunks.map((c) => ({
         title: c.title,

@@ -4,20 +4,26 @@ export {
   upsertMcpServer,
   setMcpServerEnabled,
   deleteMcpServer,
+  listHubConnections,
+  createHubConnection,
+  updateHubConnection,
+  deleteHubConnection,
   disabledMcpServerNames,
   serverUsage,
   toolCallCounts,
   listServerRuns,
 } from "./mcpServers";
-export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun } from "./mcpServers";
-export { recordSession, listSessions, getSession, startRun, finishRun, failRun, appendRunOutput, getRunStatus } from "./sessions";
+export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun, HubConnectionRow } from "./mcpServers";
+export { recordSession, listSessions, getSession, startRun, finishRun, failRun, appendRunOutput, getRunStatus, getRunTiming, listMyRuns } from "./sessions";
+export type { RunTiming } from "./sessions";
 export type {
   SessionSummary,
   SessionDetail,
   RecordSessionInput,
   StartRunInput,
   FinishRunInput,
-  RunStatus
+  RunStatus,
+  MyRun
 } from "./sessions";
 export {
   listAgents,
@@ -29,6 +35,13 @@ export {
   rememberMemory,
   setMemoryActive,
   setMemoryRegion,
+  getMemory,
+  setMemoryActiveById,
+  setMemoryRegionById,
+  forgetMemoryById,
+  shareMemory,
+  SHARED_MEMORY,
+  MEMORY_SCOPES,
   MEMORY_REGIONS,
   listAgentKnowledgeScopes,
   agentRoster,
@@ -54,7 +67,11 @@ export type {
   AgentSummary,
   Agent,
   AgentMemory,
+  MemoryScope,
+  MemoryPlace,
+  MemoryReach,
   AgentInput,
+  PatternTag,
   Placement,
   LocalCallInput,
   LocalActivity,
@@ -96,7 +113,9 @@ export {
   findPrincipalByIdentity,
   bindWorkosUser,
   upsertPrincipal,
+  hasEnabledAdmin,
   setPrincipalEnabled,
+  setPrincipalPreference,
   issueCredential,
   verifyCredential,
   touchCredential,
@@ -117,6 +136,7 @@ export type {
 export {
   listCollectionRows,
   restrictedCollectionNames,
+  openCollectionNames,
   grantedCollectionNames,
   upsertCollection,
   ensureCollection,
@@ -151,4 +171,52 @@ export {
   DAILY_CATCH_UP_MINUTES,
 } from "./schedules";
 export type { Schedule, ScheduleInput, ScheduleKind, TickOutcome } from "./schedules";
-export { STEWARD_SLUG, STEWARD_HANDOFF_SKILLS, stewardHandoffPrompt } from "./seeds/context-steward";
+export { STEWARD_SLUG } from "./seeds/context-steward";
+export {
+  createHandoff,
+  getHandoff,
+  listHandoffs,
+  handoffsFor,
+  setHandoffEnabled,
+  updateHandoffPrompt,
+  deleteHandoff,
+  renderHandoffPrompt,
+  HANDOFF_PLACEHOLDERS,
+} from "./handoffs";
+export type { Handoff, HandoffInput, HandoffVars } from "./handoffs";
+export { PATTERNS, COMMON_PARAMS, getPattern, previewPattern, instantiatePattern, patternSlug, ASK_SERVER, askedAgents } from "./patterns";
+export type { Pattern, PatternParam, PatternRole, PatternPreview, PatternInstance, PatternValues } from "./patterns";
+export { listChildRuns } from "./sessions";
+export { parseAgentFile, githubTarget, rawUrl, licenseFromText, skillTemplateFrom, HUB_RULES_ADDENDUM, SKILL_REQUEST_PARAMETER } from "./skillmd";
+export type { ParsedAgentFile, ImportSource, GithubTarget } from "./skillmd";
+export type { ChildRun } from "./sessions";
+export {
+  retentionPolicy,
+  DEFAULT_RETENTION,
+  sweepRetention,
+  sweepRetentionAndRecord,
+  lastRetentionSweep,
+  exportPerson,
+  erasePerson,
+  findSubject,
+} from "./personalData";
+export type { RetentionPolicy, RetentionSweep, PersonExport, Erasure, SubjectHits } from "./personalData";
+export {
+  SENSITIVITIES,
+  isSensitivity,
+  highestSensitivity,
+  atLeast,
+  collectionSensitivities,
+  serverSensitivities,
+  collectionsKeptInside,
+  setCollectionSensitivity,
+  setServerSensitivity,
+  setRunSensitivity,
+  runSensitivity,
+  highestRunSensitivity,
+  recordKnowledgeReads,
+  listKnowledgeReads,
+} from "./sensitivity";
+export type { Sensitivity, ReadDoor, KnowledgeRead, KnowledgeReadRow } from "./sensitivity";
+export { grantTemporaryAccess, endTemporaryAccess, listTemporaryAccess } from "./temporaryAccess";
+export type { TemporaryAccessRow } from "./temporaryAccess";

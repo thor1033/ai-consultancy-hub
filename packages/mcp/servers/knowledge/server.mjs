@@ -8,11 +8,14 @@
 // through this same server. The server never decides to file; it only knows
 // how, once a person has said yes.
 //
-// WHOSE CHATS it may read is the deployment's configuration, never an argument:
-// HUB_STEWARD_READERS names the people (by email) who have said the steward
-// may read their conversations with agents. A chat tool takes no principal, so
-// a model cannot widen the set by asking. Sessions with no principal at all
-// (a workbench run) are never served: nobody said yes for them.
+// WHOSE CHATS it may read is each person's own decision, never an argument:
+// the people who switched on "Let the Context Steward read my conversations"
+// in Settings (principals.preferences.stewardMayRead). It used to be a list in
+// the deployment's environment, HUB_STEWARD_READERS, which a person could not
+// see or leave (docs/data-protection-review.md, F9); that variable is no
+// longer read. A chat tool takes no principal, so a model cannot widen the set
+// by asking. Sessions with no principal at all (a workbench run) are never
+// served: nobody said yes for them. A disabled person is not read.
 //
 // WHERE it may file is checked when the write runs, which is at approval: a
 // document sourced from a chat goes only where the person who had that chat
@@ -29,14 +32,14 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import postgres from "postgres";
 import { z } from "zod";
+import { identifierRefusal } from "../detect.mjs";
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const HUB_URL = (process.env.HUB_BASE_URL ?? "").replace(/\/+$/, "");
 const TOKEN = process.env.HUB_STEWARD_TOKEN ?? "";
-const READERS = (process.env.HUB_STEWARD_READERS ?? "")
-  .split(",")
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
+if (process.env.HUB_STEWARD_READERS) {
+  console.error("[knowledge] HUB_STEWARD_READERS is no longer read: each person allows the steward in their own Settings.");
+}
 /** Where the Secretary files meeting notes: the one collection read in full here. */
 const NOTES_COLLECTION = process.env.HUB_STEWARD_NOTES_COLLECTION?.trim() || "meetings";
 /** The steward's own slug: its chats are never its own material, and it has memory_* for itself. */
@@ -114,16 +117,20 @@ function parseSince(since, fallbackDays) {
 }
 
 // ── readers ──────────────────────────────────────────────────────────────────
-// Resolved on every call rather than at startup: a person added to the list is
-// added for the next run, and a person removed is removed from it too.
+// Resolved on every call rather than at startup: a person who switches it on
+// is read from the next run, and one who switches it off is not read again.
+async function readers() {
+  return sql`
+    select id, coalesce(nullif(email, ''), id) as who from principals
+     where enabled and preferences->>'stewardMayRead' = 'true'
+     order by id`;
+}
 async function readerIds() {
-  if (READERS.length === 0) return [];
-  const rows = await sql`select id from principals where email = any(${READERS}::text[])`;
-  return rows.map((r) => r.id);
+  return (await readers()).map((r) => r.id);
 }
 
 const NO_READERS =
-  "No one has allowed the steward to read their chats: HUB_STEWARD_READERS is empty. A person is added by their email, one at a time, by the deployment.";
+  "No one has allowed the steward to read their chats. Each person decides for themselves, in Settings, under \"Context Steward\".";
 
 // ── transcripts → text ───────────────────────────────────────────────────────
 // The Anthropic message array, condensed to what a reader needs: who said what,
@@ -236,6 +243,10 @@ readTool(
           join principals p on p.id = s.principal_id
           left join agents a on a.id = s.agent_id
          where s.principal_id = any(${ids}::text[])
+           -- A conversation that touched confidential or special material is
+           -- not steward material: what it proposes is kept for everyone
+           -- (docs/sensitivity.md).
+           and s.sensitivity = 'internal'
            and coalesce(s.started_at, s.created_at) > ${from}
            and (a.slug is null or a.slug <> ${SELF})
            and s.status in ('succeeded', 'failed')
@@ -253,10 +264,11 @@ readTool(
         status: r.status,
         tools: Array.isArray(r.toolsUsed) ? r.toolsUsed : [],
       }));
-      if (chats.length === 0) return text(`No chats since ${from.toISOString()} by the people who allow it (${READERS.join(", ")}).`);
+      const who = (await readers()).map((r) => r.who);
+      if (chats.length === 0) return text(`No chats since ${from.toISOString()} by the people who allow it (${who.join(", ")}).`);
       return text({
         since: from.toISOString(),
-        readers: READERS,
+        readers: who,
         count: chats.length,
         chats,
         ...(more ? { note: "There are more: raise the limit, or sweep a shorter window." } : {}),
@@ -285,6 +297,7 @@ readTool(
           left join agents a on a.id = s.agent_id
          where s.id::text = ${sessionId}
            and s.principal_id = any(${ids}::text[])
+           and s.sensitivity = 'internal'
            and (a.slug is null or a.slug <> ${SELF})`;
       if (!r) return failed("No such chat among the ones the steward may read. Ids come from knowledge_recent_chats.");
       const person = r.personName || r.personEmail;
@@ -350,14 +363,16 @@ readTool(
   "knowledge_agent_memories",
   {
     description:
-      "What another agent remembers: its active memories, key and content. Read-only. Use it to find facts an agent learned that are really company knowledge and should be a document, or facts another agent should also know.",
+      "What another agent remembers for everyone who uses it: its active shared memories, key and content. Read-only. A person's own memories, and those kept for the readers of a collection, are not shown. Use it to find facts an agent learned that are really company knowledge and should be a document, or facts another agent should also know.",
     inputSchema: { agentSlug: z.string().min(1).describe("The agent's slug, e.g. secretary.") },
   },
   async ({ agentSlug }) =>
     attempt(async () => {
       const [a] = await sql`select id, name from agents where slug = ${agentSlug}`;
       if (!a) return failed(`No agent "${agentSlug}".`);
-      const rows = await sql`select key, content, updated_at as "updatedAt" from agent_memories where agent_id = ${a.id} and active order by updated_at desc limit 200`;
+      // Shared memories only (docs/memory-scopes.md): a person's own, and a
+      // restricted collection's, are not the steward's to read, whoever it runs as.
+      const rows = await sql`select key, content, updated_at as "updatedAt" from agent_memories where agent_id = ${a.id} and active and scope = 'agent' order by updated_at desc limit 200`;
       if (rows.length === 0) return text(`${a.name} has no active memories.`);
       return text({ agent: a.name, slug: agentSlug, memories: rows.map((r) => ({ key: r.key, content: r.content, updated: localTime(r.updatedAt) })) });
     }),
@@ -436,8 +451,9 @@ const SOURCE = z.object({
  */
 async function sourceAllows(source, collection) {
   if (source.kind === "chat") {
-    const [s] = await sql`select principal_id as "principalId" from agent_sessions where id::text = ${source.id}`;
+    const [s] = await sql`select principal_id as "principalId", sensitivity from agent_sessions where id::text = ${source.id}`;
     if (!s) return "The source chat does not exist.";
+    if (s.sensitivity !== "internal") return `The source chat touched ${s.sensitivity} material; the steward is not allowed to use it.`;
     if (!s.principalId) return "The source chat has no person behind it (a workbench run); it is not steward material.";
     if (!(await readerIds()).includes(s.principalId)) return "The source chat belongs to someone who has not allowed the steward to read it.";
     if (!(await mayRead(s.principalId, collection))) {
@@ -495,7 +511,7 @@ writeTool(
   "knowledge_remember_for",
   {
     description:
-      "Propose adding a memory to another agent: a durable fact it keeps being told, or one it should know. Held for a person's approval. Upserts by key, so a corrected fact replaces the old one. Not for your own memory — use memory_write for that.",
+      "Propose adding a memory to another agent: a durable fact it keeps being told, or one it should know. Held for a person's approval. It is kept for EVERYONE who uses that agent, so never propose anything personal, confidential or from a restricted collection. Upserts by key, so a corrected fact replaces the old one. Not for your own memory — use memory_write for that.",
     inputSchema: {
       agentSlug: z.string().min(1).describe("The agent that should remember it."),
       key: z.string().min(1).max(120).describe("A short stable key, e.g. standup-day."),
@@ -506,14 +522,16 @@ writeTool(
   async ({ agentSlug, key, content, source }) =>
     attempt(async () => {
       if (agentSlug === SELF) return failed("That is your own memory: use memory_write.");
+      const identifiers = identifierRefusal(`${key}\n${content}`);
+      if (identifiers) return failed(identifiers);
       const [a] = await sql`select id, name from agents where slug = ${agentSlug}`;
       if (!a) return failed(`No agent "${agentSlug}".`);
       const refusal = source.kind === "chat" ? await sourceAllows(source, NOTES_COLLECTION).then((r) => (r && /not exist|workbench|not allowed/.test(r) ? r : null)) : null;
       if (refusal) return failed(refusal);
       const [row] = await sql`
-        insert into agent_memories (agent_id, key, content, active)
-        values (${a.id}, ${key.trim()}, ${content}, true)
-        on conflict (agent_id, key) do update set content = excluded.content, active = true, updated_at = now()
+        insert into agent_memories (agent_id, key, content, active, scope, scope_ref)
+        values (${a.id}, ${key.trim()}, ${content}, true, 'agent', '')
+        on conflict (agent_id, key, scope, scope_ref) do update set content = excluded.content, active = true, updated_at = now()
         returning (created_at = updated_at) as "isNew"`;
       return text({ remembered: true, agent: a.name, key: key.trim(), replaced: !row.isNew });
     }),

@@ -1,10 +1,27 @@
-import { getAgent, getSkill, startRun, failRun, runsOnHub, type Agent, type SkillWithAgent, knowledgeScope, retrievalScope } from "@ai-hub/db";
-import { handOffToSteward, wantsHandoff } from "@/lib/stewardHandoff";
+import {
+  getAgent,
+  getSkill,
+  startRun,
+  failRun,
+  runsOnHub,
+  askedAgents,
+  type Agent,
+  type SkillWithAgent,
+  knowledgeScope,
+  retrievalScope,
+  recordKnowledgeReads,
+  runSensitivity,
+  setRunSensitivity,
+  type Sensitivity,
+} from "@ai-hub/db";
+import { runHandoffs } from "@/lib/handoffs";
+import { ASK_MAX_DEPTH, ASK_TIMEOUT_MS, type Asks } from "@/lib/askAgents";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { authorize, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 import { runSession, isKnownServer } from "@/lib/runSession";
 import { type ModelId } from "@ai-hub/agent";
 import { fillTemplate } from "@/lib/skillPrompt";
+import { loadHubConnections } from "@/lib/connections";
 
 /*
  * Running a standing agent on behalf of an outside caller.
@@ -44,7 +61,15 @@ import { fillTemplate } from "@/lib/skillPrompt";
 export const DEFAULT_DEADLINE_MS = 45_000;
 
 export type AgentRunOutcome =
-  | { kind: "done"; runId: string; output: string; toolsUsed: string[]; sources: number }
+  | {
+      kind: "done";
+      runId: string;
+      output: string;
+      toolsUsed: string[];
+      sources: number;
+      /** The highest label it touched; above internal, the answer may not leave the hub (lib/sensitivity.ts). */
+      sensitivity: Sensitivity;
+    }
   | { kind: "running"; runId: string; agentName: string }
   | { kind: "error"; message: string };
 
@@ -56,8 +81,58 @@ export interface AgentRunInput {
   deadlineMs?: number;
   /** The skill this run came from, when it came from one. */
   skillId?: string | null;
-  /** The skill by slug and name, for the hand-off rule (stewardHandoff.ts). */
+  /** The skill by slug and name, for the hand-offs keyed to it. */
   skill?: { slug: string; name: string } | null;
+  /** Prior chat turns, for the conversation on the agent's page. */
+  history?: { role: "user" | "assistant"; content: string }[];
+  /**
+   * The run this one is started by — a hand-off when it finished, or an ask
+   * while it ran — and how deep the chain is. Absent for a person's or the
+   * clock's run (depth 0).
+   */
+  parent?: { sessionId: string; depth: number } | null;
+}
+
+/**
+ * How this agent works with others on this run (docs/agent-patterns.md):
+ * whether it keeps memory, whom it may ask, and the hand-offs that fire when
+ * it finishes. One place, so the chat on the agent's page, a client's tool
+ * call, a schedule and a hand-off all cooperate the same way.
+ */
+export async function cooperation(agent: Agent, principal: Principal, runId: string, depth: number) {
+  const askable = askedAgents(agent.mcpServers).filter((slug) => slug !== agent.slug);
+  let asks: Asks | undefined;
+  if (askable.length && depth < ASK_MAX_DEPTH) {
+    // Only agents that exist, are on, and run on the hub are offered: the
+    // tool's description lists them, so a slug that would only refuse is
+    // left out rather than shown.
+    const allowed = (await Promise.all(askable.map((slug) => getAgent(slug))))
+      .filter((a): a is Agent => Boolean(a && a.enabled && runsOnHub(a.placement)))
+      .map((a) => ({ slug: a.slug, name: a.name, description: a.description }));
+    if (allowed.length) {
+      asks = {
+        allowed,
+        start: async (slug, task) => {
+          const out = await runAgentForPrincipal({ agentRef: slug, prompt: task, principal, deadlineMs: ASK_TIMEOUT_MS, parent: { sessionId: runId, depth: depth + 1 } });
+          // Its answer comes back into this run, and so does its label
+          // (docs/sensitivity.md). Set on its row as it started, so it is
+          // there even while it is still going.
+          if (out.kind !== "error") await setRunSensitivity(runId, await runSensitivity(out.runId));
+          return out.kind === "done" ? { kind: "done", runId: out.runId, output: out.output } : out.kind === "running" ? { kind: "running", runId: out.runId } : out;
+        },
+      };
+    }
+  }
+  return { keepsMemory: agent.keepsMemory, asks };
+}
+
+/** The hand-offs of a finished run, as the run's afterRun (lib/handoffs.ts). */
+export function handoffsAfter(run: Omit<Parameters<typeof runHandoffs>[0], "output">): (result: { text: string }) => Promise<string> {
+  // The next agent is started the way any agent is, so every check on the way
+  // (may this person run agents, is the agent on) holds; its run is not
+  // waited for, and the person reads in this answer that it was started.
+  return (result) =>
+    runHandoffs({ ...run, output: result.text }, (agentRef, p, who, parent) => runAgentForPrincipal({ agentRef, prompt: p, principal: who, deadlineMs: 1, parent }));
 }
 
 /** The agents this principal may run, for tool generation and for listing. */
@@ -82,6 +157,9 @@ export async function runnableAgent(
 }
 
 export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentRunOutcome> {
+  // Connections added on the Connections page join the registry first (lib/connections.ts).
+  await loadHubConnections();
+
   const found = await runnableAgent(input.agentRef, input.principal);
   if ("error" in found) return { kind: "error", message: found.error };
   const agent = found;
@@ -94,6 +172,10 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
   // open. Best-effort: a missing embedder must not take the run down.
   let context: string | undefined;
   let sources = 0;
+  // Which collection each passage came from: what this run touched, which
+  // decides where its memory is kept (docs/memory-scopes.md).
+  let retrieved: (string | null)[] = [];
+  let reads: { collection: string | null; documentId: string }[] = [];
   const scope = retrievalScope(knowledgeScope(agent));
   if (scope) {
     try {
@@ -101,6 +183,8 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
       if (chunks.length) {
         context = chunksToContext(chunks);
         sources = chunks.length;
+        retrieved = chunks.map((c) => c.collection);
+        reads = chunks.map((c) => ({ collection: c.collection, documentId: c.documentId }));
       }
     } catch {
       /* retrieval unavailable — answer without it */
@@ -111,6 +195,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     .map((e) => (typeof e === "string" ? e : String((e as { name?: unknown }).name ?? "")))
     .filter((n) => n && isKnownServer(n));
 
+  const depth = input.parent?.depth ?? 0;
   const runId = await startRun({
     prompt,
     agentId: agent.id,
@@ -120,12 +205,21 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     model: agent.model ?? undefined,
     effort: agent.effort ?? undefined,
     mcpServers: servers,
+    parentSessionId: input.parent?.sessionId ?? null,
+    depth,
   });
+  const together = await cooperation(agent, input.principal, runId, depth);
+  // The read log (docs/sensitivity.md): which confidential or special
+  // documents this run was given, for whom.
+  if (reads.length) await recordKnowledgeReads({ principalId: input.principal.id, door: "run", reads, runId });
+  // A run started by another carries what that one read, and its label.
+  const inherited = input.parent ? await runSensitivity(input.parent.sessionId) : undefined;
 
   // Started before the race so it is never abandoned: whichever way the race
   // goes, this promise owns finishing or failing the row.
   const work = runSession({
     prompt,
+    history: input.history,
     context,
     system: agent.instructions || undefined,
     model: (agent.model as ModelId) ?? undefined,
@@ -134,22 +228,25 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     servers,
     agentId: agent.id,
     principalId: input.principal.id,
+    principal: { id: input.principal.id, roles: input.principal.roles },
+    retrieved,
+    depth,
+    sensitivity: inherited,
     remoteBearer: input.principal.accessToken,
     serverEntries: agent.mcpServers,
     runId,
-    // A meeting skill's run is handed to the Context Steward when it ends, as
-    // the same person. The steward is started the way any agent is, so every
-    // check on the way (may this person run agents, is the steward on) holds.
-    afterRun:
-      input.skill && wantsHandoff(input.skill.slug, agent.slug)
-        ? () =>
-            handOffToSteward(
-              { skill: input.skill!, sessionId: runId, agentSlug: agent.slug, agentName: agent.name, principal: input.principal },
-              // The steward's run is not waited for: it reads and proposes in
-              // the background, and the person sees its proposals in the queue.
-              (agentRef, prompt, principal) => runAgentForPrincipal({ agentRef, prompt, principal, deadlineMs: 1 }),
-            )
-        : undefined,
+    keepsMemory: together.keepsMemory,
+    asks: together.asks,
+    afterRun: handoffsAfter({
+      sessionId: runId,
+      agentId: agent.id,
+      agentName: agent.name,
+      skillId: input.skillId ?? null,
+      skillName: input.skill?.name ?? null,
+      prompt,
+      principal: input.principal,
+      depth,
+    }),
   })
     .then((out) => ({ ok: true as const, out }))
     .catch(async (err) => {
@@ -179,6 +276,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     output: raced.out.result.text ?? "",
     toolsUsed: raced.out.result.toolsUsed ?? [],
     sources,
+    sensitivity: raced.out.sensitivity,
   };
 }
 

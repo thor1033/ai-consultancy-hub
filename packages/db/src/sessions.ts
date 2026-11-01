@@ -1,4 +1,22 @@
 import { getSql } from "./client";
+// By path, not by package: the release image runs this module outside the web
+// bundle, and the file ships with the MCP servers (docs/sensitivity.md).
+import { maskDeep, maskIdentifiers } from "../../mcp/servers/detect.mjs";
+import type { Sensitivity } from "./sensitivity";
+
+// What is stored about a run is masked at rest (docs/sensitivity.md): CPR,
+// card and account numbers in the question, the answer, the error and the
+// transcript are replaced before the row is written. The live answer the
+// person reads as the run finishes is not this — it is never changed.
+const mask = (text: string | null | undefined): string | null => (text == null ? null : maskIdentifiers(text).text);
+
+/**
+ * The transcript as stored: masked, or — for a run that touched special
+ * material — not kept at all, from the start, stamped the way retention
+ * stamps one it dropped so every page already says why it is empty.
+ */
+const storedTranscript = (transcript: unknown[] | undefined, sensitivity: Sensitivity | undefined) =>
+  sensitivity === "special" ? { value: [] as unknown[], dropped: true } : { value: maskDeep(transcript ?? []).value, dropped: false };
 
 // The record of one agent turn: prompt, model, connected MCP servers, tools
 // used, and the full transcript. Written by runSession on every /agents run, so
@@ -41,24 +59,31 @@ export interface RecordSessionInput {
   latencyMs?: number;
   tokens?: unknown;
   traceId?: string;
+  /** Where the time went (@ai-hub/agent RunTimeline). */
+  timeline?: unknown;
+  /** The highest label the run touched (docs/sensitivity.md). */
+  sensitivity?: Sensitivity;
 }
 
 export async function recordSession(input: RecordSessionInput): Promise<string> {
   const sql = getSql();
+  const transcript = storedTranscript(input.transcript, input.sensitivity);
   const [row] = await sql<{ id: string }[]>`
     insert into agent_sessions
       (prompt, system, model, effort, mcp_servers, transcript, tools_used,
-       output, status, cost_usd, latency_ms, tokens, trace_id,
-       agent_id, principal_id, started_at, finished_at)
+       output, status, cost_usd, latency_ms, tokens, trace_id, timeline,
+       agent_id, principal_id, started_at, finished_at, sensitivity, transcript_dropped_at)
     values
-      (${input.prompt}, ${input.system ?? null}, ${input.model ?? null},
+      (${mask(input.prompt) ?? ""}, ${input.system ?? null}, ${input.model ?? null},
        ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
-       ${sql.json((input.transcript ?? []) as never)},
+       ${sql.json(transcript.value as never)},
        ${sql.json((input.toolsUsed ?? []) as never)},
-       ${input.output ?? null}, ${input.status ?? "succeeded"},
+       ${mask(input.output)}, ${input.status ?? "succeeded"},
        ${input.costUsd ?? null}, ${input.latencyMs ?? null},
        ${sql.json((input.tokens ?? null) as never)}, ${input.traceId ?? null},
-       ${input.agentId ?? null}, ${input.principalId ?? null}, now(), now())
+       ${sql.json((input.timeline ?? null) as never)},
+       ${input.agentId ?? null}, ${input.principalId ?? null}, now(), now(),
+       ${input.sensitivity ?? "internal"}, ${transcript.dropped ? sql`now()` : null})
     returning id
   `;
   return row.id;
@@ -80,6 +105,9 @@ export interface StartRunInput {
   model?: string;
   effort?: string;
   mcpServers?: string[];
+  /** The run that started this one (a hand-off or an ask), and how deep the chain is. */
+  parentSessionId?: string | null;
+  depth?: number;
 }
 
 export async function startRun(input: StartRunInput): Promise<string> {
@@ -87,13 +115,15 @@ export async function startRun(input: StartRunInput): Promise<string> {
   const [row] = await sql<{ id: string }[]>`
     insert into agent_sessions
       (prompt, system, model, effort, mcp_servers, transcript,
-       status, agent_id, agent_skill_id, principal_id, started_at)
+       status, agent_id, agent_skill_id, principal_id, started_at,
+       parent_session_id, depth)
     values
-      (${input.prompt}, ${input.system ?? null}, ${input.model ?? null},
+      (${mask(input.prompt) ?? ""}, ${input.system ?? null}, ${input.model ?? null},
        ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
        ${sql.json([] as never)},
        'running', ${input.agentId ?? null}, ${input.skillId ?? null},
-       ${input.principalId ?? null}, now())
+       ${input.principalId ?? null}, now(),
+       ${input.parentSessionId ?? null}, ${Math.max(0, Math.trunc(input.depth ?? 0))})
     returning id
   `;
   return row.id;
@@ -108,34 +138,121 @@ export interface FinishRunInput {
   latencyMs?: number;
   tokens?: unknown;
   traceId?: string;
+  timeline?: unknown;
+  /** The highest label the run touched (docs/sensitivity.md). Only ever raises the row's. */
+  sensitivity?: Sensitivity;
 }
 
 export async function finishRun(id: string, result: FinishRunInput): Promise<void> {
   const sql = getSql();
+  const transcript = storedTranscript(result.transcript, result.sensitivity);
+  const label = result.sensitivity ?? "internal";
+  // The row's own label counts too: an agent this run asked may have raised
+  // it to special mid-run (lib/agentRuns.ts), and then nothing it read is kept.
   await sql`
     update agent_sessions set
       status      = 'succeeded',
-      transcript  = ${sql.json((result.transcript ?? []) as never)},
+      transcript  = case when sensitivity = 'special' then '[]'::jsonb else ${sql.json(transcript.value as never)} end,
+      transcript_dropped_at = case when sensitivity = 'special' or ${transcript.dropped}
+                                   then coalesce(transcript_dropped_at, now()) else transcript_dropped_at end,
+      sensitivity = case when ${label} = 'special' or sensitivity = 'special' then 'special'
+                         when ${label} = 'confidential' or sensitivity = 'confidential' then 'confidential'
+                         else 'internal' end,
       tools_used  = ${sql.json((result.toolsUsed ?? []) as never)},
-      output      = ${result.output ?? null},
+      output      = ${mask(result.output)},
       model       = coalesce(${result.model ?? null}, model),
       cost_usd    = ${result.costUsd ?? null},
       latency_ms  = ${result.latencyMs ?? null},
       tokens      = ${sql.json((result.tokens ?? null) as never)},
       trace_id    = ${result.traceId ?? null},
+      timeline    = ${sql.json((result.timeline ?? null) as never)},
       finished_at = now()
     where id = ${id}
   `;
 }
 
+export interface RunTiming {
+  id: string;
+  /** Who the run was for (the person, or a schedule's owner); null for a workbench run. */
+  principalId: string | null;
+  /** Their name, for "a run by …" where the prompt itself is not shown. */
+  askedBy: string | null;
+  agentId: string | null;
+  at: string;
+  status: string;
+  prompt: string;
+  skill: string | null;
+  model: string | null;
+  effort: string | null;
+  latencyMs: number | null;
+  costUsd: number | null;
+  tokens: { inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheCreationTokens?: number } | null;
+  toolsUsed: string[];
+  error: string | null;
+  /** Null for a run recorded before timings were kept, or one still running. */
+  timeline: unknown;
+  parentSessionId: string | null;
+  depth: number;
+}
+
+export interface ChildRun {
+  id: string;
+  /** Who the run was for (the person, or a schedule's owner); null for a workbench run. */
+  principalId: string | null;
+  /** Their name, for "a run by …" where the prompt itself is not shown. */
+  askedBy: string | null;
+  agentId: string | null;
+  agentSlug: string | null;
+  agentName: string | null;
+  status: string;
+  prompt: string;
+  latencyMs: number | null;
+  at: string;
+}
+
+/** The runs one run started: hand-offs when it finished, asks while it ran. */
+export async function listChildRuns(parentSessionId: string): Promise<ChildRun[]> {
+  if (!/^[0-9a-f-]{36}$/i.test(parentSessionId)) return [];
+  const sql = getSql();
+  return sql<ChildRun[]>`
+    select s.id, s.agent_id as "agentId", a.slug as "agentSlug", a.name as "agentName", s.status, s.prompt,
+           s.latency_ms as "latencyMs", coalesce(s.started_at, s.created_at) as at, s.principal_id as "principalId", coalesce(nullif(pr.display_name, ''), pr.email, s.principal_id) as "askedBy"
+      from agent_sessions s
+      left join agents a on a.id = s.agent_id
+      left join principals pr on pr.id = s.principal_id
+     where s.parent_session_id = ${parentSessionId}
+     order by coalesce(s.started_at, s.created_at)`;
+}
+
+/**
+ * One run, for its page: what the agent's run list already shows, plus where
+ * the time went. Deliberately not the transcript or the answer — the page is
+ * as visible as the run list, and that list shows a run's prompt, not what
+ * came back.
+ */
+export async function getRunTiming(id: string): Promise<RunTiming | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const sql = getSql();
+  const [row] = await sql<RunTiming[]>`
+    select s.id, s.agent_id as "agentId", coalesce(s.started_at, s.created_at) as at, s.status, s.prompt,
+           k.name as skill, s.model, s.effort, s.latency_ms as "latencyMs", s.cost_usd::float8 as "costUsd",
+           s.tokens, s.tools_used as "toolsUsed", s.error, s.timeline,
+           s.parent_session_id as "parentSessionId", s.depth, s.principal_id as "principalId", coalesce(nullif(pr.display_name, ''), pr.email, s.principal_id) as "askedBy"
+      from agent_sessions s
+      left join agent_skills k on k.id = s.agent_skill_id
+      left join principals pr on pr.id = s.principal_id
+     where s.id = ${id}`;
+  return row ?? null;
+}
+
 /**
  * Add to a finished run's answer. The hand-off to the Context Steward
- * (apps/web/src/lib/stewardHandoff.ts) runs once the session is recorded, so
+ * (apps/web/src/lib/handoffs.ts) runs once the session is recorded, so
  * the steward can read it; what the hand-off says goes into the answer after.
  */
 export async function appendRunOutput(id: string, line: string): Promise<void> {
   const sql = getSql();
-  await sql`update agent_sessions set output = coalesce(output, '') || ${line} where id = ${id}`;
+  await sql`update agent_sessions set output = coalesce(output, '') || ${mask(line) ?? ""} where id = ${id}`;
 }
 
 /**
@@ -149,7 +266,7 @@ export async function failRun(id: string, error: string): Promise<void> {
   const sql = getSql();
   await sql`
     update agent_sessions
-       set status = 'failed', error = ${error.slice(0, 2000)}, finished_at = now()
+       set status = 'failed', error = ${mask(error.slice(0, 2000))}, finished_at = now()
      where id = ${id}
   `;
 }
@@ -165,6 +282,8 @@ export interface RunStatus {
   toolsUsed: string[];
   startedAt: string | null;
   finishedAt: string | null;
+  /** The highest label it touched (docs/sensitivity.md). */
+  sensitivity: Sensitivity;
 }
 
 /**
@@ -187,11 +306,47 @@ export async function getRunStatus(
            prompt, output, error,
            tools_used   as "toolsUsed",
            started_at   as "startedAt",
-           finished_at  as "finishedAt"
+           finished_at  as "finishedAt",
+           sensitivity
       from agent_sessions
      where id = ${id} and principal_id = ${principalId}
   `;
   return row ?? null;
+}
+
+/** One of a person's own runs of an agent, with its answer — for "Your answers". */
+export interface MyRun {
+  id: string;
+  status: string;
+  prompt: string;
+  output: string | null;
+  error: string | null;
+  skill: string | null;
+  at: string;
+  /** Its question and answer were removed by retention (docs/retention.md). */
+  expired: boolean;
+}
+
+/**
+ * The runs a person started with one agent, newest first, with what came back
+ * (the agent page's "Your answers"). Only their own: the answer is the
+ * person's, so nobody else's appears here, whatever their role — the same
+ * rule that keeps answers off the run page. Runs another agent asked for under
+ * this one (asks, one level deep) are left out: the person did not ask them.
+ */
+export async function listMyRuns(agentId: string, principalId: string, limit = 20): Promise<MyRun[]> {
+  const sql = getSql();
+  return sql<MyRun[]>`
+    select s.id, s.status, s.prompt, s.output, s.error, k.name as skill,
+           coalesce(s.started_at, s.created_at) as at, (s.content_expired_at is not null) as expired
+      from agent_sessions s
+      left join agent_skills k on k.id = s.agent_skill_id
+     where s.agent_id = ${agentId}
+       and s.principal_id = ${principalId}
+       and s.parent_session_id is null
+     order by coalesce(s.started_at, s.created_at) desc
+     limit ${Math.max(1, Math.min(Math.trunc(limit), 100))}
+  `;
 }
 
 export async function listSessions(limit = 50): Promise<SessionSummary[]> {

@@ -106,6 +106,31 @@ signed in: an admin creates the row with an email, and the first token that
 arrives binds the WorkOS user id to it permanently. Once bound, the binding wins
 over the address — so a re-assigned email address cannot inherit anyone's access.
 
+## The browser door
+
+The web UI resolves a person exactly as the token path above does: **by a
+`principals` row**, and roles come from that row only
+(`apps/web/src/lib/sessionPrincipal.ts`).
+
+1. **`ALLOWED_EMAILS` first.** Who may sign in at all. It is **required**:
+   unset or empty lets nobody in. There used to be a built-in fallback, the
+   two founders' accounts, which gave Teqneo admin on any hub deployed without
+   the variable (docs/data-protection-review.md, F4). That fallback is gone.
+2. **Then a row**, matched on WorkOS user id or email. A disabled row gets
+   nothing.
+3. **No row** gets nothing either. The layout tells the person nobody has
+   given them access yet. It used to make them admin, without a row or a
+   trace. There are two exceptions, and both are on the audit trail:
+   - a domain in `HUB_AUTO_PROVISION_DOMAINS` gets an `analyst` row
+     (`principal.provisioned`);
+   - **an empty hub**, one with no enabled admin, makes its first allowlisted
+     person to sign in its admin (`principal.bootstrap`). That happens once.
+
+The access console (`/admin`: people, credentials, collection grants, audit)
+requires the **admin** role on every action. It used to require only a place
+on the allowlist. That was written when the allowlist was the founders alone;
+once it held everyone, any viewer could have made themselves an admin.
+
 ## Signing in once
 
 The goal: a person adds the hub to Claude Code, signs in in the browser, and

@@ -17,12 +17,17 @@ changes as it learns.
 
 ```
 agents                    a name, instructions, model, tools, knowledge scope
-  └── agent_memories      what it has chosen to remember  (unique per agent+key)
+  └── agent_memories      what it has chosen to remember  (unique per agent+key+scope)
         ↑
     memory MCP server     spawned per run with HUB_AGENT_ID
 ```
 
 ## Memory
+
+**Every memory has a scope** — shared with everyone who uses the agent, kept for
+the readers of one collection, or for one person — decided by the hub from what
+the writing run touched, and a run loads only what its person may have. See
+[memory-scopes.md](memory-scopes.md).
 
 Memory is an MCP server (`packages/mcp/servers/memory/server.mjs`) with five
 tools: `memory_list`, `memory_search`, `memory_write`, `memory_set_active`,
@@ -154,6 +159,8 @@ gets the model's last half-formed sentence as though it were the answer.
 | `npm run verify:m365 -w @ai-hub/mcp` | the secretary's mailbox and calendar ([secretary-agent.md](secretary-agent.md)) |
 | `npm run verify:schedules -w @ai-hub/db` | the clock: when a schedule is due, and that two simultaneous claims produce one run ([schedules.md](schedules.md)) |
 | `npm run verify:scheduler -w web` | the real tick: a scheduled run lands in `agent_sessions` as its owner, and a refused one is recorded |
+| `npm run verify:asks -w web`, `verify:handoff`, `verify:patterns -w @ai-hub/db` | agents working together: asks, hand-offs, patterns ([agent-patterns.md](agent-patterns.md)) |
+| `npm run verify:import -w web` | importing a SKILL.md or an agent file from GitHub ([skill-import.md](skill-import.md)) |
 
 None of them needs an API key. `verify:agents` and `verify:memory` need
 `DATABASE_URL` and clean up after themselves; `verify:loop` and `verify:m365`

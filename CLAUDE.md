@@ -16,7 +16,9 @@ npm-workspaces + Turborepo monorepo, TypeScript throughout:
 - `packages/agent` — the Anthropic tool-use loop (`runAgent.ts`), models, tracing.
 - `packages/mcp` — MCP client/manager, remote (Streamable HTTP) registry, bundled
   stdio servers in `servers/` (e.g. `memory`, `microsoft365`, `teams`).
-- `packages/db` — Postgres access; schema in `schema.sql`, applied by `migrate.mjs`.
+- `packages/db` — Postgres access; schema in `schema.sql`, applied by `migrate.mjs`. Patterns (premade sets of
+  agents, `src/patterns/*`), hand-off rows and the SKILL.md parser live here too (docs/agent-patterns.md,
+  docs/skill-import.md).
   Agents that live in code are seeded from `src/seeds/*` (`seed:secretary`, `seed:product-owner`,
   `seed:project-manager`, `seed:context-steward`), listed in `src/seeds/all.ts`, and applied on every release
   (`release.mjs`: migrate, then seeds — keeping what was changed on an agent's page).
@@ -54,12 +56,17 @@ paths against throwaway fixtures (fake Messages API / Graph / MCP servers), with
 API spend. Each script's header comment says how to run it and what it needs.
 Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 
-- No DB needed: `verify:loop` (agent), `verify:remote`, `verify:m365`, `verify:teams` (mcp),
+- No DB needed: `verify:loop`, `verify:tracing`, `verify:bench` (agent; the bench's skill half runs when `DATABASE_URL` is set), `verify:remote`, `verify:m365`, `verify:teams` (mcp),
   `verify:github` (rag; its sync half runs when `DATABASE_URL` is set), `verify:large-args`,
   `verify:work-log` (web).
-- Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds` (db),
+- Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds`, `verify:patterns` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access`, `verify:sharepoint` (rag), `verify:credentials` (authz),
-  `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff` (web).
+  `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing`,
+  `verify:import`, `verify:views`, `verify:design-tools`, `verify:connections`, `verify:data-protection`, `verify:memory-scopes`, `verify:retention`, `verify:sensitivity`, `verify:deployment` (web). verify:retention sweeps the whole
+  database by the default policy, as production does, and verify:sensitivity sweeps audit and read-log entries over a year old — run
+  them on a development database.
+- `bench:prompt` (agent) calls the real model and spends money; it says how many calls first. See
+  docs/agent-testing.md, "Prompt speed".
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.
 
 When adding behaviour, extend or add a verify script in the same style: drive the
@@ -79,7 +86,35 @@ commit or print `.env*` files; `*.bak` is gitignored because backups held secret
   `HUB_REMOTE_MCP_SERVERS` ⇒ no remote servers).
 - Authorization is structural: scheduled runs execute as the owning principal;
   retrieval filters by principal on every read path; the secretary's M365 access
-  is read-only by construction. Don't widen these without being asked.
+  is read-only by construction; an agent asks or hands to another agent only as the
+  same person, one level deep (docs/agent-patterns.md). Don't widen these without being asked.
+- Views (docs/views.md): every page reads `viewContext()` (server) or `useView()` (client) and shows
+  Simple, Standard or Expert. A view only hides; permission checks stay on the role (`sessionCan`, the
+  actions). New internals — costs, models, tool names, JSON, env var names — go behind Expert, and
+  Simple's wording is for someone who has never heard of an agent loop. `verify:views` fails if Simple leaks them.
+- Remote MCP servers come from `HUB_REMOTE_MCP_SERVERS` and from the Connections page (docs/connections.md,
+  sealed in `mcp_servers`). Code that reads the registry (`remoteServer*`, `knownServers`) must run after
+  `await loadHubConnections()` — every entry point already does; a new one must too.
+- Sensitive data (docs/data-protection-review.md): a page that lists runs passes them through
+  `privateRun` (lib/runPrivacy.ts) on the server — another person's prompt never reaches the browser.
+  Traces carry no content unless `HUB_TRACE_CONTENT=1`. A run that has read outside content has its
+  memory writes held. Sign-in needs a principal row; the allowlist alone grants nothing.
+- Memory has scopes (docs/memory-scopes.md): `agent`, `collection`, `personal`. A read passes a
+  `MemoryReach` (lib/memoryScope.ts); omitting it means "everything" and is for admins' review pages,
+  seeds and harnesses only, never a run. Where a write goes is the hub's (the gate's `__place`), never
+  the model's. Memory changes from a page go by memory id, not key.
+- Retention (docs/retention.md): content in `agent_sessions` and `proposals` expires (`content_expired_at`,
+  `transcript_dropped_at`); anything new that stores what a person asked or was told must be covered by
+  `sweepRetention`, `exportPerson` and `erasePerson` in packages/db/src/personalData.ts.
+- Sensitivity (docs/sensitivity.md): collections and connections are labelled `internal`, `confidential` or `special`;
+  a run carries the highest label it touched (`labelRun`, lib/sensitivity.ts). Anything that returns knowledge or an
+  answer to a client outside the hub (MCP, local agents, REST) goes through `outsideAccess` / `mayLeave`. CPR, card and
+  IBAN numbers (`@ai-hub/mcp/detect`) are refused in memory and masked in what is stored about a run.
+- A client's own hub (docs/client-deployment.md): the model provider is the deployment's (`HUB_MODEL_PROVIDER`,
+  packages/agent/src/client.ts) and fails closed. Who is let in is one rule, `accessProblem` (packages/authz/src/access.ts),
+  asked at every door — a new door must ask it too. Temporary access (`principal.temporaryUntil`) works in the hub but
+  never changes access, labels, connections or other people's data: guard those with `standingAdmin()`. A new outside
+  host in runtime code fails `verify:deployment` until it is added there and to the guide on purpose.
 - Failures must surface in the output a person reads — never return an empty or
   truncated agent answer as success.
 - Schema changes go in `packages/db/schema.sql` and must stay idempotent

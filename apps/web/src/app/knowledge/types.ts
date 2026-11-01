@@ -52,3 +52,10 @@ export interface SourceRow {
   /** The last sync on the clock — what it did, or why it failed. */
   lastSync?: { at: string | null; running: boolean; ok: boolean | null; summary: string; error: string | null };
 }
+
+/**
+ * The largest file the Documents page takes (addFileAction). Below
+ * serverActions.bodySizeLimit in next.config.ts, which leaves room for the
+ * form's other fields; here so the page can say so before uploading.
+ */
+export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;

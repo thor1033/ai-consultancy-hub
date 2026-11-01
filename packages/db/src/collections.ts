@@ -13,6 +13,8 @@ export interface CollectionRow {
   label: string;
   description: string;
   visibility: Visibility;
+  /** Its label (docs/sensitivity.md); internal until someone says otherwise. */
+  sensitivity: "internal" | "confidential" | "special";
   /** Documents currently filed here. */
   documentCount: number;
   /** Principals explicitly granted access. Meaningless while `open`. */
@@ -57,6 +59,7 @@ export async function listCollectionRows(): Promise<CollectionRow[]> {
            coalesce(c.label, '')         as label,
            coalesce(c.description, '')   as description,
            coalesce(c.visibility, 'open') as visibility,
+           coalesce(c.sensitivity, 'internal') as sensitivity,
            (select count(*)::int from documents d where d.collection = n.name)
              as "documentCount",
            (select count(*)::int from collection_grants g where g.collection = n.name)
@@ -75,6 +78,15 @@ export async function restrictedCollectionNames(): Promise<string[]> {
   const sql = getSql();
   const rows = await sql<{ name: string }[]>`
     select name from collections where visibility = 'restricted'
+  `;
+  return rows.map((r) => r.name);
+}
+
+/** The collections an admin has classified as open: readable by everyone signed in, under either default. */
+export async function openCollectionNames(): Promise<string[]> {
+  const sql = getSql();
+  const rows = await sql<{ name: string }[]>`
+    select name from collections where visibility = 'open'
   `;
   return rows.map((r) => r.name);
 }

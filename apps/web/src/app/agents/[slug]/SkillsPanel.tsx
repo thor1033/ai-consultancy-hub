@@ -4,6 +4,8 @@ import { useState } from "react";
 import { saveSkillAction, setSkillEnabledAction, deleteSkillAction } from "../actions";
 import type { Skill, SkillParameter } from "@ai-hub/db";
 import { agentToolName, skillToolName } from "../models";
+import { SkillRunner } from "@/components/SkillRunner";
+import { useView } from "@/components/ViewProvider";
 
 /*
  * Where an agent's expertise gets defined.
@@ -27,12 +29,23 @@ const EMPTY = {
 export function SkillsPanel({
   agentId,
   agentSlug,
+  agentName = "The agent",
   initial,
+  canManage = true,
 }: {
   agentId: string;
   agentSlug: string;
+  agentName?: string;
   initial: Skill[];
+  /** Whether this person may add, change or delete skills (agent:manage). */
+  canManage?: boolean;
 }) {
+  const { view, atLeast } = useView();
+  // Simple is for using skills, not making them; Expert shows the tool names
+  // clients call them by.
+  const editing = canManage && atLeast("standard");
+  const technical = atLeast("expert");
+  const [running, setRunning] = useState<string | null>(null);
   const [skills, setSkills] = useState<Skill[]>(initial);
   const [draft, setDraft] = useState<typeof EMPTY | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -60,10 +73,11 @@ export function SkillsPanel({
     <div className="flex flex-col gap-4">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <p className="max-w-2xl text-sm text-[var(--muted)]">
-          What this agent knows how to do. Each skill becomes its own tool in every connected client — Claude Code,
-          VS Code, Cursor — with its blanks as real arguments.
+          {view === "simple"
+            ? `What ${agentName} knows how to do. Pick one, fill in the blanks, and run it.`
+            : "What this agent knows how to do. Run one here, or call it from any connected client — Claude Code, Claude.ai, Cursor — where each skill is its own tool with its blanks as real arguments."}
         </p>
-        {!draft && (
+        {editing && !draft && (
           <button className="btn-brand min-h-11 shrink-0" onClick={() => setDraft({ ...EMPTY })}>
             Add skill
           </button>
@@ -93,16 +107,21 @@ export function SkillsPanel({
         <div className="panel p-6 md:p-8">
           <div className="eyebrow">No skills yet</div>
           <p className="mt-2 max-w-xl text-[var(--text-soft)]">
-            The agent is still reachable as <span className="mono text-sm">{agentToolName(agentSlug)}</span>. A skill
-            turns one specific task — a weekly update, a board sweep — into a tool of its own that a colleague can call
-            without knowing how it is done.
+            {view === "simple" ? (
+              <>{agentName} has no packaged tasks yet. You can still talk to it in Conversation.</>
+            ) : (
+              <>
+                The agent is still reachable as <span className="mono text-sm">{agentToolName(agentSlug)}</span>. A skill turns one specific task — a
+                weekly update, a board sweep — into a tool of its own that a colleague can call without knowing how it is done.
+              </>
+            )}
           </p>
         </div>
       )}
 
       {skills.length > 0 && (
         <ul className="grid gap-3 md:grid-cols-2">
-          {skills.map((s) => (
+          {skills.filter((s) => editing || s.enabled).map((s) => (
             <li key={s.id} className={`panel flex flex-col p-5 ${s.enabled ? "" : "opacity-65"}`}>
               <div className="flex items-start gap-2.5">
                 <span
@@ -118,8 +137,18 @@ export function SkillsPanel({
                   <p className="mt-1 text-sm text-[var(--text-soft)]">
                     {s.description || <span className="text-[var(--muted)]">No description.</span>}
                   </p>
+                  {s.source && (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Imported from{" "}
+                      <a href={s.source.url} className="underline underline-offset-2" target="_blank" rel="noreferrer">
+                        {s.source.repo}
+                      </a>
+                      {s.source.license ? ` · ${s.source.license}` : " · license not found"}
+                    </p>
+                  )}
                 </div>
               </div>
+              {technical && (
               <div className="inset mono mt-3 break-all px-3 py-2 text-xs">
                 {skillToolName(s.slug)}(
                 {s.parameters?.length ? (
@@ -135,8 +164,19 @@ export function SkillsPanel({
                 )}
                 )
               </div>
+              )}
+              {running === s.id && (
+                <div className="mt-4 border-t border-[var(--border)] pt-4">
+                  <SkillRunner skill={s} agentName={agentName} onClose={() => setRunning(null)} />
+                </div>
+              )}
               <div className="mt-auto flex flex-wrap gap-2 pt-4">
-                {confirmDelete === s.id ? (
+                {s.enabled && running !== s.id && (
+                  <button className="btn-brand min-h-9" onClick={() => setRunning(s.id)}>
+                    Run
+                  </button>
+                )}
+                {!editing ? null : confirmDelete === s.id ? (
                   <>
                     <button
                       className="btn min-h-9 border-[var(--danger)] text-[var(--danger)]"

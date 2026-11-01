@@ -7,6 +7,7 @@ import { sessionCan } from "@/lib/sessionPrincipal";
 import { visibleDecks } from "@/lib/decks/ops";
 import { rel } from "@/lib/format";
 import { NewDeck } from "./NewDeck";
+import { viewContext } from "@/lib/viewServer";
 
 export const dynamic = "force-dynamic";
 
@@ -17,6 +18,7 @@ export const dynamic = "force-dynamic";
  */
 export default async function DecksPage() {
   const principal = await sessionCan("agent:run");
+  const { view } = await viewContext();
   if (!principal) {
     return (
       <main className="mx-auto max-w-[80rem] px-5 py-7 lg:px-8">
@@ -48,8 +50,14 @@ export default async function DecksPage() {
         <section className="panel">
           {decks.length === 0 ? (
             <p className="p-6 text-sm text-[var(--text-soft)]">
-              No decks yet. Make one here, or from Claude Code: ask it to build a deck with the hub&apos;s
-              <span className="mono"> hub_deck_create</span> tool.
+              {view === "expert" ? (
+                <>
+                  No decks yet. Make one here, or from Claude Code: ask it to build a deck with the hub&apos;s
+                  <span className="mono"> hub_deck_create</span> tool.
+                </>
+              ) : (
+                "No decks yet. Make one here: give it a title and say what it is about, and an agent drafts the slides."
+              )}
             </p>
           ) : (
             <ul>

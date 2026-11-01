@@ -1,0 +1,5 @@
+TEST MEETING 31 Oct (a bench input; not a real meeting)
+00:00:05 Ditlev: Vi har besluttet at vi kun sælger til firmaer med 20 til 200 ansatte.
+00:00:20 Thor: Enig. Jeg laver en task på at opdatere ICP-dokumentet inden fredag.
+00:00:40 Ditlev: Og vi kalder hub-pakken "Teqneo Foundation" fra nu af.
+00:01:10 Thor: Memory-arkitektur-mødet flytter vi til tirsdag den 3. november.

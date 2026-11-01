@@ -14,7 +14,7 @@ export {
   BUILTIN_SERVER_INFO,
   MAILBOX_SERVER_NAMES,
 } from "./servers";
-export type { BuiltinServerOptions } from "./servers";
+export type { BuiltinServerOptions, MemoryServerReach } from "./servers";
 export {
   remoteServerConfig,
   remoteServerNames,
@@ -23,5 +23,8 @@ export {
   remoteServerReadOnly,
   remoteServerForwardsIdentity,
   isRemoteServer,
+  isEnvRemoteServer,
+  setHubRemoteServers,
+  hubRemoteProblem,
 } from "./remote";
-export type { RemoteServerInfo, RemoteDialOptions } from "./remote";
+export type { RemoteServerInfo, RemoteDialOptions, HubRemoteServer } from "./remote";

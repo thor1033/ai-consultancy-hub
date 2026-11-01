@@ -1,6 +1,5 @@
 "use server";
 
-import { withAuth } from "@workos-inc/authkit-nextjs";
 import {
   listPrincipals,
   upsertPrincipal,
@@ -14,6 +13,9 @@ import {
   grantCollection,
   revokeCollectionGrant,
   getSql,
+  setCollectionSensitivity,
+  isSensitivity,
+  type Sensitivity,
 } from "@ai-hub/db";
 import {
   issueApiCredential,
@@ -23,7 +25,8 @@ import {
   mcpResource,
   defaultVisibility,
 } from "@ai-hub/authz";
-import { isAllowedEmail } from "@/lib/allowlist";
+import { standingAdmin } from "@/lib/sessionPrincipal";
+import { isVendorEmail } from "@ai-hub/authz";
 import type { AccessSnapshot, AccessPrincipal } from "./types";
 
 /*
@@ -39,26 +42,28 @@ import type { AccessSnapshot, AccessPrincipal } from "./types";
 
 type Result<T> = T | { error: string };
 
-const DENIED = "Not authorized. Sign in with an allowlisted account.";
+const DENIED = "Only an admin can manage access.";
 
 /**
- * The signed-in operator's email, or null.
+ * The signed-in admin's email (or id), or null.
  *
- * Both halves matter: a valid WorkOS session proves who they are, the allowlist
- * decides whether that person may be here. middleware.ts already enforces this
- * for the page render — repeating it is not redundant, because a server action
- * is its own HTTP entry point and is perfectly callable without ever loading
- * the page.
+ * It used to be enough to be on the allowlist: that was written when the
+ * allowlist was the two founders and nobody else. Now it is everyone who may
+ * use the hub, viewers included, and every action below — making someone an
+ * admin, issuing a credential, opening a restricted collection — would have
+ * been theirs to call (docs/data-protection-review.md). So it is the
+ * admin:manage role, read from the person's row, the same check every other
+ * admin action makes. A new deployment's first admin is made by
+ * sessionPrincipal's bootstrap, so this cannot lock the hub out of itself.
+ *
+ * Repeated in every action, not only on the page: a server action is its own
+ * HTTP entry point and is callable without ever loading the page.
  */
+// Admins with standing access only: temporary access cannot change who has
+// access or what may leave the hub (lib/sessionPrincipal.ts, standingAdmin).
 async function operator(): Promise<string | null> {
-  try {
-    const { user } = await withAuth();
-    const email = user?.email?.trim().toLowerCase();
-    if (!email || !isAllowedEmail(email)) return null;
-    return email;
-  } catch {
-    return null;
-  }
+  const principal = await standingAdmin();
+  return principal ? (principal.email ?? principal.id) : null;
 }
 
 async function snapshot(): Promise<AccessSnapshot> {
@@ -135,6 +140,7 @@ async function snapshot(): Promise<AccessSnapshot> {
       collections: collectionRows.map((c) => ({
         name: c.name,
         visibility: c.visibility,
+        sensitivity: c.sensitivity,
         documentCount: c.documentCount,
         grantedTo: grantsByCollection.get(c.name) ?? [],
         unclassified: !c.classified,
@@ -201,6 +207,12 @@ export async function savePrincipalAction(
   }
 
   const roles = input.roles.map((r) => r.trim()).filter(Boolean);
+
+  // The vendor gets access through a grant with an end, never a standing row
+  // (docs/client-deployment.md): that is the whole of "no standing access".
+  if (isVendorEmail(email)) {
+    return { error: `${email} is the vendor's. Give it temporary access instead — it ends by itself.` };
+  }
 
   try {
     const saved = await upsertPrincipal({
@@ -306,6 +318,14 @@ export async function setCollectionVisibilityAction(
   const actor = await operator();
   if (!actor) return { error: DENIED };
   try {
+    // A labelled collection stays restricted (docs/sensitivity.md): opening it
+    // to everyone would contradict the label rather than change who reads it.
+    if (visibility === "open") {
+      const row = (await listCollectionRows()).find((c) => c.name === name);
+      if (row && row.sensitivity !== "internal") {
+        return { error: `"${name}" is labelled ${row.sensitivity}. Set its label to internal before opening it to everyone.` };
+      }
+    }
     await upsertCollection({ name, visibility });
     await recordAuthEvent({
       event: "collection.visibility",
@@ -315,6 +335,25 @@ export async function setCollectionVisibilityAction(
     return await snapshot();
   } catch (e) {
     return fail(e, "Could not change that collection.");
+  }
+}
+
+/**
+ * Label a collection (docs/sensitivity.md). Admin-only, on the audit trail.
+ * Takes effect on the next run, search or connection: nothing already
+ * remembered or sent out is changed by a label set afterwards.
+ */
+export async function setCollectionSensitivityAction(name: string, sensitivity: Sensitivity): Promise<Result<AccessSnapshot>> {
+  const actor = await operator();
+  if (!actor) return { error: DENIED };
+  if (!isSensitivity(sensitivity)) return { error: "That is not a label." };
+  try {
+    const out = await setCollectionSensitivity(name, sensitivity, defaultVisibility());
+    if ("error" in out) return out;
+    await recordAuthEvent({ event: "collection.sensitivity", actor, detail: { collection: name, sensitivity } });
+    return await snapshot();
+  } catch (e) {
+    return fail(e, "Could not label that collection.");
   }
 }
 

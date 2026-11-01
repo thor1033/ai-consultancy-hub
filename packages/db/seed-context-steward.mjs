@@ -40,7 +40,7 @@ function check(label, ok, detail = "") {
   console.log(`${ok ? "ok  " : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
 }
 
-const { CONTEXT_STEWARD_AGENT: AGENT, CONTEXT_STEWARD_MEMORIES: MEMORIES, KNOWLEDGE_SERVER, STEWARD_SLUG, SWEEP_KEY, PROPOSED_KEY } =
+const { CONTEXT_STEWARD_AGENT: AGENT, CONTEXT_STEWARD_MEMORIES: MEMORIES, CONTEXT_STEWARD_HANDOFFS: HANDOFFS, KNOWLEDGE_SERVER, STEWARD_SLUG, SWEEP_KEY, PROPOSED_KEY } =
   await import("./src/seeds/context-steward.ts");
 
 console.log(`— the definition: ${AGENT.name} —`);
@@ -59,6 +59,9 @@ check("it sits in the Office of the founders, reporting to Ditlev", AGENT.functi
 check("it runs on the hub, not as a Claude Code sub-agent", AGENT.placement === "hub");
 check("no schedule is seeded (a person owns the nightly sweep)", !("schedules" in AGENT));
 check("the induction memory is only the empty ledger", MEMORIES.length === 1 && MEMORIES[0].key === PROPOSED_KEY);
+check("it is handed the Secretary's two meeting skills, and nothing else", HANDOFFS.length === 2 && HANDOFFS.every((h) => h.fromAgent === "secretary") && HANDOFFS.map((h) => h.skill).sort().join() === "meeting-followup,meeting-to-pm");
+check("each hand-off prompt names the session and says not to sweep", HANDOFFS.every((h) => /\{\{sessionId\}\}/.test(h.prompt) && /Do not sweep/.test(h.prompt) && h.note.length > 0));
+check("the brief's hand-off section matches: read that session, never the Secretary's change set", /## A hand-off/.test(AGENT.instructions) && /Never propose the change\nset the Secretary already proposed/.test(AGENT.instructions));
 
 const failedChecks = checks.filter((c) => !c.ok);
 if (failedChecks.length) {
@@ -79,15 +82,15 @@ const { applySeed } = await import("./src/seeds/apply.ts");
 const { getSql } = await import("./src/client.ts");
 
 console.log("\n— provisioning —");
-await applySeed({ agent: AGENT, skills: [], memories: MEMORIES }, { log: (line) => console.log(line) });
+await applySeed({ agent: AGENT, skills: [], memories: MEMORIES, handoffs: HANDOFFS }, { log: (line) => console.log(line) });
 
-const missing = ["HUB_STEWARD_READERS", "HUB_STEWARD_TOKEN", "HUB_BASE_URL"].filter((k) => !process.env[k]);
+const missing = ["HUB_STEWARD_TOKEN", "HUB_BASE_URL"].filter((k) => !process.env[k]);
 if (missing.length) {
   console.log(`\nWARNING  this environment lacks ${missing.join(", ")}.`);
-  console.log("         The steward can be ticked and will start, but its chat tools answer");
-  console.log("         'no readers' and its proposals cannot file until the deployment that");
-  console.log("         runs it holds them. See docs/context-steward.md.");
+  console.log("         The steward can be ticked and will start, but its proposals cannot");
+  console.log("         file until the deployment that runs it holds them. See docs/context-steward.md.");
 }
+console.log("\nNote: it reads only the chats of people who allowed it in their own Settings.");
 
 console.log("\nNext: on the agent's page, add a nightly schedule owned by a founder, e.g.");
 console.log('      "Sweep what is new since your last sweep and propose what should be kept."');

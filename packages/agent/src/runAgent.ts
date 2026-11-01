@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { getAnthropic } from "./client";
-import { getLangfuse } from "./tracing";
+import { getModelClient, providerModelId } from "./client";
+import { getLangfuse, traceValue } from "./tracing";
 import {
   DEFAULT_MODEL,
   type ModelId,
@@ -10,7 +10,7 @@ import {
   costUsd,
   totalTokens,
 } from "./models";
-import type { RunAgentInput, RunAgentResult } from "./types";
+import type { RunAgentInput, RunAgentResult, RunTimeline, TurnTiming } from "./types";
 
 /**
  * "Today is Thursday 22 October 2026, 21:40 (Europe/Copenhagen)." in the
@@ -102,8 +102,14 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     MAX_ITERATIONS_CEILING,
   );
 
-  const client = getAnthropic();
-  const langfuse = getLangfuse();
+  // The deployment's provider (client.ts): the Claude API, Bedrock or Vertex.
+  // Resolved before anything is traced, so a misconfigured deployment fails
+  // with a reason instead of half a run. The hub's model id is kept for the
+  // record and the cost; only the request uses the provider's.
+  const client = await getModelClient();
+  const providerModel = providerModelId(model);
+  // A run may opt out of tracing entirely (special material, docs/sensitivity.md).
+  const langfuse = input.trace === false ? null : getLangfuse();
 
   // Frozen system prompt with a cache breakpoint. Prompt caching only kicks in
   // above the model's minimum cacheable prefix (~4096 tokens on Opus 4.8), so
@@ -139,11 +145,28 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
 
   const trace = langfuse?.trace({
     name: "agent.run",
-    input: { prompt: input.prompt },
+    input: traceValue({ prompt: input.prompt }),
     metadata: { model, ...input.metadata },
   });
 
   const started = Date.now();
+  // Where the time goes, kept beside the loop rather than in it: a person asking
+  // "why was this slow" needs to tell a long read of the prompt from long
+  // thinking from a slow tool, and the totals below cannot.
+  const approx = (chars: number) => Math.round(chars / 4);
+  const timeline: RunTimeline = {
+    version: 1,
+    prompt: {
+      brief: approx(system.slice(0, 2).reduce((n, b) => n + b.text.length, 0)),
+      context: approx(input.context ? input.context.length : 0),
+      tools: approx(tools.length ? JSON.stringify(tools).length : 0),
+      history: approx(input.history?.length ? JSON.stringify(input.history).length : 0),
+      prompt: approx(input.prompt.length),
+    },
+    turns: [],
+    modelMs: 0,
+    toolMs: 0,
+  };
   let usage = emptyUsage();
   let iterations = 0;
   let stopReason: string | null = null;
@@ -161,7 +184,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         thinking: useThinking ? "adaptive" : "disabled",
         effort: input.effort ?? null,
       },
-      input: messages,
+      input: traceValue(messages),
     });
 
     // Streamed, then reassembled: `finalMessage()` folds the event stream back
@@ -173,7 +196,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     // budget above the ten-minute line on a streamed request (see
     // DEFAULT_MAX_TOKENS).
     const stream = client.messages.stream({
-      model,
+      model: providerModel,
       max_tokens: maxTokens,
       system,
       thinking: useThinking ? { type: "adaptive" } : { type: "disabled" },
@@ -181,7 +204,42 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       messages,
       ...(tools.length ? { tools } : {}),
     });
+    // Timed from the stream's own events: when the first content arrived, and
+    // how long each block took to stream, by kind.
+    const turn: TurnTiming = {
+      turn: iterations,
+      startMs: genStart - started,
+      firstTokenMs: null,
+      thinkingMs: 0,
+      writingMs: 0,
+      toolInputMs: 0,
+      totalMs: 0,
+      inputTokens: 0,
+      outputTokens: 0,
+      cacheReadTokens: 0,
+      cacheCreationTokens: 0,
+      stopReason: null,
+      tools: [],
+    };
+    const openBlocks = new Map<number, { kind: string; at: number }>();
+    stream.on("streamEvent", (event) => {
+      const now = Date.now();
+      if (event.type === "content_block_start") {
+        if (turn.firstTokenMs === null) turn.firstTokenMs = now - genStart;
+        openBlocks.set(event.index, { kind: event.content_block.type, at: now });
+      } else if (event.type === "content_block_stop") {
+        const open = openBlocks.get(event.index);
+        if (!open) return;
+        const ms = now - open.at;
+        if (open.kind === "thinking" || open.kind === "redacted_thinking") turn.thinkingMs += ms;
+        else if (open.kind === "text") turn.writingMs += ms;
+        else if (open.kind === "tool_use") turn.toolInputMs += ms;
+        openBlocks.delete(event.index);
+      }
+    });
     const response = await stream.finalMessage();
+    turn.totalMs = Date.now() - genStart;
+    timeline.modelMs += turn.totalMs;
 
     const turnUsage: TokenUsage = {
       inputTokens: response.usage.input_tokens ?? 0,
@@ -191,6 +249,8 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     };
     usage = addUsage(usage, turnUsage);
     stopReason = response.stop_reason;
+    Object.assign(turn, turnUsage, { stopReason });
+    timeline.turns.push(turn);
 
     const turnText = response.content
       .filter((b): b is Anthropic.TextBlock => b.type === "text")
@@ -199,7 +259,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     if (turnText) finalText = turnText;
 
     gen?.end({
-      output: turnText,
+      output: traceValue(turnText),
       usage: {
         input: turnUsage.inputTokens,
         output: turnUsage.outputTokens,
@@ -227,7 +287,8 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const t of toolUses) {
       if (!toolsUsed.includes(t.name)) toolsUsed.push(t.name);
-      const span = trace?.span({ name: `tool.${t.name}`, input: t.input });
+      const span = trace?.span({ name: `tool.${t.name}`, input: traceValue(t.input) });
+      const toolStart = Date.now();
       let content: string;
       let isError = false;
       if (toolExecutor) {
@@ -241,7 +302,10 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         content = "No tools are registered in this hub yet.";
         isError = true;
       }
-      span?.end({ output: content });
+      span?.end({ output: traceValue(content) });
+      const toolMs = Date.now() - toolStart;
+      timeline.toolMs += toolMs;
+      turn.tools.push({ name: t.name, ms: toolMs, resultChars: content.length, error: isError });
       toolResults.push({
         type: "tool_result",
         tool_use_id: t.id,
@@ -292,7 +356,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   const cost = costUsd(model, usage);
 
   trace?.update({
-    output: finalText,
+    output: traceValue(finalText),
     metadata: { stopReason, iterations, maxIterations, exhausted, costUsd: cost, latencyMs, ...usage },
   });
   await langfuse?.flushAsync();
@@ -310,5 +374,6 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     traceId: trace?.id,
     transcript: messages,
     toolsUsed,
+    timeline,
   };
 }

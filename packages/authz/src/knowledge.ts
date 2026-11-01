@@ -1,4 +1,4 @@
-import { restrictedCollectionNames, grantedCollectionNames } from "@ai-hub/db";
+import { restrictedCollectionNames, grantedCollectionNames, openCollectionNames } from "@ai-hub/db";
 import type { Principal } from "./principal";
 
 /**
@@ -36,22 +36,23 @@ export type KnowledgeAccess =
 export const ALL_KNOWLEDGE: KnowledgeAccess = { kind: "all" };
 
 /**
- * How an unclassified collection is treated.
+ * How an unclassified collection — and an unfiled document — is treated.
  *
- * `open` (the default) keeps the existing corpus readable the moment this
- * deploys — the hub is running with 27 documents in three collections that
- * predate the concept of visibility, and failing closed on deploy would empty
- * every answer the terminal gives. That is an outage, not a security posture.
+ * `restricted` by default: something nobody has classified is private until
+ * an admin grants it, which is what a client handing the hub sensitive
+ * material should be able to assume (docs/data-protection-review.md, F7).
+ * Admins still read everything, so the people classifying are not locked out.
  *
- * Set HUB_DEFAULT_COLLECTION_VISIBILITY=restricted once everything is
- * classified. Same shape as the legacy-token migration: the safe end state is
- * one variable away, and /admin names every collection still relying on the
- * default so it cannot be quietly forgotten.
+ * It was `open` by default, as a migration affordance when visibility was
+ * introduced over an existing corpus. A deployment that relies on that can set
+ * HUB_DEFAULT_COLLECTION_VISIBILITY=open while it classifies; /admin names
+ * every collection still relying on the default. The knowledge server
+ * (packages/mcp/servers/knowledge) already read the default this way.
  */
 export function defaultVisibility(): "open" | "restricted" {
-  return process.env.HUB_DEFAULT_COLLECTION_VISIBILITY === "restricted"
-    ? "restricted"
-    : "open";
+  return process.env.HUB_DEFAULT_COLLECTION_VISIBILITY === "open"
+    ? "open"
+    : "restricted";
 }
 
 /**
@@ -68,18 +69,23 @@ export async function knowledgeAccessFor(
 ): Promise<KnowledgeAccess> {
   if (principal.roles.includes("admin")) return ALL_KNOWLEDGE;
 
-  const [restricted, granted] = await Promise.all([
+  const [restricted, granted, open] = await Promise.all([
     restrictedCollectionNames(),
     grantedCollectionNames(principal.id),
+    openCollectionNames(),
   ]);
 
   const grantedSet = new Set(granted);
 
   if (defaultVisibility() === "restricted") {
-    // Only what has been granted. Unfiled documents are readable by nobody —
-    // they are in no drawer, so there is nothing to grant access on, and
-    // "everything I forgot to classify" is the wrong thing to hand out.
-    return { kind: "allow", collections: [...grantedSet], unfiled: false };
+    // What has been granted, and what an admin classified as open — "open"
+    // means any signed-in person may read it, whatever the default for the
+    // unclassified is. (Before restricted became the default, open rows were
+    // ignored here, which made "classify it as open" do nothing.) Unfiled
+    // documents are readable by nobody — they are in no drawer, so there is
+    // nothing to grant access on, and "everything I forgot to classify" is the
+    // wrong thing to hand out.
+    return { kind: "allow", collections: [...new Set([...grantedSet, ...open])], unfiled: false };
   }
 
   // Open by default: everything except collections explicitly marked

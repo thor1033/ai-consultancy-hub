@@ -1,6 +1,7 @@
 import { BUILTIN_SERVER_INFO, connectMcpServers, remoteServerInfo, type McpServerConfig } from "@ai-hub/mcp";
 import { listMcpServers, upsertMcpServer } from "@ai-hub/db";
 import { resolveServer } from "@/lib/runSession";
+import { loadHubConnections } from "@/lib/connections";
 
 // Read-only introspection of the MCP servers for the explorer UI. Connect to a
 // server, list its tools, tear it down — so the UI shows real tool metadata,
@@ -23,6 +24,7 @@ export function declaredRemoteNames(): string[] {
 }
 
 export async function listRegisteredServers() {
+  await loadHubConnections();
   // Bundled servers describe themselves from code (packages/mcp/src/servers.ts),
   // remote ones from their declaration; both are refreshed on every read, so
   // the page never shows a description the server has outgrown. `enabled` is
@@ -101,8 +103,22 @@ async function connectWithDeadline(cfg: McpServerConfig) {
   }
 }
 
+/**
+ * Dial a server that is not in the registry yet — a connection being added or
+ * changed — and count its tools. Same deadline as the pages; always closes.
+ */
+export async function probeServer(cfg: McpServerConfig): Promise<number> {
+  const mcp = await connectWithDeadline(cfg);
+  try {
+    return mcp.tools.length;
+  } finally {
+    await mcp.close();
+  }
+}
+
 // Connects to a single server, returns its tools, and always closes the child.
 export async function describeMcpServer(name: string): Promise<McpToolInfo[]> {
+  await loadHubConnections();
   const cfg = resolveServerConfig(name);
   if (!cfg) throw new Error(`Unknown MCP server: ${name}`);
   const mcp = await connectWithDeadline(cfg);
@@ -120,6 +136,7 @@ export async function describeMcpServer(name: string): Promise<McpToolInfo[]> {
 // Lean tool count for the overview cards — connect, count, close. Returns null
 // if the server can't be reached (so the card can show "—" instead of failing).
 export async function countMcpTools(name: string): Promise<number | null> {
+  await loadHubConnections();
   const cfg = resolveServerConfig(name);
   if (!cfg) return null;
   try {
@@ -135,8 +152,10 @@ export async function countMcpTools(name: string): Promise<number | null> {
 }
 
 export interface ServerConnection {
-  /** remote: Streamable HTTP from HUB_REMOTE_MCP_SERVERS. local: a stdio child the hub starts. */
+  /** remote: Streamable HTTP from HUB_REMOTE_MCP_SERVERS or the Connections page. local: a stdio child the hub starts. */
   kind: "remote" | "local" | "unknown";
+  /** Remote only: declared by the deployment's settings, or added on the Connections page. */
+  source?: "env" | "hub";
   /** Remote only: the host, never the full URL — a URL can carry a key in its query. */
   host?: string;
   /** Remote only: whether a bearer token or headers are configured for it. */
@@ -152,7 +171,7 @@ export function serverConnection(name: string): ServerConnection {
     } catch {
       host = undefined;
     }
-    return { kind: "remote", host, authConfigured: remote.configured };
+    return { kind: "remote", host, authConfigured: remote.configured, source: remote.source };
   }
   return resolveServerConfig(name) ? { kind: "local" } : { kind: "unknown" };
 }

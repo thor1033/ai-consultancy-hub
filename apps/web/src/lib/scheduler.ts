@@ -3,8 +3,11 @@ import {
   getPrincipal,
   type Schedule,
   type TickOutcome,
+  lastRetentionSweep,
+  sweepRetentionAndRecord,
+  type RetentionSweep,
 } from "@ai-hub/db";
-import type { Principal } from "@ai-hub/authz";
+import { accessProblem, type Principal } from "@ai-hub/authz";
 import { runAgentForPrincipal, runSkillForPrincipal } from "./agentRuns";
 import { syncDueSources } from "./sourceSync";
 
@@ -43,10 +46,12 @@ const SCHEDULED_RUN_DEADLINE_MS = 5_000;
  * owners; this re-checks because the row can change between the query and the
  * run, and the failure should be a recorded refusal rather than a run.
  */
-async function ownerPrincipal(schedule: Schedule): Promise<Principal | { error: string }> {
+export async function ownerPrincipal(schedule: Schedule): Promise<Principal | { error: string }> {
   const owner = await getPrincipal(schedule.ownerPrincipalId);
   if (!owner) return { error: `The principal that owns this schedule no longer exists.` };
   if (!owner.enabled) return { error: `${owner.displayName || owner.id} is disabled.` };
+  // A schedule runs as its owner, so it stops when their temporary access does (docs/client-deployment.md).
+  if (accessProblem(owner)) return { error: `${owner.displayName || owner.id} no longer has access to the hub.` };
   return {
     id: owner.id,
     roles: owner.roles,
@@ -85,6 +90,22 @@ export async function tick(now: Date = new Date()): Promise<TickOutcome> {
     return { runId: outcome.runId };
   }, now);
 }
+
+/**
+ * Retention (docs/retention.md): every six hours, the policy runs once —
+ * paced by the last sweep on record, so several machines ticking at once
+ * still sweep about once per window, and a restart does not sweep again.
+ * A sweep is idempotent, so two that do overlap only repeat no-ops.
+ */
+export const RETENTION_EVERY_MS = 6 * 60 * 60_000;
+
+export async function maybeSweepRetention(now: Date = new Date()): Promise<RetentionSweep | null> {
+  const last = await lastRetentionSweep();
+  if (last && now.getTime() - new Date(last.at).getTime() < RETENTION_EVERY_MS) return null;
+  return sweepRetentionAndRecord("scheduler");
+}
+
+let sweeping = false;
 
 let timer: ReturnType<typeof setInterval> | null = null;
 let ticking = false;
@@ -129,6 +150,18 @@ export function startScheduler(): boolean {
       .finally(() => {
         ticking = false;
       });
+    // Retention on its own track: a slow sweep never delays a schedule, nor the reverse.
+    if (!sweeping) {
+      sweeping = true;
+      maybeSweepRetention()
+        .then((out) => {
+          if (out) console.log(`[retention] swept: ${JSON.stringify(out)}`);
+        })
+        .catch((err) => console.warn(`[retention] sweep failed: ${err instanceof Error ? err.message : err}`))
+        .finally(() => {
+          sweeping = false;
+        });
+    }
   }, TICK_MS);
 
   // Do not hold the process open on its own account; the HTTP server does that.

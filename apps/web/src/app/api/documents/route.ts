@@ -3,6 +3,7 @@ import { deleteDocumentsBySource, ingestDocument, listDocuments } from "@ai-hub/
 import { knowledgeAccessFor } from "@ai-hub/authz";
 import { errorResponse } from "@/lib/apiError";
 import { guard } from "@/lib/authz";
+import { outsideAccess } from "@/lib/sensitivity";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -12,7 +13,8 @@ export async function GET(req: Request) {
   if (!gate.ok) return gate.response;
   try {
     return NextResponse.json({
-      documents: await listDocuments(await knowledgeAccessFor(gate.principal)),
+      // A client outside the hub: nothing labelled confidential or special (lib/sensitivity.ts).
+      documents: await listDocuments((await outsideAccess(await knowledgeAccessFor(gate.principal))).access),
     });
   } catch (err) {
     return errorResponse(err);

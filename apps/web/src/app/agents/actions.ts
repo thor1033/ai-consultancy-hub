@@ -4,16 +4,15 @@ import { revalidatePath } from "next/cache";
 import {
   listAgents,
   getAgent,
-  createAgent,
-  updateAgent,
   deleteAgent,
   listMemories,
-  forgetMemory,
-  setMemoryActive,
-  isPlacement,
+  getMemory,
+  forgetMemoryById,
+  setMemoryActiveById,
+  shareMemory,
+  recordAuthEvent,
   runsOnHub,
   type AgentInput,
-  type McpEntry,
   knowledgeScope,
   retrievalScope,
   createSchedule,
@@ -24,16 +23,28 @@ import {
   getSkill,
   type Schedule,
   type ScheduleKind,
+  startRun,
+  failRun,
+  listHandoffs,
+  createHandoff,
+  setHandoffEnabled,
+  deleteHandoff,
+  getHandoff,
+  type Handoff,
+  getRunStatus,
+  recordKnowledgeReads,
+  highestRunSensitivity,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
-import { MAX_ITERATIONS_CEILING, type ModelId } from "@ai-hub/agent";
-import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
-import { listSkills, createSkill, updateSkill, deleteSkill, type SkillParameter } from "@ai-hub/db";
-import { fillTemplate, undeclaredPlaceholders } from "@/lib/skillPrompt";
-import { runAgentForPrincipal, runSkillForPrincipal } from "@/lib/agentRuns";
-import { MAILBOX_SERVERS, serverWritesAllowed } from "./models";
-import { isUniqueViolation } from "@/lib/apiError";
+import { type ModelId } from "@ai-hub/agent";
+import { sessionKnowledgeAccess, sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
+import { saveAgentAs, saveSkillAs, type SkillDraft } from "@/lib/agentDesign";
+import { memoryReachFor } from "@/lib/memoryScope";
+import { listSkills, updateSkill, deleteSkill } from "@ai-hub/db";
+import { fillTemplate } from "@/lib/skillPrompt";
+import { runAgentForPrincipal, runSkillForPrincipal, cooperation, handoffsAfter } from "@/lib/agentRuns";
+import { loadHubConnections } from "@/lib/connections";
 
 // Server actions for the agents console. Each one checks the signed-in user's
 // role: talking to an agent needs agent:run, changing one needs agent:manage.
@@ -47,159 +58,16 @@ const effortOf = (v: string | null | undefined) =>
   v === "low" || v === "medium" || v === "high" || v === "max" ? v : undefined;
 
 /** Slugs are the agent's URL and its stable handle, so normalize rather than reject. */
-function toSlug(input: string): string {
-  return input
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 60);
-}
-
 export async function saveAgentAction(
   id: string | null,
   input: AgentInput,
 ): Promise<{ ok: true; slug: string } | { error: string }> {
-  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
-  const name = input.name?.trim();
-  if (!name) return { error: "An agent needs a name." };
-
-  const slug = toSlug(input.slug?.trim() || name);
-  if (!slug) return { error: "That name does not make a usable slug — use some letters." };
-  // /agents/new is the builder, so an agent with that slug could never be opened.
-  if (slug === "new") return { error: `"new" is reserved — give the agent a more specific name.` };
-
-  // A server this agent already has is kept even if this deployment does not
-  // declare it right now — otherwise saving any other field would silently cut
-  // the agent off from it. New ones must be known; runSession skips undeclared
-  // names at run time either way.
-  const existing = id ? await getAgent(id) : null;
-  const already = new Set(
-    (existing?.mcpServers ?? []).map((e) => String((e as { name?: unknown }).name ?? "")),
-  );
-  // Letting an agent write without approval widens what it may do unattended,
-  // so turning it on is admin-only; an entry that already has it keeps it.
-  const alreadyAllowed = new Set(serverWritesAllowed(existing?.mcpServers ?? []));
-  const admin = await sessionCan("admin:manage");
-  // Rebuilt field by field rather than stored as sent. An entry is read back
-  // at run time and a setting in it lands in a server's environment, so only
-  // the settings a server is known to take get through, each checked.
-  const servers: McpEntry[] = [];
-  for (const e of input.mcpServers ?? []) {
-    const name = (e as { name?: unknown }).name;
-    if (typeof name !== "string" || !(isKnownServer(name) || already.has(name))) continue;
-    const entry: McpEntry = { name };
-    const mailbox = (e as { mailbox?: unknown }).mailbox;
-    if (typeof mailbox === "string" && mailbox.trim()) {
-      if (!MAILBOX_SERVERS.has(name)) return { error: `"${name}" does not take a mailbox.` };
-      const clean = mailbox.trim().toLowerCase();
-      if (clean.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean)) {
-        return { error: `"${mailbox.trim()}" is not a mailbox address.` };
-      }
-      entry.mailbox = clean;
-    }
-    const writes = (e as { writes?: unknown }).writes;
-    if (writes !== undefined && writes !== "ask" && writes !== "allow") {
-      return { error: `"${name}": writes must be "ask" or "allow".` };
-    }
-    if (writes === "allow") {
-      if (!alreadyAllowed.has(name) && !admin) {
-        return { error: `Only an admin can let an agent write through "${name}" without approval.` };
-      }
-      entry.writes = "allow";
-    }
-    servers.push(entry);
-  }
-
-  // A server action is a public endpoint, so the number is validated here and
-  // not only by the <input type="number"> that usually produces it. Anything
-  // unusable becomes null — the runtime default — rather than an error the
-  // person cannot act on or a NaN that reaches Postgres.
-  const raw = input.maxIterations;
-  const maxIterations =
-    raw === null || raw === undefined || !Number.isFinite(Number(raw))
-      ? null
-      : Math.min(Math.max(Math.trunc(Number(raw)), 1), MAX_ITERATIONS_CEILING);
-
-  // Where an agent runs decides where its instructions are copied to and who
-  // reaches its tools from outside the hub, so changing it is admin-only even
-  // if agent:manage is one day granted more widely. `existing` is the lookup
-  // the server list above already paid for.
-  // Collection names are matched exactly against documents, so they are
-  // checked for shape here; whether one exists is not an error (a drawer can
-  // be named before anything is filed in it), and whether the asker may read
-  // it is decided at retrieval time, never here.
-  const knowledgeCollections: string[] = [];
-  for (const raw of input.knowledgeCollections ?? []) {
-    if (typeof raw !== "string") continue;
-    const name = raw.trim();
-    if (!name) continue;
-    if (name.length > 120) return { error: `"${name.slice(0, 40)}…" is too long for a collection name.` };
-    if (!knowledgeCollections.includes(name)) knowledgeCollections.push(name);
-  }
-  if (knowledgeCollections.length > 50) return { error: "An agent can work from at most 50 collections." };
-  const knowledgeAll = input.knowledgeAll === true;
-
-  // Labels on the org chart. Free text, so only their shape is checked: a
-  // function that is a paragraph breaks the chart's columns, and a stray
-  // newline would make two "Delivery" columns that look the same.
-  const label = (raw: unknown, what: string): string | { error: string } => {
-    if (raw === undefined || raw === null) return "";
-    if (typeof raw !== "string") return { error: `${what} must be text.` };
-    const clean = raw.replace(/\s+/g, " ").trim();
-    return clean.length > 60 ? { error: `${what} is too long (60 characters at most).` } : clean;
-  };
-  const functionName = label(input.functionName ?? existing?.functionName, "The function");
-  if (typeof functionName !== "string") return functionName;
-  const owner = label(input.owner ?? existing?.owner, "The owner");
-  if (typeof owner !== "string") return owner;
-
-  const placement = input.placement ?? existing?.placement ?? "hub";
-  if (!isPlacement(placement)) return { error: "Unknown placement." };
-  if (placement !== (existing?.placement ?? "hub") && !(await sessionCan("admin:manage"))) {
-    return { error: "Only an admin can change where an agent runs." };
-  }
-
-  try {
-    if (id) {
-      const updated = await updateAgent(id, {
-        ...input,
-        name,
-        mcpServers: servers,
-        knowledgeCollections,
-        knowledgeAll,
-        maxIterations,
-        placement,
-        functionName,
-        owner,
-      });
-      if (!updated) return { error: "That agent no longer exists." };
-      revalidatePath("/agents");
-      revalidatePath(`/agents/${updated.slug}`);
-      return { ok: true, slug: updated.slug };
-    }
-    const created = await createAgent({
-      ...input,
-      name,
-      slug,
-      mcpServers: servers,
-      knowledgeCollections,
-      knowledgeAll,
-      maxIterations,
-      placement,
-      functionName,
-      owner,
-    });
-    revalidatePath("/agents");
-    return { ok: true, slug: created.slug };
-  } catch (e) {
-    // A duplicate slug is the one failure a user can actually fix, so name it.
-    const message = e instanceof Error ? e.message : "Could not save the agent.";
-    if (/duplicate key|unique/i.test(message)) {
-      return { error: `An agent with the slug "${slug}" already exists.` };
-    }
-    return { error: message };
-  }
+  // The rules live in lib/agentDesign.ts, shared with the hub's MCP tools.
+  const out = await saveAgentAs(await sessionPrincipal(), id, input);
+  if ("error" in out) return out;
+  revalidatePath("/agents");
+  revalidatePath(`/agents/${out.slug}`);
+  return { ok: true, slug: out.slug };
 }
 
 export async function deleteAgentAction(id: string): Promise<{ ok: boolean; error?: string }> {
@@ -209,25 +77,59 @@ export async function deleteAgentAction(id: string): Promise<{ ok: boolean; erro
   return { ok };
 }
 
-export async function forgetMemoryAction(
-  agentId: string,
-  key: string,
-): Promise<{ ok: boolean; error?: string }> {
-  if (!(await sessionCan("agent:manage"))) return { ok: false, error: NOT_ALLOWED };
-  const ok = await forgetMemory(agentId, key);
+/**
+ * May this person change this memory? Someone who manages agents may change
+ * any of an agent's memories; anyone may change their own personal ones
+ * (docs/memory-scopes.md). The memory must belong to the agent named, so an
+ * agent id in the call is not a way to reach another agent's memory.
+ */
+async function memoryYouMayChange(agentId: string, memoryId: string) {
+  const principal = await sessionPrincipal();
+  if (!principal) return { error: NOT_ALLOWED };
+  const m = await getMemory(memoryId);
+  if (!m || m.agentId !== agentId) return { error: "That memory no longer exists." };
+  const own = m.scope === "personal" && m.scopeRef === principal.id;
+  if (!own && !(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  return { memory: m, principal };
+}
+
+export async function forgetMemoryAction(agentId: string, memoryId: string): Promise<{ ok: boolean; error?: string }> {
+  const may = await memoryYouMayChange(agentId, memoryId);
+  if ("error" in may) return { ok: false, error: may.error };
+  const ok = await forgetMemoryById(memoryId);
   revalidatePath("/agents");
   return { ok };
 }
 
-export async function setMemoryActiveAction(
-  agentId: string,
-  key: string,
-  active: boolean,
-): Promise<{ ok: boolean; error?: string }> {
-  if (!(await sessionCan("agent:manage"))) return { ok: false, error: NOT_ALLOWED };
-  const ok = await setMemoryActive(agentId, key, active);
+export async function setMemoryActiveAction(agentId: string, memoryId: string, active: boolean): Promise<{ ok: boolean; error?: string }> {
+  const may = await memoryYouMayChange(agentId, memoryId);
+  if ("error" in may) return { ok: false, error: may.error };
+  const ok = await setMemoryActiveById(memoryId, active);
   revalidatePath("/agents");
   return { ok };
+}
+
+/**
+ * Share a memory with everyone who uses the agent. An admin's act, on the
+ * audit trail: it can put what one person's run learned from a restricted
+ * collection or a mailbox in front of everyone (docs/memory-scopes.md).
+ */
+export async function shareMemoryAction(agentId: string, memoryId: string): Promise<{ ok: boolean; error?: string }> {
+  const admin = await sessionCan("admin:manage");
+  if (!admin) return { ok: false, error: "Only an admin can share a memory with everyone." };
+  const m = await getMemory(memoryId);
+  if (!m || m.agentId !== agentId) return { ok: false, error: "That memory no longer exists." };
+  const out = await shareMemory(memoryId);
+  if ("error" in out) return { ok: false, error: out.error };
+  await recordAuthEvent({
+    event: "memory.shared",
+    source: "oauth",
+    principalId: admin.id,
+    actor: admin.email ?? admin.id,
+    detail: { agentId, key: m.key, from: m.scope, ref: m.scopeRef },
+  });
+  revalidatePath("/agents");
+  return { ok: true };
 }
 
 export async function listAgentsAction() {
@@ -236,13 +138,18 @@ export async function listAgentsAction() {
 }
 
 export async function loadMemoriesAction(agentId: string) {
-  if (!(await sessionCan("agent:run"))) return [];
-  return listMemories(agentId);
+  const principal = await sessionCan("agent:run");
+  if (!principal) return [];
+  // Admins review every memory; everyone else sees what their own runs would load.
+  if (await sessionCan("admin:manage")) return listMemories(agentId);
+  return listMemories(agentId, await memoryReachFor(principal));
 }
 
 export interface AgentChatMessage {
   role: "user" | "assistant";
   content: string;
+  /** An answer's run, so a follow-up inherits what that turn touched (docs/sensitivity.md). */
+  runId?: string;
 }
 
 export interface AgentTurnMeta {
@@ -252,6 +159,7 @@ export interface AgentTurnMeta {
   toolsUsed: string[];
   servers: string[];
   sources: number;
+  runId: string;
 }
 
 // Spelled out rather than inferred: this crosses the server-action boundary,
@@ -272,6 +180,7 @@ export async function sendAgentMessageAction(
   slug: string,
   messages: AgentChatMessage[],
 ): Promise<AgentTurnResult> {
+  await loadHubConnections();
   const principal = await sessionCan("agent:run");
   if (!principal) return { error: NOT_ALLOWED };
   const agent = await getAgent(slug);
@@ -308,6 +217,8 @@ export async function sendAgentMessageAction(
   // answers from material its operator cannot open.
   let context: string | undefined;
   let sources = 0;
+  let retrieved: (string | null)[] = [];
+  let reads: { collection: string | null; documentId: string }[] = [];
   const scope = retrievalScope(knowledgeScope(agent));
   if (scope) {
     try {
@@ -315,13 +226,36 @@ export async function sendAgentMessageAction(
       if (chunks.length) {
         context = chunksToContext(chunks);
         sources = chunks.length;
+        retrieved = chunks.map((c) => c.collection);
+        reads = chunks.map((c) => ({ collection: c.collection, documentId: c.documentId }));
       }
     } catch {
       /* retrieval unavailable — answer without it */
     }
   }
+  // Earlier turns' answers are in this one's prompt, and so is their label:
+  // a follow-up to an answer drawn from special material is special too.
+  const carried = await highestRunSensitivity(
+    clean.filter((m) => m.role === "assistant" && m.runId).map((m) => m.runId!),
+    principal.id,
+  );
 
+  // A row first, as every other run path does: the conversation's turn is a
+  // run like any other, so the agents it asks hang off it and the hand-offs
+  // that follow it have a session to point at.
+  const runId = await startRun({
+    prompt: last.content,
+    agentId: agent.id,
+    principalId: principal.id,
+    system: agent.instructions || undefined,
+    model: agent.model ?? undefined,
+    effort: agent.effort ?? undefined,
+    mcpServers: servers,
+  });
+  // The read log (docs/sensitivity.md): confidential or special documents this turn was given.
+  if (reads.length) await recordKnowledgeReads({ principalId: principal.id, door: "chat", reads, runId });
   try {
+    const together = await cooperation(agent, principal, runId, 0);
     const { result, servers: used } = await runSession({
       prompt: last.content,
       history,
@@ -329,10 +263,27 @@ export async function sendAgentMessageAction(
       context,
       model: (agent.model as ModelId) ?? undefined,
       effort: effortOf(agent.effort),
+      maxIterations: agent.maxIterations ?? undefined,
       servers,
       serverEntries: agent.mcpServers,
       agentId: agent.id,
       principalId: principal.id,
+      principal: { id: principal.id, roles: principal.roles },
+      retrieved,
+      sensitivity: carried,
+      runId,
+      keepsMemory: together.keepsMemory,
+      asks: together.asks,
+      afterRun: handoffsAfter({
+        sessionId: runId,
+        agentId: agent.id,
+        agentName: agent.name,
+        skillId: null,
+        skillName: null,
+        prompt: last.content,
+        principal,
+        depth: 0,
+      }),
     });
     revalidatePath(`/agents/${agent.slug}`); // memory may have changed
     return {
@@ -345,10 +296,13 @@ export async function sendAgentMessageAction(
         toolsUsed: result.toolsUsed,
         servers: used,
         sources,
+        runId,
       },
     };
   } catch (e) {
-    return { error: e instanceof Error ? e.message : "The agent turn failed." };
+    const message = e instanceof Error ? e.message : "The agent turn failed.";
+    await failRun(runId, message).catch(() => {});
+    return { error: message };
   }
 }
 
@@ -367,71 +321,10 @@ export async function listSkillsAction(agentId: string) {
   }
 }
 
-export async function saveSkillAction(input: {
-  id?: string;
-  agentId: string;
-  slug: string;
-  name: string;
-  description: string;
-  promptTemplate: string;
-  parameters: SkillParameter[];
-}) {
-  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
-
-  const slug = input.slug.trim().toLowerCase();
-  // The slug becomes an MCP tool name, so it has to survive that translation
-  // legibly rather than being mangled into something nobody recognises.
-  if (!/^[a-z0-9][a-z0-9-]{1,62}$/.test(slug)) {
-    return { error: "Slug must be 2–63 characters: lowercase letters, digits and hyphens." };
-  }
-  if (!input.name.trim()) return { error: "Give the skill a name." };
-  if (!input.promptTemplate.trim()) {
-    return { error: "Write the prompt this skill runs." };
-  }
-
-  const parameters = input.parameters
-    .map((p) => ({ ...p, name: p.name.trim() }))
-    .filter((p) => p.name);
-  const bad = parameters.find((p) => !/^[a-zA-Z0-9_]+$/.test(p.name));
-  if (bad) {
-    return { error: `Parameter "${bad.name}" must use letters, digits and underscores only.` };
-  }
-
-  // Caught here rather than at call time: a placeholder with no parameter can
-  // never be filled, so the skill would ship a prompt with a literal
-  // "{{client}}" in it and nobody would find out until a client read the output.
-  const undeclared = undeclaredPlaceholders(input.promptTemplate, parameters);
-  if (undeclared.length) {
-    return {
-      error: `The prompt uses {{${undeclared[0]}}}, but no parameter is called "${undeclared[0]}".`,
-    };
-  }
-
-  try {
-    const saved = input.id
-      ? await updateSkill(input.id, {
-          slug,
-          name: input.name.trim(),
-          description: input.description.trim(),
-          promptTemplate: input.promptTemplate,
-          parameters,
-        })
-      : await createSkill({
-          agentId: input.agentId,
-          slug,
-          name: input.name.trim(),
-          description: input.description.trim(),
-          promptTemplate: input.promptTemplate,
-          parameters,
-        });
-    if (!saved) return { error: "That skill no longer exists." };
-    return { skills: await listSkills(input.agentId) };
-  } catch (e) {
-    if (isUniqueViolation(e)) {
-      return { error: `Another skill already uses the slug "${slug}".` };
-    }
-    return { error: e instanceof Error ? e.message : "Could not save that skill." };
-  }
+export async function saveSkillAction(input: SkillDraft) {
+  const out = await saveSkillAs(await sessionPrincipal(), input);
+  if ("error" in out) return out;
+  return { skills: out.skills };
 }
 
 export async function setSkillEnabledAction(id: string, agentId: string, enabled: boolean) {
@@ -569,4 +462,111 @@ export async function runScheduleNowAction(id: string): Promise<{ ok: true; runI
     : await runAgentForPrincipal({ agentRef: schedule.agentId, prompt: schedule.prompt, principal, deadlineMs: 3000 });
   if (outcome.kind === "error") return { error: outcome.message };
   return { ok: true, runId: outcome.runId, running: outcome.kind === "running" };
+}
+
+// --- Hand-offs: what starts when this agent finishes ------------------------
+//
+// Rows, so a pattern can wire a pipeline and a person can switch one off.
+// Guarded on agent:manage like skills: a hand-off decides which agent runs
+// next, as whom (the same person), which is what the brief decides too.
+
+export async function listHandoffsAction(agentId: string): Promise<{ handoffs: Handoff[] } | { error: string }> {
+  if (!(await sessionCan("agent:run"))) return { error: NOT_ALLOWED };
+  return { handoffs: await listHandoffs(agentId) };
+}
+
+export async function createHandoffAction(input: {
+  fromAgentId: string;
+  skillId: string | null;
+  toAgentId: string;
+  prompt: string;
+  note: string;
+}): Promise<{ handoffs: Handoff[] } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  const [from, to] = await Promise.all([getAgent(input.fromAgentId), getAgent(input.toAgentId)]);
+  if (!from) return { error: "That agent no longer exists." };
+  if (!to) return { error: "Pick an agent to hand to." };
+  if (from.id === to.id) return { error: "An agent cannot hand off to itself." };
+  if (input.skillId && !(await listSkills(from.id)).some((s) => s.id === input.skillId)) return { error: "That skill is not this agent's." };
+  if (!input.prompt?.trim()) return { error: "Say what the next agent should do, with {{output}} or {{sessionId}} where its material goes." };
+  if (input.prompt.length > 8000) return { error: "That prompt is too long." };
+  try {
+    await createHandoff({ fromAgentId: from.id, skillId: input.skillId, toAgentId: to.id, prompt: input.prompt, note: (input.note ?? "").slice(0, 300) });
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not create the hand-off." };
+  }
+  revalidatePath(`/agents/${from.slug}`);
+  revalidatePath(`/agents/${to.slug}`);
+  return { handoffs: await listHandoffs(from.id) };
+}
+
+export async function setHandoffEnabledAction(id: string, agentId: string, enabled: boolean): Promise<{ handoffs: Handoff[] } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  const row = await getHandoff(id);
+  if (!row) return { error: "That hand-off no longer exists." };
+  await setHandoffEnabled(id, enabled);
+  revalidatePath(`/agents/${row.fromAgentSlug}`);
+  revalidatePath(`/agents/${row.toAgentSlug}`);
+  return { handoffs: await listHandoffs(agentId) };
+}
+
+export async function deleteHandoffAction(id: string, agentId: string): Promise<{ handoffs: Handoff[] } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  const row = await getHandoff(id);
+  if (row) {
+    await deleteHandoff(id);
+    revalidatePath(`/agents/${row.fromAgentSlug}`);
+    revalidatePath(`/agents/${row.toAgentSlug}`);
+  }
+  return { handoffs: await listHandoffs(agentId) };
+}
+
+/** The agents another agent may be wired to, for the hand-off and ask pickers. */
+export async function listOtherAgentsAction(): Promise<{ id: string; slug: string; name: string; description: string }[]> {
+  if (!(await sessionCan("agent:run"))) return [];
+  return (await listAgents()).map((a) => ({ id: a.id, slug: a.slug, name: a.name, description: a.description }));
+}
+
+// --- Running a skill from its page ----------------------------------------
+//
+// Until this, a skill could be run from Claude Code, Claude.ai or a schedule,
+// and not from the hub's own page — so a person who does not use those
+// clients could not use the expertise the firm packaged (docs/views.md). It
+// runs as the person, through the same path a client's call takes, so every
+// check holds and every write is held.
+
+export type SkillRunResult =
+  | { status: "done"; runId: string; output: string }
+  | { status: "running"; runId: string }
+  | { status: "failed"; runId?: string; error: string };
+
+/** How long the page waits before it polls instead. */
+const PAGE_DEADLINE_MS = 40_000;
+
+export async function runSkillAction(skillId: string, args: Record<string, unknown>): Promise<SkillRunResult> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { status: "failed", error: NOT_ALLOWED };
+  if (typeof skillId !== "string" || !skillId) return { status: "failed", error: "No skill named." };
+  const clean: Record<string, string> = {};
+  for (const [k, v] of Object.entries(args ?? {})) {
+    if (typeof k !== "string" || k.length > 64) continue;
+    if (typeof v === "string") clean[k] = v.slice(0, 200_000);
+    else if (typeof v === "number" || typeof v === "boolean") clean[k] = String(v);
+  }
+  const out = await runSkillForPrincipal({ skillRef: skillId, args: clean, principal, deadlineMs: PAGE_DEADLINE_MS });
+  if (out.kind === "error") return { status: "failed", error: out.message };
+  if (out.kind === "running") return { status: "running", runId: out.runId };
+  revalidatePath("/agents");
+  return { status: "done", runId: out.runId, output: out.output };
+}
+
+/** A run this person started, for the page to poll. Scoped to them: a run id is not a bearer token. */
+export async function runStatusAction(runId: string): Promise<SkillRunResult> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { status: "failed", error: NOT_ALLOWED };
+  const run = await getRunStatus(runId, principal.id).catch(() => null);
+  if (!run) return { status: "failed", runId, error: "That run is not one of yours." };
+  if (run.status === "running") return { status: "running", runId };
+  if (run.status === "failed") return { status: "failed", runId, error: run.error ?? "The run failed." };
+  return { status: "done", runId, output: run.output ?? "" };
 }

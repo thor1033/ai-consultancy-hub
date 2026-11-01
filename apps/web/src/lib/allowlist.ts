@@ -1,29 +1,28 @@
 /**
  * Email allowlist. A valid WorkOS session is not enough to reach the hub — the
- * signed-in email must appear here. The hub has no tenancy of its own (no
- * org_id anywhere in its schema), so anyone who gets in sees everything in it;
- * until that changes, the guest list is the whole authorization model.
+ * signed-in email must appear here, and then have a principal row (or be
+ * provisioned one; lib/sessionPrincipal.ts) before it can do anything.
  *
- * Configure via `ALLOWED_EMAILS` (comma-separated). Unset falls back to the two
- * owner accounts, so a deployment that forgets the variable is locked down
- * rather than open. Mirrors PM-tool's lib/auth/allowlist.ts deliberately —
- * both apps sign in against the same WorkOS client, and a person allowed into
- * one and not the other would be a confusing accident rather than a decision.
+ * Configure via `ALLOWED_EMAILS` (comma-separated). Unset or empty means
+ * NOBODY: there is no built-in list. There used to be — the two founders'
+ * accounts — which meant a client's hub deployed with the variable forgotten
+ * let Teqneo in as admin without anyone deciding it (docs/data-protection-review.md,
+ * F4). The hub belongs to whoever runs it; who may enter is theirs to write
+ * down. Mirrors PM-tool's lib/auth/allowlist.ts in shape.
  */
-const DEFAULT_ALLOWED = [
-  "thoralexanderbjesimonsen@gmail.com",
-  "ditlevbj@gmail.com",
-];
-
 function allowedEmails(): string[] {
-  const raw = process.env.ALLOWED_EMAILS;
-  const list = raw
-    ? raw.split(",").map((e) => e.trim().toLowerCase()).filter(Boolean)
-    : DEFAULT_ALLOWED;
-  return list.length ? list : DEFAULT_ALLOWED;
+  return (process.env.ALLOWED_EMAILS ?? "")
+    .split(",")
+    .map((e) => e.trim().toLowerCase())
+    .filter(Boolean);
 }
 
 export function isAllowedEmail(email: string | null | undefined): boolean {
   if (!email) return false;
   return allowedEmails().includes(email.toLowerCase());
+}
+
+/** Whether the deployment has written down anyone at all — for the page that explains an empty list. */
+export function allowlistConfigured(): boolean {
+  return allowedEmails().length > 0;
 }

@@ -1,5 +1,5 @@
 import { getSql } from "./client";
-import { MEMORY_REGIONS, type MemoryRegion } from "./agents";
+import { MEMORY_REGIONS, memoryReachPredicate, type MemoryRegion, type MemoryReach, type MemoryScope } from "./agents";
 
 // Everything the Context page draws, read in one round of queries: what each
 // agent remembers, what it can do, what it is connected to, who it knows about,
@@ -18,7 +18,11 @@ export interface ContextAgent {
 }
 
 export interface ContextMemory {
+  id: string;
   agentId: string;
+  /** Who may have it loaded (docs/memory-scopes.md). */
+  scope: MemoryScope;
+  scopeRef: string;
   key: string;
   content: string;
   active: boolean;
@@ -92,7 +96,8 @@ const serverNames = (entries: unknown): string[] =>
         .filter(Boolean)
     : [];
 
-export async function contextSnapshot(): Promise<ContextSnapshot> {
+/** `reach` narrows memories to what the viewer may see; omitted, every memory (admins). */
+export async function contextSnapshot(reach?: MemoryReach): Promise<ContextSnapshot> {
   const sql = getSql();
   const [agentRows, memoryRows, skillRows, serverRows, peopleRows, scheduleRows, knowledgeRows, runRows] =
     await Promise.all([
@@ -117,9 +122,10 @@ export async function contextSnapshot(): Promise<ContextSnapshot> {
           from agents a
          order by a.name
       `,
-      sql<{ agentId: string; key: string; content: string; active: boolean; region: string | null; updatedAt: Date }[]>`
-        select agent_id as "agentId", key, content, active, region, updated_at as "updatedAt"
+      sql<{ id: string; agentId: string; scope: MemoryScope; scopeRef: string; key: string; content: string; active: boolean; region: string | null; updatedAt: Date }[]>`
+        select id, agent_id as "agentId", scope, scope_ref as "scopeRef", key, content, active, region, updated_at as "updatedAt"
           from agent_memories
+         where ${memoryReachPredicate(reach)}
          order by updated_at desc
       `,
       sql<ContextSkill[]>`
@@ -182,7 +188,10 @@ export async function contextSnapshot(): Promise<ContextSnapshot> {
   }
 
   const memories: ContextMemory[] = memoryRows.map((m) => ({
+    id: m.id,
     agentId: m.agentId,
+    scope: m.scope,
+    scopeRef: m.scopeRef,
     key: m.key,
     content: m.content,
     active: m.active,

@@ -16,7 +16,19 @@
     "verify:identity": "node --experimental-transform-types --env-file=.env.local verify-identity.mjs",
     "verify:approvals": "node --experimental-transform-types --env-file=.env.local verify-approvals.mjs",
     "verify:decks": "node --experimental-transform-types --env-file=.env.local verify-decks.mjs",
-    "verify:handoff": "node --experimental-transform-types --env-file=.env.local verify-handoff.mjs"
+    "verify:handoff": "node --experimental-transform-types --env-file=.env.local verify-handoff.mjs",
+    "verify:run-timing": "node --experimental-transform-types --env-file=.env.local verify-run-timing.mjs",
+    "verify:asks": "node --experimental-transform-types --env-file=.env.local verify-asks.mjs",
+    "verify:import": "node --experimental-transform-types --env-file=.env.local verify-import.mjs",
+    "verify:views": "node --experimental-transform-types --env-file=.env.local verify-views.mjs",
+    "verify:design-tools": "node --experimental-transform-types --env-file=.env.local verify-design-tools.mjs",
+    "verify:connections": "node --experimental-transform-types --env-file=.env.local verify-connections.mjs",
+    "verify:data-protection": "node --experimental-transform-types --env-file=.env.local verify-data-protection.mjs",
+    "verify:memory-scopes": "node --experimental-transform-types --env-file=.env.local verify-memory-scopes.mjs",
+    "verify:retention": "node --experimental-transform-types --env-file=.env.local verify-retention.mjs",
+    "verify:sensitivity": "node --experimental-transform-types --env-file=.env.local verify-sensitivity.mjs",
+    "deploy:check": "node --experimental-transform-types --disable-warning=ExperimentalWarning deploy-check.mjs",
+    "verify:deployment": "node --experimental-transform-types --env-file=.env.local verify-deployment.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",

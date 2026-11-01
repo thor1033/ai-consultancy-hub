@@ -7,6 +7,9 @@ ticker in-process, and serves agent turns that outlive a typical function
 timeout. `apps/web/src/app/api/agent/run/route.ts` sets `maxDuration = 60`, which
 on a serverless host is a hard ceiling and here is not.
 
+> **A client's own hub** is set up differently: see [client-deployment.md](client-deployment.md).
+> This page is Teqneo's own hub.
+
 ## What is already proven
 
 Verified on 2026-08-29, before any host existed:

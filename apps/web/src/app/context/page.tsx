@@ -3,6 +3,7 @@ import { contextSnapshot, type ContextSnapshot } from "@ai-hub/db";
 import { PageHeader } from "@/components/PageHeader";
 import { sessionCan } from "@/lib/sessionPrincipal";
 import { ContextView } from "./ContextView";
+import { memoryReachFor } from "@/lib/memoryScope";
 
 export const dynamic = "force-dynamic";
 
@@ -25,7 +26,9 @@ export default async function ContextPage() {
   let snapshot: ContextSnapshot | null = null;
   let error: string | null = null;
   try {
-    snapshot = await contextSnapshot();
+    // Admins see every memory; anyone else, what their own runs would load
+    // (docs/memory-scopes.md).
+    snapshot = (await sessionCan("admin:manage")) ? await contextSnapshot() : await contextSnapshot(await memoryReachFor(principal));
   } catch (e) {
     error = e instanceof Error ? e.message : "Failed to load the workspace's context.";
   }

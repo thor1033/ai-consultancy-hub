@@ -51,6 +51,14 @@ const nextConfig: NextConfig = {
     }
     return config;
   },
+  // A server action's body is capped at 1 MB by default, which a Word file or
+  // a PDF passes easily. The Documents page uploads files through one
+  // (knowledge/actions.ts addFileAction), which refuses anything over 15 MB
+  // itself; this is the transport's ceiling, a little above that. Every
+  // server action still checks the person's role before reading the body.
+  experimental: {
+    serverActions: { bodySizeLimit: "16mb" },
+  },
 };
 
 export default nextConfig;

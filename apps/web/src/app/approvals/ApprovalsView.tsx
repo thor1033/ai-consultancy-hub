@@ -7,6 +7,7 @@ import type { Proposal } from "@ai-hub/db";
 import { rel } from "@/lib/format";
 import { approveProposalsAction, rejectProposalsAction, sendProposalsAction, type Outcome } from "./actions";
 import { present } from "./present";
+import { useView } from "@/components/ViewProvider";
 
 /*
  * The approvals desk.
@@ -35,6 +36,7 @@ interface Props {
 }
 
 export function ApprovalsView({ pending, decided, people, viewer, now }: Props) {
+  const { view } = useView();
   const router = useRouter();
   const [busy, start] = useTransition();
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -105,7 +107,9 @@ export function ApprovalsView({ pending, decided, people, viewer, now }: Props) 
         <div className="eyebrow">Approvals</div>
         <h1 className="mt-3 max-w-3xl text-3xl leading-[1.05] tracking-[-0.02em] md:text-[2.75rem]">{headline}</h1>
         <p className="mt-3 max-w-2xl text-sm text-[var(--muted)]">
-          Agents propose; nothing changes until a person says yes. Approving runs the exact call shown — no more, no less.
+          {view === "simple"
+            ? "An agent asks before it changes anything. Read what it wants to do and why, then say yes or no."
+            : "Agents propose; nothing changes until a person says yes. Approving runs the exact call shown — no more, no less."}
           {sentToMe > 0 && (
             <>
               {" "}
@@ -120,8 +124,8 @@ export function ApprovalsView({ pending, decided, people, viewer, now }: Props) 
       <dl className="mt-7 grid grid-cols-2 border-y border-[var(--border-strong)] md:grid-cols-4">
         <Stat label="Waiting on you" value={mine.length} accent={mine.length > 0} />
         <Stat label="With colleagues" value={sent.length} />
-        <Stat label="Ran · 7 days" value={ranThisWeek} />
-        <Stat label="Failed · 7 days" value={failedThisWeek} danger={failedThisWeek > 0} />
+        {view !== "simple" && <Stat label="Ran · 7 days" value={ranThisWeek} />}
+        {view !== "simple" && <Stat label="Failed · 7 days" value={failedThisWeek} danger={failedThisWeek > 0} />}
       </dl>
 
       {/* ── tabs ─────────────────────────────────────────────────────────── */}
@@ -437,6 +441,7 @@ function Row({
 }) {
   const [panel, setPanel] = useState<Panel>(null);
   const [open, setOpen] = useState(false);
+  const technical = useView().view !== "simple";
   const shown = present(p.tool, p.args ?? {});
   const short = shown.changes.filter((c) => !c.long);
   const long = shown.changes.filter((c) => c.long);
@@ -502,7 +507,15 @@ function Row({
             aria-expanded={open}
             onClick={() => setOpen((o) => !o)}
           >
-            {open ? "Hide the exact call" : long.length ? `Show the exact call and the ${long.map((c) => c.field.toLowerCase()).join(", ")}` : "Show the exact call"}
+            {technical
+              ? open
+                ? "Hide the exact call"
+                : long.length
+                  ? `Show the exact call and the ${long.map((c) => c.field.toLowerCase()).join(", ")}`
+                  : "Show the exact call"
+              : open
+                ? "Hide the details"
+                : "Show the details"}
           </button>
           {open && <ExactCall p={p} long={long} />}
         </div>
@@ -556,6 +569,9 @@ function QuietButton({ active = false, children, ...rest }: React.ButtonHTMLAttr
 }
 
 function ExactCall({ p, long }: { p: Proposal; long: { field: string; value: string }[] }) {
+  // The readable fields for everyone; the call as JSON from Standard up
+  // (docs/views.md). Approving runs that JSON either way.
+  const { view } = useView();
   return (
     <div className="mt-3 flex flex-col gap-3">
       {long.map((c) => (
@@ -564,6 +580,9 @@ function ExactCall({ p, long }: { p: Proposal; long: { field: string; value: str
           <p className="max-h-72 overflow-auto whitespace-pre-wrap text-sm leading-relaxed text-[var(--text-soft)]">{c.value}</p>
         </div>
       ))}
+      {view === "simple" ? (
+        long.length === 0 && <p className="text-sm text-[var(--muted)]">Nothing more to read: the headline above is the whole change.</p>
+      ) : (
       <div className="inset p-3">
         <div className="flex flex-wrap items-baseline justify-between gap-2">
           <span className="mono text-xs">
@@ -576,6 +595,7 @@ function ExactCall({ p, long }: { p: Proposal; long: { field: string; value: str
         </pre>
         {p.description && <p className="mt-2 text-xs text-[var(--muted)]">{p.description}</p>}
       </div>
+      )}
     </div>
   );
 }
@@ -839,6 +859,12 @@ function DecidedRow({ p, now, nameOf }: { p: Proposal; now: number; nameOf: (id:
         <span className="text-xs text-[var(--faint)]">{open ? "Less" : "More"}</span>
       </button>
       {open && (
+        p.contentExpiredAt ? (
+          <p className="px-1 pb-3 text-sm text-[var(--muted)]">
+            The details of this change were removed after the hub&apos;s retention period. What remains is that it was {p.status}, by whom and when.
+          </p>
+        ) : (
+
         <div className="px-4 pb-4 pl-10">
           {p.reason && <p className="mb-3 max-w-[68ch] text-sm text-[var(--text-soft)]">{p.reason}</p>}
           <ExactCall p={p} long={[]} />
@@ -849,6 +875,7 @@ function DecidedRow({ p, now, nameOf }: { p: Proposal; now: number; nameOf: (id:
             </div>
           )}
         </div>
+        )
       )}
     </li>
   );

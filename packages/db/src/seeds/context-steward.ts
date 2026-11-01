@@ -11,7 +11,7 @@ import type { AgentInput } from "../agents";
  *                                   is annotated as a write, so the gate holds
  *                                   it for a person. The seed checks the entry
  *                                   carries no such switch.
- *   it reads what it was allowed .. HUB_STEWARD_READERS on the deployment; the
+ *   it reads what it was allowed .. each person's own Settings switch; the
  *                                   chat tools take no principal argument.
  *   it is one of the founders' ..... function Office of the founders, owner
  *                                   Ditlev, beside the Secretary whose notes it
@@ -34,24 +34,38 @@ export const PROPOSED_KEY = "proposed";
 
 /**
  * The Secretary's skills whose runs the hub hands to the steward when they
- * finish (apps/web/src/lib/stewardHandoff.ts): the two that read a meeting.
- * A deployment overrides the list with HUB_STEWARD_HANDOFF_SKILLS.
+ * finish: the two that read a meeting. Seeded as hand-off rows
+ * (CONTEXT_STEWARD_HANDOFFS), so a person can switch one off on the agent's
+ * page and the release keeps that.
  */
 export const STEWARD_HANDOFF_SKILLS: readonly string[] = ["meeting-to-pm", "meeting-followup"];
 
-/** The prompt a hand-off runs the steward with. Written for the brief's "A hand-off" section. */
-export function stewardHandoffPrompt(h: { sessionId: string; skillName: string; agentName: string }): string {
-  return `Hand-off: ${h.agentName} has just processed a meeting (skill "${h.skillName}",
-session ${h.sessionId}). Do not sweep. Read that one session with
+/**
+ * The prompt a hand-off runs the steward with — a template the hub fills
+ * (packages/db/src/handoffs.ts). Written for the brief's "A hand-off" section.
+ */
+export const STEWARD_HANDOFF_PROMPT = `Hand-off: {{agentName}} has just processed a meeting (skill "{{skillName}}",
+session {{sessionId}}). Do not sweep. Read that one session with
 knowledge_chat_get, every page: the transcript or the meeting's content is in
-it, and so is what ${h.agentName} proposed from it. If a meeting note was filed
+it, and so is what {{agentName}} proposed from it. If a meeting note was filed
 from it, knowledge_recent_notes shows it; read that too. Then propose, through
 your tools, what the firm should keep from this meeting — decisions,
 definitions, corrections, durable facts — each checked with knowledge_find
 first, each with its source (the session, or the note). Record what you
 proposed under "${PROPOSED_KEY}", then report in a few lines: what you proposed,
 and what you read and left.`;
-}
+
+/** What the Secretary's answer says the steward will do, at the end of a handed-off run. */
+export const STEWARD_HANDOFF_NOTE =
+  "it reads this meeting and proposes what the firm should keep from it — decisions, definitions, corrections — on /approvals";
+
+/** The hand-offs into the steward, one per meeting skill of the Secretary. */
+export const CONTEXT_STEWARD_HANDOFFS = STEWARD_HANDOFF_SKILLS.map((skill) => ({
+  fromAgent: "secretary",
+  skill,
+  prompt: STEWARD_HANDOFF_PROMPT,
+  note: STEWARD_HANDOFF_NOTE,
+}));
 
 export const CONTEXT_STEWARD_AGENT: AgentInput = {
   slug: STEWARD_SLUG,

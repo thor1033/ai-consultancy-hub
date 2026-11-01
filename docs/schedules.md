@@ -102,7 +102,7 @@ the run finishes in the container afterwards — the same racing-a-deadline shap
 | Command | Covers |
 | --- | --- |
 | `npm run verify:schedules -w @ai-hub/db` | the whole truth table of `isDue` against a fixed clock — both clock changes included — plus the store, validation, that two simultaneous claims produce exactly one run, and that a skill schedule needs no prompt, hands the runner the skill and its arguments, and goes when the skill is deleted |
-| `npm run verify:scheduler -w web` | the real `tick()`: that a run lands in `agent_sessions` as the *owner*, that an owner who may not run agents is refused and the refusal recorded, and that revoking the owner stops it |
+| `npm run verify:scheduler -w web` | the real `tick()`: that a run lands in `agent_sessions` as the *owner*, that an owner who may not run agents is refused and the refusal recorded, and that revoking the owner stops it; and the chain a meeting skill starts on the clock, the Secretary then the Context Steward, both as the owner ([agent-testing.md](agent-testing.md)) |
 
 Neither spends anything. The scheduler one stands up a throwaway HTTP server in
 place of the Messages API and switches remote MCP servers off, so it cannot

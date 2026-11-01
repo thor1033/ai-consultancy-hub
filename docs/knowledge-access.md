@@ -74,21 +74,23 @@ confirms the document exists, which is itself a disclosure.
 ## The default, and the migration
 
 `HUB_DEFAULT_COLLECTION_VISIBILITY` decides what an unclassified collection
-means. It defaults to `open`.
+(and an unfiled document) means. It defaults to **`restricted`**: nothing
+nobody has classified is readable without a grant; admins still read
+everything (docs/data-protection-review.md, F7).
 
-That default is a migration affordance, **not a policy**. The hub is running
-with a corpus that predates the concept of visibility; failing closed on deploy
-would empty every answer the terminal gives, which is an outage rather than a
-security posture. `/admin` names every unclassified collection and every unfiled
-document so the set cannot be quietly forgotten.
+It used to default to `open`, as a migration affordance over a corpus that
+predated visibility. A deployment still classifying such a corpus can set
+`HUB_DEFAULT_COLLECTION_VISIBILITY=open` while it does. `/admin` names every
+unclassified collection and every unfiled document so the set cannot be
+quietly forgotten.
 
-To finish:
+To finish, on a deployment that set `open`:
 
 1. Open `/admin` → Knowledge. Classify each collection as open or restricted.
 2. Grant the restricted ones to the people who need them.
 3. File the unfiled documents into a collection (under `restricted` they are
    readable by nobody — a document in no drawer has nothing to grant on).
-4. Set `HUB_DEFAULT_COLLECTION_VISIBILITY=restricted`.
+4. Remove `HUB_DEFAULT_COLLECTION_VISIBILITY` (or set it to `restricted`).
 5. Confirm each person still sees what they should, from their own client.
 
 Step 4 is one environment variable, reversible. Do it as its own deploy.

@@ -13,6 +13,8 @@ export interface RetrievedChunk {
   documentId: string;
   chunkIndex: number;
   score: number; // cosine similarity in [0, 1]
+  /** The passage's collection (null: unfiled) — what a run touched, for its memory's scope. */
+  collection: string | null;
 }
 
 export interface RetrieveOptions {
@@ -62,6 +64,7 @@ export async function retrieveChunks(
            d.title,
            dc.document_id as "documentId",
            dc.chunk_index as "chunkIndex",
+           d.collection,
            1 - (dc.embedding <=> ${qv}::vector) as score
     from document_chunks dc
     join documents d on d.id = dc.document_id

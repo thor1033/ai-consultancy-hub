@@ -3,6 +3,9 @@ import { type ModelId } from "@ai-hub/agent";
 import { runSession, isKnownServer } from "@/lib/runSession";
 import { runAgentForPrincipal } from "@/lib/agentRuns";
 import { guard } from "@/lib/authz";
+import { loadHubConnections } from "@/lib/connections";
+import { mayLeave, withheldAnswer } from "@/lib/sensitivity";
+import { appBaseUrl } from "@/lib/baseUrl";
 
 // The Anthropic + MCP SDKs need the Node runtime (not edge). Agent turns can be slow.
 export const runtime = "nodejs";
@@ -19,6 +22,9 @@ function requestedServers(b: Record<string, unknown>): string[] {
 }
 
 export async function POST(req: Request) {
+  // Connections added on the Connections page join the registry first (lib/connections.ts).
+  await loadHubConnections();
+
   const gate = await guard(req, "agent:run");
   if (!gate.ok) return gate.response;
 
@@ -57,10 +63,13 @@ export async function POST(req: Request) {
         { status: 202 },
       );
     }
+    // This route answers clients outside the hub: an answer drawn from
+    // confidential or special material is read in the hub (lib/sensitivity.ts).
     return NextResponse.json({
       runId: outcome.runId,
       status: "succeeded",
-      output: outcome.output,
+      output: mayLeave(outcome.sensitivity) ? outcome.output : withheldAnswer(outcome.sensitivity, outcome.runId, appBaseUrl(req.headers)),
+      ...(mayLeave(outcome.sensitivity) ? {} : { withheld: outcome.sensitivity }),
       toolsUsed: outcome.toolsUsed,
     });
   }
@@ -75,7 +84,7 @@ export async function POST(req: Request) {
   }
 
   try {
-    const { sessionId, servers: used, result } = await runSession({
+    const { sessionId, servers: used, result, sensitivity } = await runSession({
       prompt: b.prompt,
       system: typeof b.system === "string" ? b.system : undefined,
       model: typeof b.model === "string" ? (b.model as ModelId) : undefined,
@@ -83,6 +92,10 @@ export async function POST(req: Request) {
       servers,
       principalId: gate.principal.id,
     });
+    if (!mayLeave(sensitivity)) {
+      // Not the transcript, not the text: a labelled connection's material stays in the hub.
+      return NextResponse.json({ sessionId, servers: used, text: withheldAnswer(sensitivity, sessionId, appBaseUrl(req.headers)), withheld: sensitivity });
+    }
     return NextResponse.json({ sessionId, servers: used, ...result });
   } catch (err) {
     // MCP connections are closed inside runSession; nothing to clean up here.
