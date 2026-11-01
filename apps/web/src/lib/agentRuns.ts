@@ -6,6 +6,7 @@ import { authorize, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 import { runSession, isKnownServer } from "@/lib/runSession";
 import { type ModelId } from "@ai-hub/agent";
 import { fillTemplate } from "@/lib/skillPrompt";
+import { loadHubConnections } from "@/lib/connections";
 
 /*
  * Running a standing agent on behalf of an outside caller.
@@ -129,6 +130,9 @@ export async function runnableAgent(
 }
 
 export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentRunOutcome> {
+  // Connections added on the Connections page join the registry first (lib/connections.ts).
+  await loadHubConnections();
+
   const found = await runnableAgent(input.agentRef, input.principal);
   if ("error" in found) return { kind: "error", message: found.error };
   const agent = found;

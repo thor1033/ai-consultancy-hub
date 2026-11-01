@@ -620,3 +620,14 @@ alter table agent_skills add column if not exists source jsonb;
 -- that — only how much of the hub a person is shown. Kept on the row so the
 -- choice follows them to another device; the browser keeps a cookie too.
 alter table principals add column if not exists preferences jsonb not null default '{}'::jsonb;
+
+-- Connections added on the Connections page (docs/connections.md): a remote MCP
+-- server declared in the database rather than in HUB_REMOTE_MCP_SERVERS, so
+-- hooking up a client's system needs no deploy. The address and the token are
+-- sealed by the web app (AES-256-GCM, lib/secretBox.ts) before they get here:
+-- an address can carry a key in its path, and a token is a credential. A row
+-- with url_sealed is such a connection; one without is a bundled or
+-- env-declared server's control-plane row, as before.
+alter table mcp_servers add column if not exists url_sealed text;
+alter table mcp_servers add column if not exists token_sealed text;
+alter table mcp_servers add column if not exists added_by text;

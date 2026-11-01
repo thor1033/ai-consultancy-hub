@@ -1,6 +1,7 @@
 import { agentRoster, serverUsage, type AgentRosterRow, type ServerUsage } from "@ai-hub/db";
 import { listRegisteredServers, serverConnection, type ServerConnection } from "@/lib/mcpCatalog";
 import { knownServers } from "@/lib/runSession";
+import { loadHubConnections } from "@/lib/connections";
 
 // Every tool server the hub knows about, joined with who uses it and how much:
 // the registry rows (remote servers and anything added by hand) plus the local
@@ -47,6 +48,9 @@ const namesOf = (entries: unknown): string[] =>
     : [];
 
 export async function serverDirectory(): Promise<{ entries: DirectoryEntry[]; roster: AgentRosterRow[] }> {
+  // Connections added on the Connections page join the registry first (lib/connections.ts).
+  await loadHubConnections();
+
   const [rows, roster, usage] = await Promise.all([
     listRegisteredServers(),
     agentRoster().catch(() => [] as AgentRosterRow[]),

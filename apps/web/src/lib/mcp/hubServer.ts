@@ -32,6 +32,7 @@ import {
   getDocument,
   embedderStatus,
 } from "@ai-hub/rag";
+import { loadHubConnections } from "@/lib/connections";
 
 /*
  * The hub, exposed to an outside MCP client — Claude Code, Claude Desktop, or
@@ -60,6 +61,8 @@ export async function buildHubMcpServer(
 ): Promise<McpServer> {
   const may = async (action: Parameters<typeof authorize>[1]) =>
     authorize(principal, action);
+  // Connections added on the Connections page, before anything below reads the registry.
+  await loadHubConnections();
 
   // What this principal may read, resolved once per connection rather than per
   // tool call: the server is rebuilt for every request (the endpoint is

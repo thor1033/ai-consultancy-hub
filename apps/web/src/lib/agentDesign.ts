@@ -17,6 +17,7 @@ import { MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
 import { isKnownServer } from "@/lib/runSession";
 import { undeclaredPlaceholders } from "@/lib/skillPrompt";
 import { MAILBOX_SERVERS, MODELS, serverWritesAllowed } from "@/app/agents/models";
+import { loadHubConnections } from "@/lib/connections";
 
 /*
  * Designing agents and skills: the checks behind saving one, for every door.
@@ -54,6 +55,8 @@ export async function saveAgentAs(
 ): Promise<{ ok: true; id: string; slug: string } | { error: string }> {
   const can = async (action: Action) => Boolean(principal) && (await authorize(principal!, action));
   if (!(await can("agent:manage"))) return { error: NOT_ALLOWED };
+  // Which servers are known decides what is kept below; page-added connections count.
+  await loadHubConnections();
   const name = input.name?.trim();
   if (!name) return { error: "An agent needs a name." };
 

@@ -18,6 +18,7 @@ import {
 import { connectMcpServers, type ConnectedMcp, type McpToolInfo } from "@ai-hub/mcp";
 import { isReadOnlyTool } from "@/lib/mcp/proxyTools";
 import { entryName, resolveServer } from "@/lib/runSession";
+import { loadHubConnections } from "@/lib/connections";
 
 /*
  * The approval gate.
@@ -274,6 +275,9 @@ export async function reject(id: string, principal: Principal, note?: string): P
  * the agent the entry whose credential may write, and let this gate hold it.
  */
 export async function approve(id: string, principal: Principal): Promise<Decision> {
+  // Connections added on the Connections page join the registry first (lib/connections.ts).
+  await loadHubConnections();
+
   const proposal = await getProposal(id);
   if (!proposal) return { error: "No such proposal." };
   if (!(await mayDecide(principal, proposal))) return { error: "You may not decide this proposal." };

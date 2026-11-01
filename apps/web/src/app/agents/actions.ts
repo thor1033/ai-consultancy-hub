@@ -38,6 +38,7 @@ import { saveAgentAs, saveSkillAs, type SkillDraft } from "@/lib/agentDesign";
 import { listSkills, updateSkill, deleteSkill } from "@ai-hub/db";
 import { fillTemplate } from "@/lib/skillPrompt";
 import { runAgentForPrincipal, runSkillForPrincipal, cooperation, handoffsAfter } from "@/lib/agentRuns";
+import { loadHubConnections } from "@/lib/connections";
 
 // Server actions for the agents console. Each one checks the signed-in user's
 // role: talking to an agent needs agent:run, changing one needs agent:manage.
@@ -133,6 +134,7 @@ export async function sendAgentMessageAction(
   slug: string,
   messages: AgentChatMessage[],
 ): Promise<AgentTurnResult> {
+  await loadHubConnections();
   const principal = await sessionCan("agent:run");
   if (!principal) return { error: NOT_ALLOWED };
   const agent = await getAgent(slug);

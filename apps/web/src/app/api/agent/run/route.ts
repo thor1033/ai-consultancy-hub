@@ -3,6 +3,7 @@ import { type ModelId } from "@ai-hub/agent";
 import { runSession, isKnownServer } from "@/lib/runSession";
 import { runAgentForPrincipal } from "@/lib/agentRuns";
 import { guard } from "@/lib/authz";
+import { loadHubConnections } from "@/lib/connections";
 
 // The Anthropic + MCP SDKs need the Node runtime (not edge). Agent turns can be slow.
 export const runtime = "nodejs";
@@ -19,6 +20,9 @@ function requestedServers(b: Record<string, unknown>): string[] {
 }
 
 export async function POST(req: Request) {
+  // Connections added on the Connections page join the registry first (lib/connections.ts).
+  await loadHubConnections();
+
   const gate = await guard(req, "agent:run");
   if (!gate.ok) return gate.response;
 

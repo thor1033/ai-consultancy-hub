@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { getPattern, instantiatePattern, previewPattern, type PatternValues } from "@ai-hub/db";
 import { knownServers } from "@/lib/runSession";
 import { sessionCan } from "@/lib/sessionPrincipal";
+import { loadHubConnections } from "@/lib/connections";
 
 const NOT_ALLOWED = "Only an admin can create agents.";
 
@@ -15,6 +16,7 @@ export interface PatternPreviewView {
 
 /** What a pattern would create for these values. Nothing is written. */
 export async function previewPatternAction(slug: string, values: PatternValues): Promise<PatternPreviewView | { error: string }> {
+  await loadHubConnections();
   if (!(await sessionCan("agent:run"))) return { error: NOT_ALLOWED };
   const pattern = getPattern(slug);
   if (!pattern) return { error: "No such pattern." };
@@ -44,6 +46,7 @@ export async function previewPatternAction(slug: string, values: PatternValues):
 }
 
 export async function createFromPatternAction(slug: string, values: PatternValues): Promise<{ ok: true; agents: { slug: string; name: string }[] } | { error: string }> {
+  await loadHubConnections();
   if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
   const pattern = getPattern(slug);
   if (!pattern) return { error: "No such pattern." };

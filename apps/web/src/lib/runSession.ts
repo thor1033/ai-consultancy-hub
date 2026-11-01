@@ -8,6 +8,7 @@ import {
   remoteServerConfig,
   remoteServerNames,
   remoteConfigError,
+  hubRemoteProblem,
   BUILTIN_SERVER_NAMES,
   type ConnectedMcp,
   type McpServerConfig,
@@ -16,6 +17,7 @@ import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames, ASK_
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { gate } from "@/lib/approvals";
 import { askExecutor, askTool, ASK_TOOL, type Asks } from "@/lib/askAgents";
+import { loadHubConnections } from "@/lib/connections";
 
 // The code-owned servers the hub starts itself.
 const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
@@ -57,11 +59,16 @@ export function unavailableServers(names: readonly string[], disabled: Set<strin
   for (const name of names) {
     if (!name || name === "memory" || name === ASK_SERVER) continue;
     if (!isKnownServer(name)) {
+      // A connection added on the page that exists but cannot be opened says
+      // so, rather than reading as a name nobody declared.
+      const problem = hubRemoteProblem(name);
       out.push({
         name,
-        reason: malformed
-          ? `${malformed}, so this deployment has no remote servers at all`
-          : "not declared on this deployment (not a bundled server, and not in HUB_REMOTE_MCP_SERVERS)",
+        reason: problem
+          ? problem
+          : malformed
+            ? `${malformed}, so this deployment has no remote servers at all`
+            : "not declared on this deployment (not a bundled server, not in HUB_REMOTE_MCP_SERVERS, and not added on the Connections page)",
       });
     } else if (disabled.has(name)) {
       out.push({ name, reason: "switched off on /mcp" });
@@ -185,6 +192,9 @@ async function fileMeetingNotes(): Promise<string> {
 // Runs one ad-hoc agent session (the practitioner's workflow) with the chosen MCP
 // servers connected, then persists it so it can be distilled into a Skill.
 export async function runSession(input: RunSessionInput): Promise<RunSessionOutput> {
+  // Connections added on the Connections page join the registry first (lib/connections.ts).
+  await loadHubConnections();
+
   // Known and not globally disabled by the control plane. What that drops is
   // told to the model and written into the output, never swallowed.
   const disabled = await disabledMcpServerNames();

@@ -21,7 +21,8 @@
     "verify:asks": "node --experimental-transform-types --env-file=.env.local verify-asks.mjs",
     "verify:import": "node --experimental-transform-types --env-file=.env.local verify-import.mjs",
     "verify:views": "node --experimental-transform-types --env-file=.env.local verify-views.mjs",
-    "verify:design-tools": "node --experimental-transform-types --env-file=.env.local verify-design-tools.mjs"
+    "verify:design-tools": "node --experimental-transform-types --env-file=.env.local verify-design-tools.mjs",
+    "verify:connections": "node --experimental-transform-types --env-file=.env.local verify-connections.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",

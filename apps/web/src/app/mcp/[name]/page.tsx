@@ -1,13 +1,15 @@
 import Link from "next/link";
 import { Suspense, cache } from "react";
 import { notFound } from "next/navigation";
-import { listServerRuns, toolCallCounts, type ServerRun, type ToolCallCount } from "@ai-hub/db";
+import { listHubConnections, listServerRuns, toolCallCounts, type ServerRun, type ToolCallCount } from "@ai-hub/db";
 import { describeMcpServer, type McpToolInfo } from "@/lib/mcpCatalog";
 import { sessionCan } from "@/lib/sessionPrincipal";
 import { rel } from "@/lib/format";
 import { serverDirectory } from "../directory";
 import { ServerSwitch } from "../ServerSwitch";
 import { ToolList, type ToolRow } from "./ToolList";
+import { ConnectionSettings } from "./ConnectionSettings";
+import { hubRemoteProblem } from "@ai-hub/mcp";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -41,6 +43,12 @@ export default async function McpDetailPage({ params }: { params: Promise<{ name
     listServerRuns(name, 8).catch(() => [] as ServerRun[]),
     sessionCan("admin:manage"),
   ]);
+  // A connection added on the Connections page can be changed or removed here.
+  // Only whether it has a token is read; the token itself never leaves the server.
+  // Looked up by row, not by the registry: one whose token no longer opens is
+  // out of the registry, and this is where it gets fixed.
+  const added = canManage ? ((await listHubConnections().catch(() => [])).find((r) => r.name === name) ?? null) : null;
+  const problem = added ? hubRemoteProblem(name) : null;
   const now = Date.now();
   const c = server.connection;
 
@@ -73,6 +81,12 @@ export default async function McpDetailPage({ params }: { params: Promise<{ name
           <ServerSwitch name={server.name} enabled={server.enabled} users={server.users.filter((u) => u.enabled).map((u) => u.name)} />
         )}
       </header>
+
+      {problem && (
+        <div role="alert" className="panel notice-danger mt-6 p-4 text-sm text-[var(--danger)]">
+          This connection cannot be used: {problem}.
+        </div>
+      )}
 
       {!server.enabled && (
         <div className="panel notice-warning mt-6 p-4 text-sm">
@@ -114,8 +128,8 @@ export default async function McpDetailPage({ params }: { params: Promise<{ name
             {c.kind === "unknown" ? (
               <div className="panel notice-warning p-5 text-sm">
                 This deployment does not declare <span className="mono">{server.name}</span> in{" "}
-                <span className="mono">HUB_REMOTE_MCP_SERVERS</span>, so the hub cannot connect to it and every run skips
-                it. Its tools are listed wherever it is declared.
+                <span className="mono">HUB_REMOTE_MCP_SERVERS</span>, and it was not added on the Connections page (or its
+                saved address or token can no longer be read), so the hub cannot connect to it and every run skips it.
               </div>
             ) : (
               <ServerTools name={name} now={now} />
@@ -124,6 +138,16 @@ export default async function McpDetailPage({ params }: { params: Promise<{ name
         </section>
 
         <div className="flex min-w-0 flex-col gap-6">
+          {added && (
+            <ConnectionSettings
+              name={name}
+              label={added.label}
+              description={added.description}
+              host={server.connection.host}
+              hasToken={Boolean(added.tokenSealed)}
+              users={server.users.filter((u) => u.enabled).map((u) => u.name)}
+            />
+          )}
           <section className="panel p-5 md:p-6">
             <div className="eyebrow">Used by</div>
             {server.users.length === 0 ? (

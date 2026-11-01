@@ -23,5 +23,8 @@ export {
   remoteServerReadOnly,
   remoteServerForwardsIdentity,
   isRemoteServer,
+  isEnvRemoteServer,
+  setHubRemoteServers,
+  hubRemoteProblem,
 } from "./remote";
-export type { RemoteServerInfo, RemoteDialOptions } from "./remote";
+export type { RemoteServerInfo, RemoteDialOptions, HubRemoteServer } from "./remote";

@@ -16,6 +16,7 @@ import { entryName, isKnownServer, resolveServer, unavailableServers, unavailabi
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
 import { heldText, hold, needsApproval, withReason } from "@/lib/approvals";
+import { loadHubConnections } from "@/lib/connections";
 
 /*
  * One agent, served to the Claude Code session it was synced into.
@@ -60,6 +61,9 @@ export async function resolveLocalAgent(principal: Principal, slug: string): Pro
 }
 
 export async function buildAgentMcpServer(principal: Principal, agent: Agent): Promise<McpServer> {
+  // Connections added on the Connections page join the registry first (lib/connections.ts).
+  await loadHubConnections();
+
   // A server switched off in /mcp, or one this deployment never declared, is
   // not dialled — and the sub-agent is told so in the server's instructions,
   // which Claude Code shows its model, rather than finding a tool missing.

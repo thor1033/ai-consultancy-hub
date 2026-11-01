@@ -11,6 +11,7 @@ import {
 } from "@ai-hub/rag";
 import { sessionKnowledgeAccess, sessionCan } from "@/lib/sessionPrincipal";
 import { MAX_UPLOAD_BYTES, type KnowledgeSnapshot, type RetrievedRow, type DocDetail } from "./types";
+import { loadHubConnections } from "@/lib/connections";
 
 const NOT_ALLOWED = "You do not have permission to change the knowledge base.";
 
@@ -138,6 +139,7 @@ export async function syncSourceAction(
   type: string,
   collection?: string,
 ): Promise<{ synced: number; chunks: number; snapshot: KnowledgeSnapshot } | { error: string }> {
+  await loadHubConnections();
   if (!(await sessionCan("document:write"))) return { error: NOT_ALLOWED };
   try {
     const result = await syncSource(type, { collection: collection?.trim() || undefined });

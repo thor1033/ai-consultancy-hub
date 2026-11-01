@@ -4,12 +4,16 @@ export {
   upsertMcpServer,
   setMcpServerEnabled,
   deleteMcpServer,
+  listHubConnections,
+  createHubConnection,
+  updateHubConnection,
+  deleteHubConnection,
   disabledMcpServerNames,
   serverUsage,
   toolCallCounts,
   listServerRuns,
 } from "./mcpServers";
-export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun } from "./mcpServers";
+export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun, HubConnectionRow } from "./mcpServers";
 export { recordSession, listSessions, getSession, startRun, finishRun, failRun, appendRunOutput, getRunStatus, getRunTiming, listMyRuns } from "./sessions";
 export type { RunTiming } from "./sessions";
 export type {

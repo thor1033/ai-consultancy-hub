@@ -1,5 +1,6 @@
 import { listMcpServers } from "@ai-hub/db";
 import { knownServers } from "@/lib/runSession";
+import { loadHubConnections } from "@/lib/connections";
 
 // What the agent builder and settings offer: the tool servers this deployment
 // can actually start, with the labels and descriptions the control plane holds.
@@ -24,6 +25,9 @@ const LOCAL_DESCRIPTIONS: Record<string, string> = {
 };
 
 export async function toolCatalog(alsoNamed: string[] = []): Promise<ToolOption[]> {
+  // Connections added on the Connections page join the registry first (lib/connections.ts).
+  await loadHubConnections();
+
   const rows = await listMcpServers().catch(() => []);
   const byName = new Map(rows.map((r) => [r.name, r]));
   const known = knownServers().filter((n) => n !== "memory");
