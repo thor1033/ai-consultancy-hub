@@ -12,12 +12,14 @@ import {
   BUILTIN_SERVER_NAMES,
   type ConnectedMcp,
   type McpServerConfig,
+  type MemoryServerReach,
 } from "@ai-hub/mcp";
 import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames, ASK_SERVER } from "@ai-hub/db";
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { gate } from "@/lib/approvals";
 import { askExecutor, askTool, ASK_TOOL, type Asks } from "@/lib/askAgents";
 import { loadHubConnections } from "@/lib/connections";
+import { initialMemoryScope, memoryReachFor, memoryReachForId, narrowToPersonal } from "@/lib/memoryScope";
 
 // The code-owned servers the hub starts itself.
 const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
@@ -107,8 +109,10 @@ export function resolveServer(
   remoteBearer?: string,
   /** The agent's own entry for this server, for per-agent settings such as a mailbox. */
   entry?: McpEntry,
+  /** Whose memory the run may have (docs/memory-scopes.md); omitted ⇒ shared memory only. */
+  memory?: MemoryServerReach,
 ): McpServerConfig | null {
-  if (name === "memory") return agentId ? memoryServerConfig(agentId) : null;
+  if (name === "memory") return agentId ? memoryServerConfig(agentId, memory) : null;
   // Not a process: the ask tool is built in runSession from the entry's list.
   if (name === ASK_SERVER) return null;
   return builtinServerConfig(name, builtinOptionsFrom(entry)) ?? remoteServerConfig(name, { bearer: remoteBearer });
@@ -169,6 +173,16 @@ export interface RunSessionInput {
    * person reads in the same answer that the steward is on it.
    */
   afterRun?: (result: RunAgentResult) => Promise<string | null>;
+  /**
+   * Memory scopes (docs/memory-scopes.md). The run's person with their roles,
+   * when the caller has them (else looked up by principalId); the collection of
+   * every passage retrieval gave this run; and how deep it is (an ask or a
+   * hand-off is 1). Together they decide whose memory the run may load and
+   * where what it remembers is kept.
+   */
+  principal?: { id: string; roles: string[] };
+  retrieved?: (string | null)[];
+  depth?: number;
 }
 
 export interface RunSessionOutput {
@@ -218,10 +232,26 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
   const held = new Set<string>();
   // Set by the gate (or below, for an ask) once the run reads outside content.
   const outside: { from: string | null } = { from: null };
+  // Whose memory this run may load, and where what it remembers goes.
+  const memoryReach = servers.includes("memory")
+    ? input.principal
+      ? await memoryReachFor(input.principal)
+      : await memoryReachForId(input.principalId)
+    : null;
+  const memory = servers.includes("memory")
+    ? await initialMemoryScope({
+        principalId: input.principalId ?? null,
+        retrieved: input.retrieved ?? [],
+        depth: input.depth ?? 0,
+        continues: Boolean(input.history?.length),
+      })
+    : undefined;
   try {
     const entryFor = (name: string) => input.serverEntries?.find((e) => entryName(e) === name);
     const configs = servers
-      .map((name) => resolveServer(name, input.agentId, input.remoteBearer, entryFor(name)))
+      .map((name) =>
+        resolveServer(name, input.agentId, input.remoteBearer, entryFor(name), memoryReach ? { ...memoryReach, runId: input.runId ?? null } : undefined),
+      )
       .filter((c): c is McpServerConfig => c !== null);
     if (configs.length > 0) mcp = await connectMcpServers(configs);
     const gated = mcp
@@ -232,6 +262,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
           entries: input.serverEntries,
           held,
           outside,
+          memory,
         })
       : undefined;
 
@@ -247,6 +278,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
               // Another agent's answer can carry what it read; it counts as outside.
               const out = await ask.execute(args);
               outside.from ??= "another agent";
+              if (memory) narrowToPersonal(memory, "it asked another agent, whose answer can carry what that agent read");
               return out;
             }
             if (gated) return gated.execute(name, args);

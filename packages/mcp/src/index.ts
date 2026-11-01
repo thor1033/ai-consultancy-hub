@@ -14,7 +14,7 @@ export {
   BUILTIN_SERVER_INFO,
   MAILBOX_SERVER_NAMES,
 } from "./servers";
-export type { BuiltinServerOptions } from "./servers";
+export type { BuiltinServerOptions, MemoryServerReach } from "./servers";
 export {
   remoteServerConfig,
   remoteServerNames,

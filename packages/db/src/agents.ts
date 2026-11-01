@@ -119,9 +119,76 @@ export interface AgentMemory {
   key: string;
   content: string;
   active: boolean;
+  /** Who may have it loaded: everyone using the agent, readers of a collection, or one person. */
+  scope: MemoryScope;
+  /** '' for agent; the collection's name; the person's principal id. */
+  scopeRef: string;
+  /** The person whose run wrote it, when known. */
+  writtenBy: string | null;
+  sourceRunId: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/*
+ * Memory scopes (docs/memory-scopes.md). A memory is loaded only into runs of
+ * people its scope reaches:
+ *
+ *   agent       everyone who uses the agent
+ *   collection  people who may read that knowledge collection
+ *   personal    the one person whose run wrote it
+ *
+ * The scope is decided by the hub from what the writing run touched — never
+ * by the model — and widening one is an admin's act (shareMemory).
+ */
+export type MemoryScope = "agent" | "collection" | "personal";
+export const MEMORY_SCOPES: readonly MemoryScope[] = ["agent", "collection", "personal"];
+
+/** Where a memory is kept. `ref` is '' for agent, a collection name, or a principal id. */
+export interface MemoryPlace {
+  scope: MemoryScope;
+  ref: string;
+}
+export const SHARED_MEMORY: MemoryPlace = { scope: "agent", ref: "" };
+
+/**
+ * Who is looking, for reads: their principal id (null for nobody — a
+ * workbench run), and which collections they may read, in the shape of
+ * @ai-hub/authz's KnowledgeAccess (structural, so this package need not import
+ * that one). Omitted on a read means "everything", for admins' review pages,
+ * seeds and harnesses — never for a run.
+ */
+export interface MemoryReach {
+  principalId: string | null;
+  collections: { kind: "all" } | { kind: "allow"; collections: string[] } | { kind: "deny"; collections: string[] };
+}
+
+/**
+ * The SQL predicate a reach allows, over `agent_memories` (unaliased). With no
+ * principal, '' matches no personal memory: the check constraint keeps every
+ * personal memory's ref non-empty.
+ */
+export function memoryReachPredicate(reach: MemoryReach | undefined) {
+  const sql = getSql();
+  if (!reach) return sql`true`;
+  const c = reach.collections;
+  const collection =
+    c.kind === "all"
+      ? sql`true`
+      : c.kind === "allow"
+        ? c.collections.length
+          ? sql`scope_ref = any(${c.collections}::text[])`
+          : sql`false`
+        : c.collections.length
+          ? sql`not (scope_ref = any(${c.collections}::text[]))`
+          : sql`true`;
+  return sql`(scope = 'agent'
+    or (scope = 'personal' and scope_ref = ${reach.principalId ?? ""})
+    or (scope = 'collection' and ${collection}))`;
+}
+
+/** Narrowest first: a person's own memory under a key wins over a shared one. */
+const NARROWEST_FIRST = `case scope when 'personal' then 0 when 'collection' then 1 else 2 end`;
 
 export interface AgentInput {
   slug: string;
@@ -262,38 +329,73 @@ export async function deleteAgent(id: string): Promise<boolean> {
 // here rather than in the server so the /agents UI can read and prune what an
 // agent believes without going through the model.
 
-const MEMORY_COLUMNS = `id, key, content, active, created_at as "createdAt", updated_at as "updatedAt"`;
+const MEMORY_COLUMNS = `id, key, content, active, scope, scope_ref as "scopeRef",
+  written_by as "writtenBy", source_run_id as "sourceRunId",
+  created_at as "createdAt", updated_at as "updatedAt"`;
 
-/** Active memories first, then most recently updated. */
-export async function listMemories(agentId: string): Promise<AgentMemory[]> {
+/**
+ * Active memories first, then most recently updated — those `reach` may see,
+ * or all of them when it is omitted (review pages, seeds, harnesses).
+ */
+export async function listMemories(agentId: string, reach?: MemoryReach): Promise<AgentMemory[]> {
   const sql = getSql();
   return sql<AgentMemory[]>`
     select ${sql.unsafe(MEMORY_COLUMNS)}
     from agent_memories
-    where agent_id = ${agentId}
+    where agent_id = ${agentId} and ${memoryReachPredicate(reach)}
     order by active desc, updated_at desc
   `;
 }
 
+export async function getMemory(id: string): Promise<(AgentMemory & { agentId: string }) | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const sql = getSql();
+  const [row] = await sql<(AgentMemory & { agentId: string })[]>`
+    select ${sql.unsafe(MEMORY_COLUMNS)}, agent_id as "agentId" from agent_memories where id = ${id}`;
+  return row ?? null;
+}
+
 /**
- * Upsert by key — an agent correcting itself replaces the fact, never doubles it.
- * A write is active unless said otherwise: recording a fact is working on it.
+ * Upsert by key within a scope — an agent correcting itself replaces the
+ * fact, never doubles it; two people's personal memories under one key stay
+ * two memories. A write is active unless said otherwise. Shared (agent) scope
+ * unless a place is given.
  */
 export async function rememberMemory(
   agentId: string,
   key: string,
   content: string,
   active = true,
+  place: MemoryPlace = SHARED_MEMORY,
+  meta: { writtenBy?: string | null; sourceRunId?: string | null } = {},
 ): Promise<AgentMemory> {
   const sql = getSql();
+  const ref = place.scope === "agent" ? "" : place.ref;
+  if (place.scope !== "agent" && !ref) throw new Error(`A ${place.scope} memory needs to say whose.`);
   const rows = await sql<AgentMemory[]>`
-    insert into agent_memories (agent_id, key, content, active)
-    values (${agentId}, ${key}, ${content}, ${active})
-    on conflict (agent_id, key) do update
-      set content = excluded.content, active = excluded.active, updated_at = now()
+    insert into agent_memories (agent_id, key, content, active, scope, scope_ref, written_by, source_run_id)
+    values (${agentId}, ${key}, ${content}, ${active}, ${place.scope}, ${ref}, ${meta.writtenBy ?? null}, ${meta.sourceRunId ?? null})
+    on conflict (agent_id, key, scope, scope_ref) do update
+      set content = excluded.content, active = excluded.active, updated_at = now(),
+          written_by = coalesce(excluded.written_by, agent_memories.written_by),
+          source_run_id = coalesce(excluded.source_run_id, agent_memories.source_run_id)
     returning ${sql.unsafe(MEMORY_COLUMNS)}
   `;
   return rows[0];
+}
+
+/**
+ * The one memory a key names for this reach: the narrowest visible (a
+ * person's own before a collection's before the shared one). Without a reach,
+ * the shared one — so a by-key change from a review page or a seed never
+ * reaches into someone's personal memory by accident.
+ */
+function byKey(agentId: string, key: string, reach?: MemoryReach) {
+  const sql = getSql();
+  return sql`(select id from agent_memories
+     where agent_id = ${agentId} and key = ${key}
+       and ${reach ? memoryReachPredicate(reach) : sql`scope = 'agent'`}
+     order by ${sql.unsafe(NARROWEST_FIRST)} limit 1)`;
 }
 
 /** Move a memory between active and inactive work without rewriting it. */
@@ -301,13 +403,50 @@ export async function setMemoryActive(
   agentId: string,
   key: string,
   active: boolean,
+  reach?: MemoryReach,
 ): Promise<boolean> {
   const sql = getSql();
   const rows = await sql`
     update agent_memories set active = ${active}, updated_at = now()
-     where agent_id = ${agentId} and key = ${key}
+     where id = ${byKey(agentId, key, reach)}
   `;
   return rows.count > 0;
+}
+
+export async function setMemoryActiveById(id: string, active: boolean): Promise<boolean> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
+  const sql = getSql();
+  const rows = await sql`update agent_memories set active = ${active}, updated_at = now() where id = ${id}`;
+  return rows.count > 0;
+}
+
+export async function forgetMemoryById(id: string): Promise<boolean> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
+  const sql = getSql();
+  const rows = await sql`delete from agent_memories where id = ${id}`;
+  return rows.count > 0;
+}
+
+/**
+ * Widen a memory to everyone who uses the agent. An admin's act, recorded by
+ * the caller: it can put what one person's run learned from a restricted
+ * collection or a mailbox in front of everyone. Refused when a shared memory
+ * under the same key exists — two facts with one name, the person decides.
+ */
+export async function shareMemory(id: string): Promise<{ ok: true } | { error: string }> {
+  const m = await getMemory(id);
+  if (!m) return { error: "That memory no longer exists." };
+  if (m.scope === "agent") return { ok: true };
+  const sql = getSql();
+  try {
+    await sql`update agent_memories set scope = 'agent', scope_ref = '', updated_at = now() where id = ${id}`;
+    return { ok: true };
+  } catch (e) {
+    if ((e as { code?: string }).code === "23505") {
+      return { error: `A shared memory called "${m.key}" already exists. Forget one of the two first.` };
+    }
+    throw e;
+  }
 }
 
 export interface AgentRosterRow {
@@ -508,19 +647,27 @@ export async function setMemoryRegion(
   agentId: string,
   key: string,
   region: MemoryRegion | null,
+  reach?: MemoryReach,
 ): Promise<boolean> {
   const sql = getSql();
   const rows = await sql`
     update agent_memories set region = ${region}
-     where agent_id = ${agentId} and key = ${key}
+     where id = ${byKey(agentId, key, reach)}
   `;
   return rows.count > 0;
 }
 
-export async function forgetMemory(agentId: string, key: string): Promise<boolean> {
+export async function setMemoryRegionById(id: string, region: MemoryRegion | null): Promise<boolean> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return false;
+  const sql = getSql();
+  const rows = await sql`update agent_memories set region = ${region} where id = ${id}`;
+  return rows.count > 0;
+}
+
+export async function forgetMemory(agentId: string, key: string, reach?: MemoryReach): Promise<boolean> {
   const sql = getSql();
   const rows = await sql`
-    delete from agent_memories where agent_id = ${agentId} and key = ${key}
+    delete from agent_memories where id = ${byKey(agentId, key, reach)}
   `;
   return rows.count > 0;
 }
@@ -537,13 +684,14 @@ export async function searchMemories(
   agentId: string,
   query: string,
   limit = 20,
+  reach?: MemoryReach,
 ): Promise<AgentMemory[]> {
   const sql = getSql();
   const term = `%${query.trim()}%`;
   return sql<AgentMemory[]>`
     select ${sql.unsafe(MEMORY_COLUMNS)}
     from agent_memories
-    where agent_id = ${agentId}
+    where agent_id = ${agentId} and ${memoryReachPredicate(reach)}
       and (key ilike ${term} or content ilike ${term})
     order by updated_at desc
     limit ${limit}

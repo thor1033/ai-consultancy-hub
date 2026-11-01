@@ -357,14 +357,16 @@ readTool(
   "knowledge_agent_memories",
   {
     description:
-      "What another agent remembers: its active memories, key and content. Read-only. Use it to find facts an agent learned that are really company knowledge and should be a document, or facts another agent should also know.",
+      "What another agent remembers for everyone who uses it: its active shared memories, key and content. Read-only. A person's own memories, and those kept for the readers of a collection, are not shown. Use it to find facts an agent learned that are really company knowledge and should be a document, or facts another agent should also know.",
     inputSchema: { agentSlug: z.string().min(1).describe("The agent's slug, e.g. secretary.") },
   },
   async ({ agentSlug }) =>
     attempt(async () => {
       const [a] = await sql`select id, name from agents where slug = ${agentSlug}`;
       if (!a) return failed(`No agent "${agentSlug}".`);
-      const rows = await sql`select key, content, updated_at as "updatedAt" from agent_memories where agent_id = ${a.id} and active order by updated_at desc limit 200`;
+      // Shared memories only (docs/memory-scopes.md): a person's own, and a
+      // restricted collection's, are not the steward's to read, whoever it runs as.
+      const rows = await sql`select key, content, updated_at as "updatedAt" from agent_memories where agent_id = ${a.id} and active and scope = 'agent' order by updated_at desc limit 200`;
       if (rows.length === 0) return text(`${a.name} has no active memories.`);
       return text({ agent: a.name, slug: agentSlug, memories: rows.map((r) => ({ key: r.key, content: r.content, updated: localTime(r.updatedAt) })) });
     }),
@@ -502,7 +504,7 @@ writeTool(
   "knowledge_remember_for",
   {
     description:
-      "Propose adding a memory to another agent: a durable fact it keeps being told, or one it should know. Held for a person's approval. Upserts by key, so a corrected fact replaces the old one. Not for your own memory — use memory_write for that.",
+      "Propose adding a memory to another agent: a durable fact it keeps being told, or one it should know. Held for a person's approval. It is kept for EVERYONE who uses that agent, so never propose anything personal, confidential or from a restricted collection. Upserts by key, so a corrected fact replaces the old one. Not for your own memory — use memory_write for that.",
     inputSchema: {
       agentSlug: z.string().min(1).describe("The agent that should remember it."),
       key: z.string().min(1).max(120).describe("A short stable key, e.g. standup-day."),
@@ -518,9 +520,9 @@ writeTool(
       const refusal = source.kind === "chat" ? await sourceAllows(source, NOTES_COLLECTION).then((r) => (r && /not exist|workbench|not allowed/.test(r) ? r : null)) : null;
       if (refusal) return failed(refusal);
       const [row] = await sql`
-        insert into agent_memories (agent_id, key, content, active)
-        values (${a.id}, ${key.trim()}, ${content}, true)
-        on conflict (agent_id, key) do update set content = excluded.content, active = true, updated_at = now()
+        insert into agent_memories (agent_id, key, content, active, scope, scope_ref)
+        values (${a.id}, ${key.trim()}, ${content}, true, 'agent', '')
+        on conflict (agent_id, key, scope, scope_ref) do update set content = excluded.content, active = true, updated_at = now()
         returning (created_at = updated_at) as "isNew"`;
       return text({ remembered: true, agent: a.name, key: key.trim(), replaced: !row.isNew });
     }),

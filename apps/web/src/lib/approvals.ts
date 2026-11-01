@@ -19,6 +19,7 @@ import { connectMcpServers, type ConnectedMcp, type McpToolInfo } from "@ai-hub/
 import { isReadOnlyTool } from "@/lib/mcp/proxyTools";
 import { entryName, resolveServer } from "@/lib/runSession";
 import { loadHubConnections } from "@/lib/connections";
+import { memoryReachForId, narrowToPersonal, type RunMemoryScope } from "@/lib/memoryScope";
 
 /*
  * The approval gate.
@@ -137,7 +138,17 @@ export interface GateContext {
    * so a tool the gate does not wrap (asking another agent) can set it.
    */
   outside?: { from: string | null };
+  /**
+   * Where this run's memory writes go (lib/memoryScope.ts). The gate puts it
+   * on every memory_write as `__place` — after removing any the model sent —
+   * and narrows it to personal once the run reads outside content. Omitted:
+   * the memory server's own default (the run's person, else shared).
+   */
+  memory?: RunMemoryScope;
 }
+
+/** The argument the gate sets on memory_write; never the model's. */
+export const MEMORY_PLACE_ARG = "__place";
 
 /**
  * Memory tools that change what the agent remembers. Held once a run has read
@@ -163,13 +174,26 @@ export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; e
 
   const tools = mcp.tools.map((t) => {
     const detail = byName.get(t.name);
+    // The model never sees where a memory goes as something it can set.
+    if (detail?.server === "memory") t = withoutPlaceArg(t);
     if (!isHeld(detail) || upstreamOwnsReason(detail!)) return t;
     return { ...t, input_schema: withReasonSchema(t.input_schema as Record<string, unknown>) as ToolDef["input_schema"] };
   });
 
   const outside = ctx.outside ?? { from: null };
-  const execute: ConnectedMcp["execute"] = async (name, input) => {
+  const execute: ConnectedMcp["execute"] = async (name, rawInput) => {
     const tool = byName.get(name);
+    let input = rawInput;
+    if (tool?.server === "memory") {
+      // Whatever the model put there is dropped; the hub's place goes in.
+      const rest = { ...((rawInput ?? {}) as Record<string, unknown>) };
+      delete rest[MEMORY_PLACE_ARG];
+      input = rest;
+      if (tool.name === "memory_write" && ctx.memory) {
+        if (!ctx.memory.place) return `Not remembered: ${ctx.memory.why}, so there is nobody it could be kept for.`;
+        input = { ...rest, [MEMORY_PLACE_ARG]: JSON.stringify(ctx.memory.place) };
+      }
+    }
     if (tool && isHeld(tool)) {
       const proposal = await hold(tool, input, ctx);
       ctx.held?.add(tool.name);
@@ -181,11 +205,23 @@ export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; e
       return heldText(proposal);
     }
     const out = await mcp.execute(name, input);
-    // Anything that is not the agent's own memory came from outside the hub.
-    if (tool && tool.server !== "memory" && !outside.from) outside.from = tool.server;
+    // Anything that is not the agent's own memory came from outside the hub:
+    // what the run remembers from here on is kept for its person alone.
+    if (tool && tool.server !== "memory") {
+      if (!outside.from) outside.from = tool.server;
+      if (ctx.memory) narrowToPersonal(ctx.memory, `it read from ${tool.server}`);
+    }
     return out;
   };
   return { tools, execute };
+}
+
+function withoutPlaceArg(t: ToolDef): ToolDef {
+  const schema = t.input_schema as { properties?: Record<string, unknown>; required?: string[] };
+  if (!schema?.properties || !(MEMORY_PLACE_ARG in schema.properties)) return t;
+  const properties = { ...schema.properties };
+  delete properties[MEMORY_PLACE_ARG];
+  return { ...t, input_schema: { ...schema, properties, required: (schema.required ?? []).filter((r) => r !== MEMORY_PLACE_ARG) } as ToolDef["input_schema"] };
 }
 
 /** The executor alone; the tool list is unchanged, so a held tool has no reason line. */
@@ -320,7 +356,11 @@ export async function approve(id: string, principal: Principal): Promise<Decisio
   const agent = proposal.agentId ? await getAgent(proposal.agentId) : null;
   if (proposal.agentId && !agent) return fail("The agent this proposal belongs to no longer exists.");
   const entry = agent?.mcpServers?.find((e) => entryName(e) === proposal.server);
-  const config = resolveServer(proposal.server, agent?.id, undefined, entry);
+  // A held memory write is replayed as the person whose run it was: the memory
+  // server checks the place it carries against them, not against the approver.
+  const memoryReach =
+    proposal.server === "memory" ? { ...(await memoryReachForId(proposal.principalId)), runId: proposal.runId } : undefined;
+  const config = resolveServer(proposal.server, agent?.id, undefined, entry, memoryReach);
   if (!config) return fail(`"${proposal.server}" is not a server this deployment declares.`);
 
   let mcp: ConnectedMcp | undefined;

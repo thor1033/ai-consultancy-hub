@@ -7,6 +7,8 @@ import {
   getAgent,
   listAgentRuns,
   listMemories,
+  getPrincipal,
+  type AgentMemory,
   listSchedules,
   listSkills,
   localActivity,
@@ -35,6 +37,7 @@ import { SkillsPanel } from "./SkillsPanel";
 import { SchedulesPanel } from "./SchedulesPanel";
 import { HandoffsPanel } from "./HandoffsPanel";
 import { YourAnswers } from "./YourAnswers";
+import { memoryReachFor } from "@/lib/memoryScope";
 import { viewContext } from "@/lib/viewServer";
 import { atLeast } from "@/lib/views";
 import { appBaseUrl } from "@/lib/baseUrl";
@@ -63,7 +66,14 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
     // gets scopes, phase 2 of docs/data-protection-review.md), so it is shown to
     // people who may run agents and to nobody else — not to a viewer who
     // switched to the Standard view.
-    sessionCan("agent:run").then((may) => (may ? listMemories(agent.id) : [])),
+    // Admins review every memory; anyone else who may run agents sees what
+    // their own runs would load (docs/memory-scopes.md); nobody else sees any.
+    (async () => {
+      const may = await sessionCan("agent:run");
+      if (!may) return [];
+      if (await sessionCan("admin:manage")) return listMemories(agent.id);
+      return listMemories(agent.id, await memoryReachFor(may));
+    })(),
     sessionKnowledgeAccess()
       .then((access) => listCollections(access))
       .catch(() => [] as string[]),
@@ -471,7 +481,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           ...(standard ? [{ id: "overview", label: "Overview", content: overview }] : []),
           { id: "conversation", label: "Conversation", content: conversation },
           ...(standard && can.run
-            ? [{ id: "memory", label: "Memory", count: memories.length, content: <MemoryPanel agentId={agent.id} name={agent.name} memories={memories} /> }]
+            ? [{ id: "memory", label: "Memory", count: memories.length, content: <MemoryPanel agentId={agent.id} name={agent.name} memories={await withKeptFor(memories, viewer?.id ?? null)} canShare={Boolean(admin)} /> }]
             : []),
           ...(viewer ? [{ id: "answers", label: "Your answers", count: mine.length, content: <YourAnswers runs={mine} agentName={agent.name} now={now} /> }] : []),
           {
@@ -599,4 +609,23 @@ function Week({ days, now }: { days: number[]; now: number }) {
       })}
     </div>
   );
+}
+
+/** Each memory with who it is kept for, in words; a person's own read as "Only you". */
+async function withKeptFor(memories: AgentMemory[], viewerId: string | null) {
+  const ids = [...new Set(memories.filter((m) => m.scope === "personal" && m.scopeRef !== viewerId).map((m) => m.scopeRef))];
+  const names = new Map(
+    await Promise.all(ids.map(async (id) => [id, (await getPrincipal(id).catch(() => null))?.displayName || id] as const)),
+  );
+  return memories.map((m) => ({
+    ...m,
+    keptFor:
+      m.scope === "agent"
+        ? "Shared"
+        : m.scope === "collection"
+          ? `Readers of ${m.scopeRef}`
+          : m.scopeRef === viewerId
+            ? "Only you"
+            : `Only ${names.get(m.scopeRef) ?? m.scopeRef}`,
+  }));
 }

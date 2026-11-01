@@ -631,3 +631,26 @@ alter table principals add column if not exists preferences jsonb not null defau
 alter table mcp_servers add column if not exists url_sealed text;
 alter table mcp_servers add column if not exists token_sealed text;
 alter table mcp_servers add column if not exists added_by text;
+
+-- Memory scopes (docs/data-protection-review.md, 2.1; docs/memory-scopes.md).
+-- A memory belonged to its agent and nothing else, so everything one person's
+-- run remembered — from a restricted collection, a mailbox, a connected system
+-- — was loaded into everyone's runs of that agent. Now each memory has a scope:
+--
+--   agent       everyone who uses the agent (scope_ref '')
+--   collection  only people who may read that collection (scope_ref = its name)
+--   personal    only the person whose run wrote it (scope_ref = principal id)
+--
+-- The scope is derived from what the writing run touched, never chosen by the
+-- model. Existing rows become `agent`: that is what they were.
+alter table agent_memories add column if not exists scope text not null default 'agent';
+alter table agent_memories add column if not exists scope_ref text not null default '';
+alter table agent_memories add column if not exists written_by text;
+alter table agent_memories add column if not exists source_run_id uuid references agent_sessions(id) on delete set null;
+alter table agent_memories drop constraint if exists agent_memories_scope_check;
+alter table agent_memories add constraint agent_memories_scope_check
+  check (scope in ('agent', 'collection', 'personal') and ((scope = 'agent') = (scope_ref = '')));
+-- A key is unique within a scope: two people may each keep their own "next-steps".
+alter table agent_memories drop constraint if exists agent_memories_agent_id_key_key;
+create unique index if not exists agent_memories_scoped_key
+  on agent_memories (agent_id, key, scope, scope_ref);

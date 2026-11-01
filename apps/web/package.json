@@ -23,7 +23,8 @@
     "verify:views": "node --experimental-transform-types --env-file=.env.local verify-views.mjs",
     "verify:design-tools": "node --experimental-transform-types --env-file=.env.local verify-design-tools.mjs",
     "verify:connections": "node --experimental-transform-types --env-file=.env.local verify-connections.mjs",
-    "verify:data-protection": "node --experimental-transform-types --env-file=.env.local verify-data-protection.mjs"
+    "verify:data-protection": "node --experimental-transform-types --env-file=.env.local verify-data-protection.mjs",
+    "verify:memory-scopes": "node --experimental-transform-types --env-file=.env.local verify-memory-scopes.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",

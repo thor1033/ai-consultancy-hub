@@ -62,7 +62,7 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds`, `verify:patterns` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access` (rag), `verify:credentials` (authz),
   `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing`,
-  `verify:import`, `verify:views`, `verify:design-tools`, `verify:connections`, `verify:data-protection` (web).
+  `verify:import`, `verify:views`, `verify:design-tools`, `verify:connections`, `verify:data-protection`, `verify:memory-scopes` (web).
 - `bench:prompt` (agent) calls the real model and spends money; it says how many calls first. See
   docs/agent-testing.md, "Prompt speed".
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.
@@ -97,6 +97,10 @@ commit or print `.env*` files; `*.bak` is gitignored because backups held secret
   `privateRun` (lib/runPrivacy.ts) on the server — another person's prompt never reaches the browser.
   Traces carry no content unless `HUB_TRACE_CONTENT=1`. A run that has read outside content has its
   memory writes held. Sign-in needs a principal row; the allowlist alone grants nothing.
+- Memory has scopes (docs/memory-scopes.md): `agent`, `collection`, `personal`. A read passes a
+  `MemoryReach` (lib/memoryScope.ts); omitting it means "everything" and is for admins' review pages,
+  seeds and harnesses only, never a run. Where a write goes is the hub's (the gate's `__place`), never
+  the model's. Memory changes from a page go by memory id, not key.
 - Failures must surface in the output a person reads — never return an empty or
   truncated agent answer as success.
 - Schema changes go in `packages/db/schema.sql` and must stay idempotent

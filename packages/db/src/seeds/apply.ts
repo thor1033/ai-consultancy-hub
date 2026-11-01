@@ -214,7 +214,9 @@ export async function applySeed(seed: Seed, opts: ApplyOptions = {}): Promise<Ap
 
   // ── the memories: an induction pack, never a leash
   if (!opts.skillsOnly) {
-    const now = new Map((await listMemories(agent.id)).map((m) => [m.key, m]));
+    // A seed's memories are the shared ones (docs/memory-scopes.md); a person's
+    // own memory under the same key is theirs, and never what a seed compares to.
+    const now = new Map((await listMemories(agent.id)).filter((m) => m.scope === "agent").map((m) => [m.key, m]));
     for (const m of seed.memories) {
       const key = `${slug}:${m.key}`;
       const mbase = await lastApplied("memory", key);

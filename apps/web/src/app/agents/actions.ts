@@ -6,8 +6,11 @@ import {
   getAgent,
   deleteAgent,
   listMemories,
-  forgetMemory,
-  setMemoryActive,
+  getMemory,
+  forgetMemoryById,
+  setMemoryActiveById,
+  shareMemory,
+  recordAuthEvent,
   runsOnHub,
   type AgentInput,
   knowledgeScope,
@@ -35,6 +38,7 @@ import { runSession, isKnownServer } from "@/lib/runSession";
 import { type ModelId } from "@ai-hub/agent";
 import { sessionKnowledgeAccess, sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
 import { saveAgentAs, saveSkillAs, type SkillDraft } from "@/lib/agentDesign";
+import { memoryReachFor } from "@/lib/memoryScope";
 import { listSkills, updateSkill, deleteSkill } from "@ai-hub/db";
 import { fillTemplate } from "@/lib/skillPrompt";
 import { runAgentForPrincipal, runSkillForPrincipal, cooperation, handoffsAfter } from "@/lib/agentRuns";
@@ -71,25 +75,59 @@ export async function deleteAgentAction(id: string): Promise<{ ok: boolean; erro
   return { ok };
 }
 
-export async function forgetMemoryAction(
-  agentId: string,
-  key: string,
-): Promise<{ ok: boolean; error?: string }> {
-  if (!(await sessionCan("agent:manage"))) return { ok: false, error: NOT_ALLOWED };
-  const ok = await forgetMemory(agentId, key);
+/**
+ * May this person change this memory? Someone who manages agents may change
+ * any of an agent's memories; anyone may change their own personal ones
+ * (docs/memory-scopes.md). The memory must belong to the agent named, so an
+ * agent id in the call is not a way to reach another agent's memory.
+ */
+async function memoryYouMayChange(agentId: string, memoryId: string) {
+  const principal = await sessionPrincipal();
+  if (!principal) return { error: NOT_ALLOWED };
+  const m = await getMemory(memoryId);
+  if (!m || m.agentId !== agentId) return { error: "That memory no longer exists." };
+  const own = m.scope === "personal" && m.scopeRef === principal.id;
+  if (!own && !(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  return { memory: m, principal };
+}
+
+export async function forgetMemoryAction(agentId: string, memoryId: string): Promise<{ ok: boolean; error?: string }> {
+  const may = await memoryYouMayChange(agentId, memoryId);
+  if ("error" in may) return { ok: false, error: may.error };
+  const ok = await forgetMemoryById(memoryId);
   revalidatePath("/agents");
   return { ok };
 }
 
-export async function setMemoryActiveAction(
-  agentId: string,
-  key: string,
-  active: boolean,
-): Promise<{ ok: boolean; error?: string }> {
-  if (!(await sessionCan("agent:manage"))) return { ok: false, error: NOT_ALLOWED };
-  const ok = await setMemoryActive(agentId, key, active);
+export async function setMemoryActiveAction(agentId: string, memoryId: string, active: boolean): Promise<{ ok: boolean; error?: string }> {
+  const may = await memoryYouMayChange(agentId, memoryId);
+  if ("error" in may) return { ok: false, error: may.error };
+  const ok = await setMemoryActiveById(memoryId, active);
   revalidatePath("/agents");
   return { ok };
+}
+
+/**
+ * Share a memory with everyone who uses the agent. An admin's act, on the
+ * audit trail: it can put what one person's run learned from a restricted
+ * collection or a mailbox in front of everyone (docs/memory-scopes.md).
+ */
+export async function shareMemoryAction(agentId: string, memoryId: string): Promise<{ ok: boolean; error?: string }> {
+  const admin = await sessionCan("admin:manage");
+  if (!admin) return { ok: false, error: "Only an admin can share a memory with everyone." };
+  const m = await getMemory(memoryId);
+  if (!m || m.agentId !== agentId) return { ok: false, error: "That memory no longer exists." };
+  const out = await shareMemory(memoryId);
+  if ("error" in out) return { ok: false, error: out.error };
+  await recordAuthEvent({
+    event: "memory.shared",
+    source: "oauth",
+    principalId: admin.id,
+    actor: admin.email ?? admin.id,
+    detail: { agentId, key: m.key, from: m.scope, ref: m.scopeRef },
+  });
+  revalidatePath("/agents");
+  return { ok: true };
 }
 
 export async function listAgentsAction() {
@@ -98,8 +136,11 @@ export async function listAgentsAction() {
 }
 
 export async function loadMemoriesAction(agentId: string) {
-  if (!(await sessionCan("agent:run"))) return [];
-  return listMemories(agentId);
+  const principal = await sessionCan("agent:run");
+  if (!principal) return [];
+  // Admins review every memory; everyone else sees what their own runs would load.
+  if (await sessionCan("admin:manage")) return listMemories(agentId);
+  return listMemories(agentId, await memoryReachFor(principal));
 }
 
 export interface AgentChatMessage {
@@ -171,6 +212,7 @@ export async function sendAgentMessageAction(
   // answers from material its operator cannot open.
   let context: string | undefined;
   let sources = 0;
+  let retrieved: (string | null)[] = [];
   const scope = retrievalScope(knowledgeScope(agent));
   if (scope) {
     try {
@@ -178,6 +220,7 @@ export async function sendAgentMessageAction(
       if (chunks.length) {
         context = chunksToContext(chunks);
         sources = chunks.length;
+        retrieved = chunks.map((c) => c.collection);
       }
     } catch {
       /* retrieval unavailable — answer without it */
@@ -210,6 +253,8 @@ export async function sendAgentMessageAction(
       serverEntries: agent.mcpServers,
       agentId: agent.id,
       principalId: principal.id,
+      principal: { id: principal.id, roles: principal.roles },
+      retrieved,
       runId,
       keepsMemory: together.keepsMemory,
       asks: together.asks,

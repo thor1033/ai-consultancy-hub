@@ -3,7 +3,10 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { AgentMemory } from "@ai-hub/db";
-import { forgetMemoryAction, setMemoryActiveAction } from "../actions";
+import { forgetMemoryAction, setMemoryActiveAction, shareMemoryAction } from "../actions";
+
+/** A memory as the page shows it: with who it is kept for, in words (docs/memory-scopes.md). */
+export type ShownMemory = AgentMemory & { keptFor: string };
 
 // What the agent has chosen to remember, split the way the runtime splits it:
 // memories loaded into every run (the work in flight) and memories set aside
@@ -11,7 +14,18 @@ import { forgetMemoryAction, setMemoryActiveAction } from "../actions";
 // beliefs about a client is a liability; being able to read, park and delete
 // any one of them is what makes it something to point at real work.
 
-export function MemoryPanel({ agentId, name, memories }: { agentId: string; name: string; memories: AgentMemory[] }) {
+export function MemoryPanel({
+  agentId,
+  name,
+  memories,
+  canShare = false,
+}: {
+  agentId: string;
+  name: string;
+  memories: ShownMemory[];
+  /** Admins may share a personal or collection memory with everyone who uses the agent. */
+  canShare?: boolean;
+}) {
   const loaded = memories.filter((m) => m.active);
   const aside = memories.filter((m) => !m.active);
 
@@ -35,6 +49,7 @@ export function MemoryPanel({ agentId, name, memories }: { agentId: string; name
         node="var(--c-mem)"
         memories={loaded}
         agentId={agentId}
+        canShare={canShare}
         empty="Nothing loaded — every run starts cold apart from its brief."
       />
       <Column
@@ -43,6 +58,7 @@ export function MemoryPanel({ agentId, name, memories }: { agentId: string; name
         node="var(--faint)"
         memories={aside}
         agentId={agentId}
+        canShare={canShare}
         empty="Nothing set aside."
       />
     </div>
@@ -55,13 +71,15 @@ function Column({
   node,
   memories,
   agentId,
+  canShare,
   empty,
 }: {
   title: string;
   hint: string;
   node: string;
-  memories: AgentMemory[];
+  memories: ShownMemory[];
   agentId: string;
+  canShare: boolean;
   empty: string;
 }) {
   return (
@@ -79,7 +97,7 @@ function Column({
       ) : (
         <ul className="mt-4 flex flex-col gap-2">
           {memories.map((m) => (
-            <MemoryCard key={m.id} memory={m} agentId={agentId} />
+            <MemoryCard key={m.id} memory={m} agentId={agentId} canShare={canShare} />
           ))}
         </ul>
       )}
@@ -87,7 +105,7 @@ function Column({
   );
 }
 
-function MemoryCard({ memory: m, agentId }: { memory: AgentMemory; agentId: string }) {
+function MemoryCard({ memory: m, agentId, canShare }: { memory: ShownMemory; agentId: string; canShare: boolean }) {
   const router = useRouter();
   const [pending, start] = useTransition();
   const [confirm, setConfirm] = useState(false);
@@ -106,7 +124,15 @@ function MemoryCard({ memory: m, agentId }: { memory: AgentMemory; agentId: stri
 
   return (
     <li className={`panel p-4 ${pending ? "opacity-60" : ""}`}>
-      <div className="mono break-all text-xs font-medium">{m.key}</div>
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="mono break-all text-xs font-medium">{m.key}</div>
+        <span
+          className={`text-xs ${m.scope === "agent" ? "text-[var(--muted)]" : "text-[var(--text-soft)]"}`}
+          title="Who this memory is loaded for. It is decided by what the conversation that wrote it had read."
+        >
+          {m.keptFor}
+        </span>
+      </div>
       {/* Memories are often written hard-wrapped; reflow lines, keep paragraphs. */}
       {m.content.split(/\n\s*\n/).map((para, i) => (
         <p key={i} className="mt-1.5 text-sm leading-relaxed text-[var(--text-soft)]">
@@ -130,7 +156,7 @@ function MemoryCard({ memory: m, agentId }: { memory: AgentMemory; agentId: stri
                 type="button"
                 className="btn min-h-9 border-[var(--danger)] text-[var(--danger)]"
                 disabled={pending}
-                onClick={() => run(() => forgetMemoryAction(agentId, m.key))}
+                onClick={() => run(() => forgetMemoryAction(agentId, m.id))}
               >
                 Forget it
               </button>
@@ -144,10 +170,21 @@ function MemoryCard({ memory: m, agentId }: { memory: AgentMemory; agentId: stri
                 type="button"
                 className="btn min-h-9"
                 disabled={pending}
-                onClick={() => run(() => setMemoryActiveAction(agentId, m.key, !m.active))}
+                onClick={() => run(() => setMemoryActiveAction(agentId, m.id, !m.active))}
               >
                 {m.active ? "Set aside" : "Load again"}
               </button>
+              {canShare && m.scope !== "agent" && (
+                <button
+                  type="button"
+                  className="btn min-h-9"
+                  disabled={pending}
+                  title="Load it for everyone who uses this agent. It was kept narrower because of what its conversation had read."
+                  onClick={() => run(() => shareMemoryAction(agentId, m.id))}
+                >
+                  Share with everyone
+                </button>
+              )}
               <button type="button" className="btn min-h-9" disabled={pending} onClick={() => setConfirm(true)}>
                 Forget…
               </button>

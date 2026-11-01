@@ -174,6 +174,8 @@ try {
   const synced = await document({ collection: OPEN, title: "Helios — Scope", content: "Scope.", sourceType: "pm-tool" });
   const labelOnly = await document({ collection: LABEL_ONLY, title: "Unfiled label", content: "A document whose collection has no row." });
   await sql`insert into agent_memories (agent_id, key, content, active) values (${targetId}, 'standup-day', 'Standup is Friday 09:00.', true), (${targetId}, 'old-client', 'Finished.', false)`;
+  // A person's own memory, and a restricted collection's: not the steward's to read (docs/memory-scopes.md).
+  await sql`insert into agent_memories (agent_id, key, content, active, scope, scope_ref) values (${targetId}, 'private-note', 'Only one person should see this.', true, 'personal', 'someone'), (${targetId}, 'hr-note', 'Only HR readers.', true, 'collection', 'hr')`;
 
   // ── startup ────────────────────────────────────────────────────────────────
   const here = dirname(fileURLToPath(import.meta.url));
@@ -258,6 +260,7 @@ try {
 
   // ── memory, find, collections ──────────────────────────────────────────────
   const mem = parse(await mcp.execute("knowledge_agent_memories", { agentSlug: `verify-target-${RUN}` }));
+  check("it reads only shared memories — not a person's own, nor a restricted collection's", !JSON.stringify(mem).includes("Only one person") && !JSON.stringify(mem).includes("Only HR readers"));
   check("agent_memories: active memories only", mem.memories?.length === 1 && mem.memories[0].key === "standup-day");
   const found = parse(await mcp.execute("knowledge_find", { query: "liability cap" }));
   check("find searches through the hub's API as the steward's credential", lastPost("/api/rag/search")?.authorization === `Bearer ${TOKEN}` && found.passages?.[0]?.title === "Standard contract terms", JSON.stringify(found).slice(0, 80));

@@ -145,6 +145,9 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
   // open. Best-effort: a missing embedder must not take the run down.
   let context: string | undefined;
   let sources = 0;
+  // Which collection each passage came from: what this run touched, which
+  // decides where its memory is kept (docs/memory-scopes.md).
+  let retrieved: (string | null)[] = [];
   const scope = retrievalScope(knowledgeScope(agent));
   if (scope) {
     try {
@@ -152,6 +155,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
       if (chunks.length) {
         context = chunksToContext(chunks);
         sources = chunks.length;
+        retrieved = chunks.map((c) => c.collection);
       }
     } catch {
       /* retrieval unavailable — answer without it */
@@ -190,6 +194,9 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     servers,
     agentId: agent.id,
     principalId: input.principal.id,
+    principal: { id: input.principal.id, roles: input.principal.roles },
+    retrieved,
+    depth,
     remoteBearer: input.principal.accessToken,
     serverEntries: agent.mcpServers,
     runId,

@@ -17,12 +17,17 @@ changes as it learns.
 
 ```
 agents                    a name, instructions, model, tools, knowledge scope
-  └── agent_memories      what it has chosen to remember  (unique per agent+key)
+  └── agent_memories      what it has chosen to remember  (unique per agent+key+scope)
         ↑
     memory MCP server     spawned per run with HUB_AGENT_ID
 ```
 
 ## Memory
+
+**Every memory has a scope** — shared with everyone who uses the agent, kept for
+the readers of one collection, or for one person — decided by the hub from what
+the writing run touched, and a run loads only what its person may have. See
+[memory-scopes.md](memory-scopes.md).
 
 Memory is an MCP server (`packages/mcp/servers/memory/server.mjs`) with five
 tools: `memory_list`, `memory_search`, `memory_write`, `memory_set_active`,

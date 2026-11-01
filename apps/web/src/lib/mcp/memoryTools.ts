@@ -6,7 +6,9 @@ import {
   setMemoryActive,
   forgetMemory,
   searchMemories,
+  type MemoryPlace,
 } from "@ai-hub/db";
+import { memoryReachFor } from "@/lib/memoryScope";
 
 /*
  * An agent's memory as MCP tools, for a server that already knows which agent
@@ -16,6 +18,13 @@ import {
  * agent comes from the credential's binding, and /api/mcp/agents/<slug>, where
  * a synced local sub-agent reaches its own memory. Neither lets a tool argument
  * name the agent — the id is closed over here, so the question cannot be asked.
+ *
+ * Scoped by the caller's person (docs/memory-scopes.md), the same way a hub run
+ * is: they see the agent's shared memory, their own, and that of collections
+ * they may read. What they write is kept for them alone. A local agent's model
+ * runs on someone's machine and the hub cannot see what it read before it
+ * remembered, so the hub assumes the narrowest; an admin can share a memory
+ * from the agent's page.
  */
 
 export const text = (value: unknown) => ({
@@ -27,13 +36,16 @@ export const text = (value: unknown) => ({
   ],
 });
 
-export function registerMemoryTools(server: McpServer, agentId: string): void {
-
-  const memoryRow = (m: { key: string; content: string; updatedAt: string }) => ({
+export function registerMemoryTools(server: McpServer, agentId: string, principal: { id: string; roles: string[] }): void {
+  const memoryRow = (m: { key: string; content: string; updatedAt: string; scope: string; scopeRef: string }) => ({
     key: m.key,
     content: m.content,
     updatedAt: m.updatedAt,
+    kept: m.scope === "agent" ? "shared" : m.scope === "personal" ? "only you" : `readers of ${m.scopeRef}`,
   });
+  // Resolved per call: a grant given or taken away applies to the next call.
+  const reach = () => memoryReachFor(principal);
+  const mine: MemoryPlace = { scope: "personal", ref: principal.id };
 
   server.registerTool(
     "hub_memory_list",
@@ -50,7 +62,7 @@ export function registerMemoryTools(server: McpServer, agentId: string): void {
       },
     },
     async ({ include_inactive }) => {
-      const rows = await listMemories(agentId);
+      const rows = await listMemories(agentId, await reach());
       if (!rows.length) return text("You have no memories yet.");
       const active = rows.filter((m) => m.active).map(memoryRow);
       const inactive = rows.filter((m) => !m.active).map(memoryRow);
@@ -77,7 +89,7 @@ export function registerMemoryTools(server: McpServer, agentId: string): void {
       },
     },
     async ({ query, limit }) => {
-      const rows = await searchMemories(agentId, query, limit ?? 20);
+      const rows = await searchMemories(agentId, query, limit ?? 20, await reach());
       if (!rows.length) return text(`No memories matched "${query}".`);
       return text(rows.map((m) => ({ ...memoryRow(m), active: m.active })));
     },
@@ -89,7 +101,8 @@ export function registerMemoryTools(server: McpServer, agentId: string): void {
       description:
         "Record a durable fact under a short key. Writing an existing key " +
         "replaces it, so correcting yourself does not leave two contradictory " +
-        "memories. New and rewritten memories are active unless you say otherwise.",
+        "memories. New and rewritten memories are active unless you say otherwise. " +
+        "What you write here is kept for the person you are working for alone.",
       inputSchema: {
         key: z
           .string()
@@ -103,7 +116,7 @@ export function registerMemoryTools(server: McpServer, agentId: string): void {
       },
     },
     async ({ key, content, active }) => {
-      const saved = await rememberMemory(agentId, key, content, active ?? true);
+      const saved = await rememberMemory(agentId, key, content, active ?? true, mine, { writtenBy: principal.id });
       return text({
         saved: saved.key,
         content: saved.content,
@@ -125,7 +138,7 @@ export function registerMemoryTools(server: McpServer, agentId: string): void {
       },
     },
     async ({ key, active }) => {
-      const moved = await setMemoryActive(agentId, key, active);
+      const moved = await setMemoryActive(agentId, key, active, await reach());
       return text(
         moved
           ? `Marked "${key}" ${active ? "active" : "inactive"}.`
@@ -143,7 +156,7 @@ export function registerMemoryTools(server: McpServer, agentId: string): void {
       },
     },
     async ({ key }) => {
-      const gone = await forgetMemory(agentId, key);
+      const gone = await forgetMemory(agentId, key, await reach());
       return text(gone ? `Forgot "${key}".` : `Nothing was stored under "${key}".`);
     },
   );

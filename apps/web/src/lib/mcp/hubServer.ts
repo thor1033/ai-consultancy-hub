@@ -278,7 +278,7 @@ export async function buildHubMcpServer(
   // Memory: gated on the token naming an agent that exists, not on a role alone.
   // `boundAgent` is already null unless the principal may agent:run, so a viewer
   // token with a binding gets nothing.
-  if (boundAgent && boundAgent.keepsMemory !== false) registerMemoryTools(server, boundAgent.id);
+  if (boundAgent && boundAgent.keepsMemory !== false) registerMemoryTools(server, boundAgent.id, principal);
 
   // --- Agents as tools ------------------------------------------------------
   //

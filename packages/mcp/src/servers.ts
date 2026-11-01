@@ -126,11 +126,29 @@ export function builtinServerConfig(
  * asking. A session with no agent therefore has no memory server, and that is
  * the correct behaviour rather than a gap.
  */
-export function memoryServerConfig(agentId: string): McpStdioConfig {
+export function memoryServerConfig(agentId: string, reach: MemoryServerReach = {}): McpStdioConfig {
   return {
     name: "memory",
     command: process.execPath,
     args: [serverEntry("memory")],
-    env: { HUB_AGENT_ID: agentId },
+    // Every value set, never inherited: a HUB_MEMORY_PRINCIPAL left in the
+    // hub's own environment must not become every run's person.
+    env: {
+      HUB_AGENT_ID: agentId,
+      HUB_MEMORY_PRINCIPAL: reach.principalId ?? "",
+      HUB_MEMORY_COLLECTIONS: JSON.stringify(reach.collections ?? { kind: "allow", collections: [] }),
+      HUB_MEMORY_RUN_ID: reach.runId ?? "",
+    },
   };
+}
+
+/**
+ * Whose memory a run may have, besides the agent's shared memory
+ * (docs/memory-scopes.md): the run's person, and the collections they may read
+ * (KnowledgeAccess-shaped). Omitted ⇒ nobody and none: shared memory only.
+ */
+export interface MemoryServerReach {
+  principalId?: string | null;
+  collections?: { kind: "all" } | { kind: "allow" | "deny"; collections: string[] };
+  runId?: string | null;
 }

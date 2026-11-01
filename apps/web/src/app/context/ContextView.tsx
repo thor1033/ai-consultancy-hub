@@ -60,7 +60,7 @@ interface Detail {
   tags: string[];
   body: string;
   facts: { k: string; v: string }[];
-  memory?: { agentId: string; key: string; active: boolean; region: MemoryRegion | null };
+  memory?: { id: string; agentId: string; key: string; active: boolean; region: MemoryRegion | null };
 }
 
 function rel(iso: string | null, now: string): string {
@@ -107,7 +107,8 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
     for (const m of memories) {
       const pos = place(m.region ?? inferRegion(m.key, m.content));
       items.push({
-        id: `mem:${m.agentId}:${m.key}`,
+        // By id: one key can name several memories, one per scope (docs/memory-scopes.md).
+        id: `mem:${m.id}`,
         kind: "memory",
         ...pos,
         label: m.key,
@@ -185,21 +186,24 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
     if (!selected) return null;
     const [kind, ...rest] = selected.split(":");
     if (kind === "mem") {
-      const agentId = rest[0];
-      const key = rest.slice(1).join(":");
-      const m = snapshot.memories.find((x) => x.agentId === agentId && x.key === key);
+      const id = rest.join(":");
+      const m = snapshot.memories.find((x) => x.id === id);
       if (!m) return null;
       return {
         kindLabel: m.active ? "Memory · loaded" : "Memory · set aside",
         color: m.active ? KINDS.memory.color : "var(--muted)",
         title: m.key,
-        tags: [agentName(m.agentId), m.region ? REGION_NAME[m.region] : `${REGION_NAME[inferRegion(m.key, m.content)]} · auto-filed`],
+        tags: [
+          agentName(m.agentId),
+          m.region ? REGION_NAME[m.region] : `${REGION_NAME[inferRegion(m.key, m.content)]} · auto-filed`,
+          m.scope === "agent" ? "Shared" : m.scope === "collection" ? `Readers of ${m.scopeRef}` : "One person's",
+        ],
         body: m.content,
         facts: [
           { k: "Updated", v: rel(m.updatedAt, snapshot.takenAt) },
           { k: "Loaded at the start of a run", v: m.active ? "Yes" : "No — found by search" },
         ],
-        memory: { agentId: m.agentId, key: m.key, active: m.active, region: m.region },
+        memory: { id: m.id, agentId: m.agentId, key: m.key, active: m.active, region: m.region },
       };
     }
     if (kind === "src") {
@@ -637,7 +641,7 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
                             type="button"
                             disabled={pending}
                             aria-pressed={detail.memory!.region === r}
-                            onClick={() => run(() => setContextMemoryRegionAction(detail.memory!.agentId, detail.memory!.key, r))}
+                            onClick={() => run(() => setContextMemoryRegionAction(detail.memory!.id, r))}
                             className={`min-h-11 border px-3 text-[0.6875rem] font-medium uppercase tracking-[0.18em] transition-colors disabled:opacity-45 ${
                               detail.memory!.region === r
                                 ? "border-[var(--text)] bg-[var(--text)] text-[var(--bg)]"
@@ -654,7 +658,7 @@ export function ContextView({ snapshot, canManage }: { snapshot: ContextSnapshot
                       className="btn min-h-11 uppercase tracking-[0.18em]"
                       disabled={pending}
                       onClick={() =>
-                        run(() => setContextMemoryActiveAction(detail.memory!.agentId, detail.memory!.key, !detail.memory!.active))
+                        run(() => setContextMemoryActiveAction(detail.memory!.id, !detail.memory!.active))
                       }
                     >
                       {detail.memory.active ? "Set aside" : "Load again"}

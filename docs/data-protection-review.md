@@ -349,6 +349,20 @@ deployed.
 
 Not in phase 1: the read log (F11), and everything in phases 2–5.
 
+**Phase 2 is done** (docs/memory-scopes.md). It is on the same branch and not
+deployed.
+
+| | What changed | Proven by |
+|---|---|---|
+| F1 · scopes | Every memory is `agent`, `collection` or `personal`. A run loads only what its person may have. Admins' runs see every collection but nobody's personal memory | `verify:memory-scopes` (web), 29 checks |
+| Writing | The place is derived from what the run touched: retrieved collections, a continued conversation, a parent run, an outside read. It only ever narrows. The model cannot set it: the argument is removed from its schema, a forged one is overwritten, and the memory server refuses a place that is not the run's person's or a collection they may read | the same |
+| Pages | The Memory tab and Context page show each person what their runs would load. Admins see all, labelled with who each is for. Sharing a memory with everyone is admin-only and audited | the same |
+| Steward | Reads shared memories only; what it proposes to remember is shared, and its description says so | `verify:knowledge` (mcp) |
+| Also fixed | Collections an admin classified as **open** were unreadable to non-admins under the restricted default from phase 1 | `verify:access` (rag) |
+
+Existing memories became `agent` (shared), which is what they were. Read
+through each agent's Memory tab once for anything that should not be shared.
+
 **Before deploying:**
 - **Set `ALLOWED_EMAILS` on Fly first.** Without it nobody can sign in.
 - **Admins need a row.** Anyone who used to get in as admin without a row now
