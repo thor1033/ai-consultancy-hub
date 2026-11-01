@@ -13,7 +13,7 @@ import {
   recordAuthEvent,
   type Sensitivity,
 } from "@ai-hub/db";
-import { sessionCan } from "@/lib/sessionPrincipal";
+import { sessionCan, standingAdmin } from "@/lib/sessionPrincipal";
 import { CONNECTION_NAME, checkConnectionUrl, connectionName, loadHubConnections, reservedConnectionName, tokenPurpose, urlPurpose } from "@/lib/connections";
 import { openSecret, sealSecret } from "@/lib/secretBox";
 import { probeServer } from "@/lib/mcpCatalog";
@@ -58,8 +58,9 @@ export async function setServerEnabledAction(
  * hub's MCP server, not to a local agent.
  */
 export async function setServerSensitivityAction(name: string, sensitivity: Sensitivity): Promise<{ ok: true } | { error: string }> {
-  const admin = await sessionCan("admin:manage");
-  if (!admin) return { error: "Only an admin can label a connection." };
+  // Standing admins only: a label decides what may leave the hub (lib/sessionPrincipal.ts).
+  const admin = await standingAdmin();
+  if (!admin) return { error: "Only an admin with standing access can label a connection." };
   if (!isSensitivity(sensitivity)) return { error: "That is not a label." };
   try {
     const out = await setServerSensitivity(name, sensitivity);
@@ -116,7 +117,9 @@ export async function addConnectionAction(input: {
   /** Save even though it did not answer just now. */
   force?: boolean;
 }): Promise<ConnectionResult> {
-  const principal = await sessionCan("admin:manage");
+  // A new connection is a new place the organisation's data goes: standing
+  // admins only, not temporary access (docs/client-deployment.md).
+  const principal = await standingAdmin();
   if (!principal) return { error: NOT_ADMIN };
   await loadHubConnections();
   const label = (input.label ?? "").replace(/\s+/g, " ").trim();
@@ -158,7 +161,8 @@ export async function updateConnectionAction(
   name: string,
   input: { label?: string; description?: string; url?: string; token?: string; removeToken?: boolean; force?: boolean },
 ): Promise<ConnectionResult> {
-  if (!(await sessionCan("admin:manage"))) return { error: NOT_ADMIN };
+  // Re-pointing a connection changes where data goes, as adding one does.
+  if (!(await standingAdmin())) return { error: NOT_ADMIN };
   const row = (await listHubConnections()).find((r) => r.name === name);
   if (!row) return { error: "That is not a connection added on this page." };
   const label = input.label === undefined ? undefined : input.label.replace(/\s+/g, " ").trim();

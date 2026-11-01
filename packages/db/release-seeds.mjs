@@ -34,16 +34,25 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const { SEEDS } = await import("./src/seeds/all.ts");
+const { selectSeeds } = await import("./src/seeds/all.ts");
 const { applySeed } = await import("./src/seeds/apply.ts");
 const { getSql } = await import("./src/client.ts");
+
+// Which seeds this deployment installs (HUB_SEEDS). A name that is not a
+// seed stops the release, with the known names, rather than install nothing.
+const chosen = selectSeeds(process.env);
+if ("error" in chosen) {
+  console.error(`[seeds] ${chosen.error}`);
+  process.exit(1);
+}
+const SEEDS = chosen.seeds;
 
 let code = 0;
 try {
   for (const seed of SEEDS) {
     await applySeed(seed, { log: (line) => console.log(`[seeds] ${line}`) });
   }
-  console.log(`[seeds] ${SEEDS.length} seeded agent(s) applied.`);
+  console.log(`[seeds] ${SEEDS.length} seeded agent(s) applied${process.env.HUB_SEEDS ? ` (HUB_SEEDS=${process.env.HUB_SEEDS})` : ""}.`);
 } catch (err) {
   console.error(`[seeds] failed: ${err instanceof Error ? err.message : String(err)}`);
   code = 1;

@@ -7,7 +7,7 @@ import {
   sweepRetentionAndRecord,
   type RetentionSweep,
 } from "@ai-hub/db";
-import type { Principal } from "@ai-hub/authz";
+import { accessProblem, type Principal } from "@ai-hub/authz";
 import { runAgentForPrincipal, runSkillForPrincipal } from "./agentRuns";
 
 /*
@@ -45,10 +45,12 @@ const SCHEDULED_RUN_DEADLINE_MS = 5_000;
  * owners; this re-checks because the row can change between the query and the
  * run, and the failure should be a recorded refusal rather than a run.
  */
-async function ownerPrincipal(schedule: Schedule): Promise<Principal | { error: string }> {
+export async function ownerPrincipal(schedule: Schedule): Promise<Principal | { error: string }> {
   const owner = await getPrincipal(schedule.ownerPrincipalId);
   if (!owner) return { error: `The principal that owns this schedule no longer exists.` };
   if (!owner.enabled) return { error: `${owner.displayName || owner.id} is disabled.` };
+  // A schedule runs as its owner, so it stops when their temporary access does (docs/client-deployment.md).
+  if (accessProblem(owner)) return { error: `${owner.displayName || owner.id} no longer has access to the hub.` };
   return {
     id: owner.id,
     roles: owner.roles,

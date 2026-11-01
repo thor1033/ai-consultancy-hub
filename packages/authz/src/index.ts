@@ -1,4 +1,6 @@
 export { authenticate, legacyTokenCount, autoProvisionable, AUTO_PROVISION_ROLES } from "./principal";
+export { accessProblem, isVendorEmail, vendorConfigured, isTemporary } from "./access";
+export type { AccessFacts } from "./access";
 export { userDirectory, setUserDirectory } from "./directory";
 export type { UserDirectory, DirectoryUser } from "./directory";
 export type { Principal, PrincipalSource } from "./principal";

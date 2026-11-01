@@ -406,7 +406,7 @@ export function AgentForm({
                         placeholder="deployment default (M365_MAILBOX)"
                       />
                       <span className="mt-1 block text-xs text-[var(--muted)]">
-                        One shared mailbox per agent, e.g. <span className="mono">secretary@teqneo.co</span>. It must be
+                        One shared mailbox per agent, e.g. <span className="mono">secretary@yourcompany.com</span>. It must be
                         inside the access policy&apos;s group, or Graph refuses it. Read-only either way.
                       </span>
                     </label>

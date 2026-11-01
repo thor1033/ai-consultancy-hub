@@ -17,6 +17,11 @@ export interface PrincipalRow {
   enabled: boolean;
   /** How the hub looks to this person (docs/views.md). Never a permission. */
   preferences: Record<string, unknown>;
+  /** Temporary access (docs/client-deployment.md): live until then; null for standing access. */
+  accessExpiresAt: string | null;
+  accessReason: string | null;
+  accessGrantedBy: string | null;
+  accessGrantedAt: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -52,6 +57,10 @@ const PRINCIPAL_COLS = `
   workos_user_id as "workosUserId",
   display_name   as "displayName",
   roles, agent_id as "agentId", enabled, preferences,
+  access_expires_at as "accessExpiresAt",
+  access_reason     as "accessReason",
+  access_granted_by as "accessGrantedBy",
+  access_granted_at as "accessGrantedAt",
   created_at     as "createdAt",
   updated_at     as "updatedAt"
 `;
@@ -181,7 +190,9 @@ export interface PrincipalInput {
  */
 export async function hasEnabledAdmin(): Promise<boolean> {
   const sql = getSql();
-  const [row] = await sql`select 1 from principals where enabled and roles ? 'admin' limit 1`;
+  // A temporary admin is not the hub's admin: when their grant ends the hub
+  // has none, and must not hand the next person in the bootstrap.
+  const [row] = await sql`select 1 from principals where enabled and roles ? 'admin' and access_expires_at is null limit 1`;
   return Boolean(row);
 }
 
@@ -296,6 +307,8 @@ export async function verifyCredential(
        and c.revoked_at is null
        and (c.expires_at is null or c.expires_at > now())
        and p.enabled
+       -- Temporary access ends every credential its holder minted with it.
+       and (p.access_expires_at is null or p.access_expires_at > now())
      limit 1
   `;
   const row = rows[0];
@@ -313,6 +326,10 @@ export async function verifyCredential(
       agentId: (raw.agent_id as string | null) ?? null,
       enabled: Boolean(raw.enabled),
       preferences: raw.preferences && typeof raw.preferences === "object" ? (raw.preferences as Record<string, unknown>) : {},
+      accessExpiresAt: (raw.access_expires_at as string | null) ?? null,
+      accessReason: (raw.access_reason as string | null) ?? null,
+      accessGrantedBy: (raw.access_granted_by as string | null) ?? null,
+      accessGrantedAt: (raw.access_granted_at as string | null) ?? null,
       createdAt: String(raw.created_at),
       updatedAt: String(raw.updated_at),
     },

@@ -10,6 +10,7 @@ import { isHubToken, tokenPrefix, hashToken, hashesEqual } from "./token";
 import { userDirectory } from "./directory";
 import { narrowRoles } from "./policy";
 import { verifyAccessToken, describeTokenFailure, looksLikeJwt } from "./oauth";
+import { accessProblem, isVendorEmail } from "./access";
 
 /**
  * Who is asking.
@@ -55,6 +56,12 @@ export interface Principal {
   /** The credential row used, when the source is `credential`. */
   credentialId?: string;
   /**
+   * When this person's temporary access ends (docs/client-deployment.md).
+   * Absent for standing access. A temporary person may work in the hub but
+   * not change who has access, nor take other people's data out of it.
+   */
+  temporaryUntil?: string;
+  /**
    * The caller's own access token, OAuth principals only.
    *
    * Forwarded when the hub dials a remote server on this person's behalf, so a
@@ -88,7 +95,9 @@ function autoProvisionDomains(): string[] {
 
 export function autoProvisionable(email: string | null | undefined): boolean {
   const domain = email?.toLowerCase().split("@")[1];
-  return Boolean(domain) && autoProvisionDomains().includes(domain!);
+  // The vendor is never provisioned, whatever the domains say: it gets in
+  // through a grant with an end, or not at all (access.ts).
+  return Boolean(domain) && autoProvisionDomains().includes(domain!) && !isVendorEmail(email);
 }
 
 export const AUTO_PROVISION_ROLES = ["analyst"];
@@ -232,7 +241,8 @@ async function resolveOAuth(token: string): Promise<Principal | null> {
     }
   }
 
-  if (!row || !row.enabled) {
+  const problem = accessProblem(row, email);
+  if (!row || problem) {
     await recordAuthEvent({
       event: "auth.denied",
       source: "oauth",
@@ -240,7 +250,8 @@ async function resolveOAuth(token: string): Promise<Principal | null> {
         // no_email: WorkOS could not name the person (no API key, unknown id),
         // so the hub could neither match nor provision them. Distinct from
         // no_principal so an operator knows which of the two to fix.
-        reason: row ? "principal_disabled" : email ? "no_principal" : "no_email",
+        // temporary_access_ended / vendor_without_grant: access.ts.
+        reason: row ? problem : email ? "no_principal" : "no_email",
         email,
         workosUserId: identity.workosUserId,
       },
@@ -260,6 +271,7 @@ async function resolveOAuth(token: string): Promise<Principal | null> {
     ...(row.agentId ? { agentId: row.agentId } : {}),
     source: "oauth",
     ...(email ?? row.email ? { email: (email ?? row.email)! } : {}),
+    ...(row.accessExpiresAt ? { temporaryUntil: new Date(row.accessExpiresAt).toISOString() } : {}),
     accessToken: token,
   };
 }
@@ -279,6 +291,12 @@ async function resolveCredential(token: string): Promise<Principal | null> {
   }
 
   const { credential, principal } = verified;
+  // Expiry is in the query; the vendor rule needs the email (access.ts).
+  const problem = accessProblem(principal);
+  if (problem) {
+    await recordAuthEvent({ event: "auth.denied", source: "credential", principalId: principal.id, detail: { reason: problem, tokenPrefix: tokenPrefix(token) } });
+    return null;
+  }
   await touchCredential(credential.id).catch(() => {});
 
   // A credential may narrow its owner's roles but never widen them, so a
@@ -294,6 +312,7 @@ async function resolveCredential(token: string): Promise<Principal | null> {
     ...(agentId ? { agentId } : {}),
     source: "credential",
     ...(principal.email ? { email: principal.email } : {}),
+    ...(principal.accessExpiresAt ? { temporaryUntil: new Date(principal.accessExpiresAt).toISOString() } : {}),
     credentialId: credential.id,
   };
 }

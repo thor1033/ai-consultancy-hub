@@ -410,6 +410,26 @@ Not in phase 4:
 connections that hold client HR, health or financial material on `/admin` and
 on their connection pages.
 
+**Phase 5 is done** (docs/client-deployment.md). It is on the same branch and
+not deployed.
+
+| | What changed | Proven by |
+|---|---|---|
+| F6 · keys and models | Claude runs where the deployment says: the Claude API with the client's key, Amazon Bedrock or Google Vertex in the client's account. A wrong or incomplete setting stops every run; it never falls back to another provider. The hub's model names are mapped to the platform's on the wire | `verify:deployment` (web), 59 checks |
+| F4 · our access | No standing access for the vendor (`HUB_VENDOR_ACCESS`). A client admin grants temporary access, for at most 72 hours and with a reason. It ends everywhere at once: browser, Claude Code, credentials, schedules. It cannot change access, labels or connections, or touch other people's data. The vendor is never provisioned or made the first admin. Every grant is on the Admin page with what was done during it | the same |
+| Seeds | A client's hub installs only the agents it names (`HUB_SEEDS`). Teqneo's own Secretary and product owners are not installed | the same |
+| Recipients | Admin → This deployment (Expert) and `npm run deploy:check` read the settings into words: provider and region, tracing, keys, and who receives the data. Neither prints a value. The check exits 1 when something must be fixed | the same |
+| No call home | The runtime names no outside host a deployment has not opted into | the same |
+
+The guide covers:
+- the accounts the client creates;
+- every setting;
+- deploying from the client's own pipeline;
+- break-glass access;
+- a handover checklist.
+
+**Still paperwork:** the support agreement, and the lawyer's questions below.
+
 ## Questions for a lawyer, and for us
 
 1. In the client-owned model, with break-glass access only, are we a

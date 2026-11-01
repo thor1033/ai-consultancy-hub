@@ -11,7 +11,7 @@ import {
   type RetentionSweep,
   type SubjectHits,
 } from "@ai-hub/db";
-import { sessionCan } from "@/lib/sessionPrincipal";
+import { standingAdmin } from "@/lib/sessionPrincipal";
 
 // People's data, from the Admin page (docs/retention.md). Every action is an
 // admin's and is on the audit trail: running retention by hand, erasing a
@@ -20,7 +20,7 @@ import { sessionCan } from "@/lib/sessionPrincipal";
 const NOT_ADMIN = "Only an admin can do this.";
 
 export async function runRetentionNowAction(): Promise<{ sweep: RetentionSweep } | { error: string }> {
-  const admin = await sessionCan("admin:manage");
+  const admin = await standingAdmin();
   if (!admin) return { error: NOT_ADMIN };
   const sweep = await sweepRetentionAndRecord(admin.email ?? admin.id);
   revalidatePath("/admin");
@@ -33,7 +33,7 @@ export async function runRetentionNowAction(): Promise<{ sweep: RetentionSweep }
  * nobody able to administer it — another admin does it.
  */
 export async function erasePersonAction(principalId: string, confirm: string): Promise<{ erased: Erasure } | { error: string }> {
-  const admin = await sessionCan("admin:manage");
+  const admin = await standingAdmin();
   if (!admin) return { error: NOT_ADMIN };
   if (principalId === admin.id) return { error: "You cannot erase yourself. Ask another admin." };
   const row = await getPrincipal(principalId);
@@ -46,7 +46,7 @@ export async function erasePersonAction(principalId: string, confirm: string): P
 }
 
 export async function findSubjectAction(term: string): Promise<{ hits: SubjectHits } | { error: string }> {
-  const admin = await sessionCan("admin:manage");
+  const admin = await standingAdmin();
   if (!admin) return { error: NOT_ADMIN };
   const t = (term ?? "").trim();
   if (t.length < 3) return { error: "Search for at least three characters: a name, an email, a phone number." };

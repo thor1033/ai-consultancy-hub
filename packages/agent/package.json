@@ -20,7 +20,9 @@
     "typescript": "^5"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.112.3",
+    "@anthropic-ai/bedrock-sdk": "^0.36.0",
+    "@anthropic-ai/sdk": "^0.137.0",
+    "@anthropic-ai/vertex-sdk": "^0.22.0",
     "langfuse": "^3.38.20"
   }
 }

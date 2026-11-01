@@ -2,9 +2,22 @@ import { AdminConsole } from "./AdminConsole";
 import { AccessPanel } from "./AccessPanel";
 import { PageHeader } from "@/components/PageHeader";
 import { viewContext } from "@/lib/viewServer";
-import { sessionCan } from "@/lib/sessionPrincipal";
-import { lastRetentionSweep, listKnowledgeReads, listPrincipals, retentionPolicy, type KnowledgeReadRow } from "@ai-hub/db";
+import { sessionCan, standingAdmin } from "@/lib/sessionPrincipal";
+import {
+  lastRetentionSweep,
+  listKnowledgeReads,
+  listPrincipals,
+  listTemporaryAccess,
+  retentionPolicy,
+  type KnowledgeReadRow,
+  type TemporaryAccessRow,
+} from "@ai-hub/db";
+import { remoteServerInfo } from "@ai-hub/mcp";
 import { DataPanel } from "./DataPanel";
+import { TemporaryAccess } from "./TemporaryAccess";
+import { DeploymentPanel } from "./DeploymentPanel";
+import { deploymentPosture } from "@/lib/deployment";
+import { loadHubConnections } from "@/lib/connections";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +32,15 @@ export default async function AdminPage() {
   // server registry takes an admin bearer token, so it stays with Expert.
   const expert = (await viewContext()).view === "expert";
   // People's data is loaded here, on the server, so it is shown to admins only —
-  // the panel above fetches through its own admin-checked actions.
+  // the panel above fetches through its own admin-checked actions. Temporary
+  // admins (docs/client-deployment.md) see the deployment and their own grant,
+  // not other people's data.
   const admin = Boolean(await sessionCan("admin:manage"));
-  const [people, lastSweep, reads] = admin
+  const standing = Boolean(await standingAdmin());
+  const temporary = admin ? await listTemporaryAccess().catch(() => [] as TemporaryAccessRow[]) : [];
+  if (admin && expert) await loadHubConnections();
+  const posture = admin && expert ? deploymentPosture(process.env, remoteServerInfo().map((r) => ({ name: r.label || r.name, url: r.url }))) : null;
+  const [people, lastSweep, reads] = standing
     ? await Promise.all([
         listPrincipals().catch(() => []),
         lastRetentionSweep().catch(() => null),
@@ -47,6 +66,24 @@ export default async function AdminPage() {
         <div>
           <PageHeader
             eyebrow={expert ? "Control plane" : "Admin"}
+            title="Temporary access"
+            subtitle="Access that ends by itself — for the vendor, or anyone, when something needs fixing. Who has it, why, until when, and what they did with it."
+          />
+          <TemporaryAccess
+            rows={temporary.map((r) => ({
+              ...r,
+              expiresAt: new Date(r.expiresAt).toISOString(),
+              grantedAt: r.grantedAt ? new Date(r.grantedAt).toISOString() : null,
+            }))}
+            canGrant={standing}
+          />
+        </div>
+      )}
+
+      {standing && (
+        <div>
+          <PageHeader
+            eyebrow={expert ? "Control plane" : "Admin"}
             title="People's data"
             subtitle="How long the hub keeps what people asked and were answered, and each person's right to a copy of their data or to have it erased."
           />
@@ -56,6 +93,18 @@ export default async function AdminPage() {
             people={people.map((p) => ({ id: p.id, email: p.email, name: p.displayName }))}
             reads={reads.map((r) => ({ ...r, at: new Date(r.at).toISOString() }))}
           />
+        </div>
+      )}
+
+      {/* Expert only: it names settings, which the simpler views never show (docs/views.md). */}
+      {posture && expert && (
+        <div>
+          <PageHeader
+            eyebrow={expert ? "Control plane" : "Admin"}
+            title="This deployment"
+            subtitle="Where your organisation's data goes from this hub, read from its own settings, and anything set up wrong. The hub sends nothing anywhere else."
+          />
+          <DeploymentPanel items={posture.items} recipients={posture.recipients} />
         </div>
       )}
 

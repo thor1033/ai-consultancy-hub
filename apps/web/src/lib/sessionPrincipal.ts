@@ -2,7 +2,9 @@ import { withAuth } from "@workos-inc/authkit-nextjs";
 import { findPrincipalByIdentity, hasEnabledAdmin, recordAuthEvent, upsertPrincipal } from "@ai-hub/db";
 import {
   AUTO_PROVISION_ROLES,
+  accessProblem,
   autoProvisionable,
+  isVendorEmail,
   authorize,
   knowledgeAccessFor,
   type Action,
@@ -57,7 +59,9 @@ export async function sessionPrincipal(): Promise<Principal | null> {
     let row = await findPrincipalByIdentity({ workosUserId, email });
     if (!row) {
       const provisioned = autoProvisionable(email);
-      const bootstrap = !provisioned && !(await hasEnabledAdmin());
+      // Never the vendor (HUB_VENDOR_ACCESS): on a client's hub that the
+      // vendor set up, the vendor signing in first must not become its admin.
+      const bootstrap = !provisioned && !isVendorEmail(email) && !(await hasEnabledAdmin());
       if (provisioned || bootstrap) {
         const roles = provisioned ? AUTO_PROVISION_ROLES : ["admin"];
         row = await upsertPrincipal({ id: email, email, displayName: name, roles });
@@ -70,13 +74,16 @@ export async function sessionPrincipal(): Promise<Principal | null> {
       }
     }
     // A disabled row must refuse: disabling a person takes them out at once.
-    if (!row || !row.enabled) return null;
+    // So must temporary access that has ended, and the vendor without a
+    // grant (@ai-hub/authz access.ts) — the same rule every door applies.
+    if (!row || accessProblem(row, email)) return null;
     return {
       id: row.id,
       roles: row.roles,
       ...(row.agentId ? { agentId: row.agentId } : {}),
       source: "oauth",
       email: row.email ?? email,
+      ...(row.accessExpiresAt ? { temporaryUntil: new Date(row.accessExpiresAt).toISOString() } : {}),
     };
   } catch {
     // Fail closed: no row could be read, so no roles can be known.
@@ -94,6 +101,19 @@ export async function sessionCan(action: Action): Promise<Principal | null> {
   const principal = await sessionPrincipal();
   if (!principal) return null;
   return (await authorize(principal, action)) ? principal : null;
+}
+
+/**
+ * An admin with standing access: the signed-in user, if they are an admin and
+ * their access is not temporary (docs/client-deployment.md). Temporary access
+ * is for working in the hub — fixing an agent, a connection, a failed run —
+ * not for changing who has access, relabelling what may leave, or taking
+ * other people's data out. Those stay with the client's own admins, so a
+ * break-glass grant cannot be used to make itself permanent.
+ */
+export async function standingAdmin(): Promise<Principal | null> {
+  const principal = await sessionCan("admin:manage");
+  return principal && !principal.temporaryUntil ? principal : null;
 }
 
 /**

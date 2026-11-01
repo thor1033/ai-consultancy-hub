@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { exportPerson, recordAuthEvent } from "@ai-hub/db";
-import { sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
+import { sessionPrincipal, standingAdmin } from "@/lib/sessionPrincipal";
 
 export const dynamic = "force-dynamic";
 
@@ -21,7 +21,7 @@ export async function GET(req: Request) {
   if (!me) return NextResponse.json({ error: "Sign in first." }, { status: 401 });
   const asked = new URL(req.url).searchParams.get("principal")?.trim();
   const subject = asked || me.id;
-  if (subject !== me.id && !(await sessionCan("admin:manage"))) {
+  if (subject !== me.id && !(await standingAdmin())) {
     return NextResponse.json({ error: "Only an admin can export someone else's data." }, { status: 403 });
   }
   const data = await exportPerson(subject);

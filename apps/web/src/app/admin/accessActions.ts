@@ -25,7 +25,8 @@ import {
   mcpResource,
   defaultVisibility,
 } from "@ai-hub/authz";
-import { sessionCan } from "@/lib/sessionPrincipal";
+import { standingAdmin } from "@/lib/sessionPrincipal";
+import { isVendorEmail } from "@ai-hub/authz";
 import type { AccessSnapshot, AccessPrincipal } from "./types";
 
 /*
@@ -58,8 +59,10 @@ const DENIED = "Only an admin can manage access.";
  * Repeated in every action, not only on the page: a server action is its own
  * HTTP entry point and is callable without ever loading the page.
  */
+// Admins with standing access only: temporary access cannot change who has
+// access or what may leave the hub (lib/sessionPrincipal.ts, standingAdmin).
 async function operator(): Promise<string | null> {
-  const principal = await sessionCan("admin:manage");
+  const principal = await standingAdmin();
   return principal ? (principal.email ?? principal.id) : null;
 }
 
@@ -204,6 +207,12 @@ export async function savePrincipalAction(
   }
 
   const roles = input.roles.map((r) => r.trim()).filter(Boolean);
+
+  // The vendor gets access through a grant with an end, never a standing row
+  // (docs/client-deployment.md): that is the whole of "no standing access".
+  if (isVendorEmail(email)) {
+    return { error: `${email} is the vendor's. Give it temporary access instead — it ends by itself.` };
+  }
 
   try {
     const saved = await upsertPrincipal({

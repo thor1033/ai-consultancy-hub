@@ -215,3 +215,5 @@ export {
   listKnowledgeReads,
 } from "./sensitivity";
 export type { Sensitivity, ReadDoor, KnowledgeRead, KnowledgeReadRow } from "./sensitivity";
+export { grantTemporaryAccess, endTemporaryAccess, listTemporaryAccess } from "./temporaryAccess";
+export type { TemporaryAccessRow } from "./temporaryAccess";

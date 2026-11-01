@@ -709,3 +709,14 @@ create table if not exists knowledge_reads (
 );
 create index if not exists knowledge_reads_at_idx on knowledge_reads (at desc);
 create index if not exists knowledge_reads_principal_idx on knowledge_reads (principal_id);
+
+-- Temporary access (docs/client-deployment.md, "Break-glass access"). On a
+-- client's own hub the vendor has no standing access: an admin of the client
+-- grants it for hours, with a reason, and it ends by itself. A row with
+-- access_expires_at is live only until then — at sign-in, on every bearer
+-- token and credential, for schedules — and a person the deployment names as
+-- vendor (HUB_VENDOR_ACCESS) is live only with such a grant.
+alter table principals add column if not exists access_expires_at timestamptz;
+alter table principals add column if not exists access_reason text;
+alter table principals add column if not exists access_granted_by text;
+alter table principals add column if not exists access_granted_at timestamptz;

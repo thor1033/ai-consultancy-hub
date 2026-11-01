@@ -1,5 +1,5 @@
 import { collectionSensitivities, getPrincipal, openCollectionNames, restrictedCollectionNames, type MemoryPlace, type MemoryReach } from "@ai-hub/db";
-import { defaultVisibility, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
+import { accessProblem, defaultVisibility, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 
 /*
  * Memory scopes (docs/memory-scopes.md): who a run's memory is kept for, and
@@ -53,7 +53,7 @@ export async function memoryReachForId(principalId: string | null | undefined): 
   const row = await getPrincipal(principalId).catch(() => null);
   // An id with no row (an old env token) reads as a person with no grants:
   // their own memory and the shared one, no collection's.
-  return memoryReachFor({ id: principalId, roles: row?.enabled ? row.roles : [] });
+  return memoryReachFor({ id: principalId, roles: row && !accessProblem(row) ? row.roles : [] });
 }
 
 /**

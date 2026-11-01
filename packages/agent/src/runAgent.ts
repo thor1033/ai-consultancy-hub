@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import { getAnthropic } from "./client";
+import { getModelClient, providerModelId } from "./client";
 import { getLangfuse, traceValue } from "./tracing";
 import {
   DEFAULT_MODEL,
@@ -102,7 +102,12 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     MAX_ITERATIONS_CEILING,
   );
 
-  const client = getAnthropic();
+  // The deployment's provider (client.ts): the Claude API, Bedrock or Vertex.
+  // Resolved before anything is traced, so a misconfigured deployment fails
+  // with a reason instead of half a run. The hub's model id is kept for the
+  // record and the cost; only the request uses the provider's.
+  const client = await getModelClient();
+  const providerModel = providerModelId(model);
   // A run may opt out of tracing entirely (special material, docs/sensitivity.md).
   const langfuse = input.trace === false ? null : getLangfuse();
 
@@ -191,7 +196,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     // budget above the ten-minute line on a streamed request (see
     // DEFAULT_MAX_TOKENS).
     const stream = client.messages.stream({
-      model,
+      model: providerModel,
       max_tokens: maxTokens,
       system,
       thinking: useThinking ? { type: "adaptive" } : { type: "disabled" },
