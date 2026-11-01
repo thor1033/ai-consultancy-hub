@@ -79,6 +79,15 @@ export async function restrictedCollectionNames(): Promise<string[]> {
   return rows.map((r) => r.name);
 }
 
+/** The collections an admin has classified as open: readable by everyone signed in, under either default. */
+export async function openCollectionNames(): Promise<string[]> {
+  const sql = getSql();
+  const rows = await sql<{ name: string }[]>`
+    select name from collections where visibility = 'open'
+  `;
+  return rows.map((r) => r.name);
+}
+
 /** The restricted collections this principal has been granted. */
 export async function grantedCollectionNames(principalId: string): Promise<string[]> {
   const sql = getSql();

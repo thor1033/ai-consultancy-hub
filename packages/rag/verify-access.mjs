@@ -44,7 +44,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const { ingestDocument, listDocuments, getDocument, listCollections } = await import(
+const { ingestDocument, listDocuments, getDocument, listCollections, deleteDocument } = await import(
   "./src/ingest.ts"
 );
 const { retrieveChunks } = await import("./src/retrieve.ts");
@@ -199,19 +199,32 @@ try {
   const strict = await knowledgeAccessFor(principal(`${TAG}-analyst`, ["analyst"]));
   const strictTitles = titles(await listDocuments(strict));
   check(
-    "with restricted-by-default, an ungranted analyst sees nothing",
-    strictTitles.length === 0,
+    "with restricted-by-default, an ungranted analyst sees only what was classified open",
+    JSON.stringify(strictTitles) === JSON.stringify(["Staff handbook"]),
     `saw ${JSON.stringify(strictTitles)}`,
   );
   check(
-    "including unfiled documents, which are in no drawer to be granted",
+    "not unfiled documents, which are in no drawer to be granted",
     (await getDocument(docs.unfiled, strict)) === null,
   );
-  await grantCollection(OPEN, `${TAG}-analyst`, "verify-harness");
+  // A document in a collection nobody has classified (no row at all), made
+  // here so the counts in sections 1–6 and 8 are unchanged.
+  const loose = await ingestDocument({ title: "Loose", content: "In a drawer nobody labelled.", collection: `${TAG}-unclassified` });
+  check(
+    "nor a collection nobody has classified",
+    (await getDocument(loose.documentId, strict)) === null,
+  );
+  check(
+    "which an admin still reads",
+    (await getDocument(loose.documentId, await knowledgeAccessFor(principal(`${TAG}-admin`, ["admin"]))))?.title === "Loose",
+  );
+  await deleteDocument(loose.documentId);
+  await grantCollection(HR, `${TAG}-analyst`, "verify-harness");
   const strictGranted = await knowledgeAccessFor(principal(`${TAG}-analyst`, ["analyst"]));
   check(
-    "an explicit grant is the only way in under that default",
-    JSON.stringify(titles(await listDocuments(strictGranted))) === JSON.stringify(["Staff handbook"]),
+    "a restricted collection opens only by an explicit grant",
+    titles(await listDocuments(strictGranted)).includes("Salary review") && !titles(await listDocuments(strictGranted)).includes("Loose"),
+    JSON.stringify(titles(await listDocuments(strictGranted))),
   );
   check(
     "an admin is still unfiltered under that default",

@@ -1,4 +1,4 @@
-import { restrictedCollectionNames, grantedCollectionNames } from "@ai-hub/db";
+import { restrictedCollectionNames, grantedCollectionNames, openCollectionNames } from "@ai-hub/db";
 import type { Principal } from "./principal";
 
 /**
@@ -69,18 +69,23 @@ export async function knowledgeAccessFor(
 ): Promise<KnowledgeAccess> {
   if (principal.roles.includes("admin")) return ALL_KNOWLEDGE;
 
-  const [restricted, granted] = await Promise.all([
+  const [restricted, granted, open] = await Promise.all([
     restrictedCollectionNames(),
     grantedCollectionNames(principal.id),
+    openCollectionNames(),
   ]);
 
   const grantedSet = new Set(granted);
 
   if (defaultVisibility() === "restricted") {
-    // Only what has been granted. Unfiled documents are readable by nobody —
-    // they are in no drawer, so there is nothing to grant access on, and
-    // "everything I forgot to classify" is the wrong thing to hand out.
-    return { kind: "allow", collections: [...grantedSet], unfiled: false };
+    // What has been granted, and what an admin classified as open — "open"
+    // means any signed-in person may read it, whatever the default for the
+    // unclassified is. (Before restricted became the default, open rows were
+    // ignored here, which made "classify it as open" do nothing.) Unfiled
+    // documents are readable by nobody — they are in no drawer, so there is
+    // nothing to grant access on, and "everything I forgot to classify" is the
+    // wrong thing to hand out.
+    return { kind: "allow", collections: [...new Set([...grantedSet, ...open])], unfiled: false };
   }
 
   // Open by default: everything except collections explicitly marked

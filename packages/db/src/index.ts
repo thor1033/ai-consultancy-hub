@@ -126,6 +126,7 @@ export type {
 export {
   listCollectionRows,
   restrictedCollectionNames,
+  openCollectionNames,
   grantedCollectionNames,
   upsertCollection,
   grantCollection,
