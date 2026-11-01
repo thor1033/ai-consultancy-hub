@@ -2,7 +2,9 @@ import { cache } from "react";
 import { cookies } from "next/headers";
 import { authorize, type Principal } from "@ai-hub/authz";
 import { getPrincipal } from "@ai-hub/db";
+import { withAuth } from "@workos-inc/authkit-nextjs";
 import { sessionPrincipal } from "@/lib/sessionPrincipal";
+import { isAllowedEmail } from "@/lib/allowlist";
 import { CAN_NOTHING, VIEW_COOKIE, resolveView, type Can, type View, type ViewSource } from "@/lib/views";
 
 /*
@@ -19,6 +21,11 @@ export interface ViewContext {
   principal: Principal | null;
   /** Whether the person has a row the choice can be saved on, so it follows them. */
   saves: boolean;
+  /**
+   * Signed in and on the allowlist, but nobody has given them access yet (no
+   * principal row). The layout says so, rather than showing an empty hub.
+   */
+  waitingForAccess: boolean;
 }
 
 export const viewContext = cache(async (): Promise<ViewContext> => {
@@ -29,6 +36,15 @@ export const viewContext = cache(async (): Promise<ViewContext> => {
     // Outside a request (a build step): no cookie, defaults apply.
   }
   const principal = await sessionPrincipal().catch(() => null);
+  let waitingForAccess = false;
+  if (!principal) {
+    try {
+      const email = (await withAuth()).user?.email;
+      waitingForAccess = isAllowedEmail(email);
+    } catch {
+      /* not signed in, or outside a request */
+    }
+  }
   let saved: unknown;
   let saves = false;
   if (principal) {
@@ -49,5 +65,5 @@ export const viewContext = cache(async (): Promise<ViewContext> => {
         write: await authorize(principal, "document:write"),
       }
     : CAN_NOTHING;
-  return { view, from, can, principal, saves };
+  return { view, from, can, principal, saves, waitingForAccess };
 });

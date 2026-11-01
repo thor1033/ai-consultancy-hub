@@ -87,7 +87,7 @@ agents need.
 | PM-tool | a **test org** in the PM-tool, with a synthetic project | the hub has no tenancy: one hub talks to one org, and agents testing against the real Teqneo board would propose real changes |
 | Teams | off at first (`M365_*` unset, so `teams` refuses to start and says why); later a test team with recorded sample meetings | the M365 app registration reaches the real tenant |
 | Scheduler | `HUB_SCHEDULER=1`, with schedules at test intervals | the clock is one of the things under test |
-| Steward | its own `HUB_STEWARD_TOKEN`, `HUB_STEWARD_READERS` = the test users | the same fences as production, exercised |
+| Steward | its own `HUB_STEWARD_TOKEN`, the test users switch it on in Settings | the same fences as production, exercised |
 | Model spend | a separate Anthropic key with a monthly limit | so a loop in a test cannot spend production's budget |
 
 **Decisions it needs from the founders:** a monthly cost ceiling (a second Fly

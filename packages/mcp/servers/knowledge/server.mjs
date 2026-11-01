@@ -8,11 +8,14 @@
 // through this same server. The server never decides to file; it only knows
 // how, once a person has said yes.
 //
-// WHOSE CHATS it may read is the deployment's configuration, never an argument:
-// HUB_STEWARD_READERS names the people (by email) who have said the steward
-// may read their conversations with agents. A chat tool takes no principal, so
-// a model cannot widen the set by asking. Sessions with no principal at all
-// (a workbench run) are never served: nobody said yes for them.
+// WHOSE CHATS it may read is each person's own decision, never an argument:
+// the people who switched on "Let the Context Steward read my conversations"
+// in Settings (principals.preferences.stewardMayRead). It used to be a list in
+// the deployment's environment, HUB_STEWARD_READERS, which a person could not
+// see or leave (docs/data-protection-review.md, F9); that variable is no
+// longer read. A chat tool takes no principal, so a model cannot widen the set
+// by asking. Sessions with no principal at all (a workbench run) are never
+// served: nobody said yes for them. A disabled person is not read.
 //
 // WHERE it may file is checked when the write runs, which is at approval: a
 // document sourced from a chat goes only where the person who had that chat
@@ -33,10 +36,9 @@ import { z } from "zod";
 const DATABASE_URL = process.env.DATABASE_URL;
 const HUB_URL = (process.env.HUB_BASE_URL ?? "").replace(/\/+$/, "");
 const TOKEN = process.env.HUB_STEWARD_TOKEN ?? "";
-const READERS = (process.env.HUB_STEWARD_READERS ?? "")
-  .split(",")
-  .map((s) => s.trim().toLowerCase())
-  .filter(Boolean);
+if (process.env.HUB_STEWARD_READERS) {
+  console.error("[knowledge] HUB_STEWARD_READERS is no longer read: each person allows the steward in their own Settings.");
+}
 /** Where the Secretary files meeting notes: the one collection read in full here. */
 const NOTES_COLLECTION = process.env.HUB_STEWARD_NOTES_COLLECTION?.trim() || "meetings";
 /** The steward's own slug: its chats are never its own material, and it has memory_* for itself. */
@@ -114,16 +116,20 @@ function parseSince(since, fallbackDays) {
 }
 
 // ── readers ──────────────────────────────────────────────────────────────────
-// Resolved on every call rather than at startup: a person added to the list is
-// added for the next run, and a person removed is removed from it too.
+// Resolved on every call rather than at startup: a person who switches it on
+// is read from the next run, and one who switches it off is not read again.
+async function readers() {
+  return sql`
+    select id, coalesce(nullif(email, ''), id) as who from principals
+     where enabled and preferences->>'stewardMayRead' = 'true'
+     order by id`;
+}
 async function readerIds() {
-  if (READERS.length === 0) return [];
-  const rows = await sql`select id from principals where email = any(${READERS}::text[])`;
-  return rows.map((r) => r.id);
+  return (await readers()).map((r) => r.id);
 }
 
 const NO_READERS =
-  "No one has allowed the steward to read their chats: HUB_STEWARD_READERS is empty. A person is added by their email, one at a time, by the deployment.";
+  "No one has allowed the steward to read their chats. Each person decides for themselves, in Settings, under \"Context Steward\".";
 
 // ── transcripts → text ───────────────────────────────────────────────────────
 // The Anthropic message array, condensed to what a reader needs: who said what,
@@ -253,10 +259,11 @@ readTool(
         status: r.status,
         tools: Array.isArray(r.toolsUsed) ? r.toolsUsed : [],
       }));
-      if (chats.length === 0) return text(`No chats since ${from.toISOString()} by the people who allow it (${READERS.join(", ")}).`);
+      const who = (await readers()).map((r) => r.who);
+      if (chats.length === 0) return text(`No chats since ${from.toISOString()} by the people who allow it (${who.join(", ")}).`);
       return text({
         since: from.toISOString(),
-        readers: READERS,
+        readers: who,
         count: chats.length,
         chats,
         ...(more ? { note: "There are more: raise the limit, or sweep a shorter window." } : {}),

@@ -333,6 +333,33 @@ Each phase gets a verify script in the existing style. The checks are of the
 kind "Jonas's run does not load Maria's memory written from a restricted
 collection".
 
+## Progress
+
+**Phase 1 is done.** It is on branch `claude/available-mcps-wurs52` and not yet
+deployed.
+
+| Finding | What changed | Proven by |
+|---|---|---|
+| F4 | No built-in allowlist; no row ⇒ no access; first admin of an empty hub bootstrapped once, logged; the access console needs the admin role (it needed only the allowlist, so any viewer could have made themselves admin — found while fixing F4) | `verify:data-protection` (web) |
+| F3 | Other people's prompts and errors are removed on the server before Home, the agent page, the connection page and the run page render ("a run by …"); the person and admins see them. Memory is shown only to people who may run agents | `verify:data-protection` |
+| F9 | Steward consent is a switch in each person's Settings, on the audit trail; `HUB_STEWARD_READERS` is no longer read | `verify:data-protection`, `verify:knowledge` (mcp) |
+| F10 | Once a run reads anything outside (any tool but memory, or another agent's answer), its memory writes are held for approval with the hub's reason | `verify:data-protection`, `verify:approvals` |
+| F7 | Unclassified collections and unfiled documents are restricted by default; `HUB_DEFAULT_COLLECTION_VISIBILITY=open` keeps the old behaviour | `verify:access` (rag) |
+| F5 / 2.6 | Traces carry names, sizes, tokens and timings, never content, unless `HUB_TRACE_CONTENT=1` | `verify:tracing` (agent) |
+
+Not in phase 1: the read log (F11), and everything in phases 2–5.
+
+**Before deploying:**
+- **Set `ALLOWED_EMAILS` on Fly first.** Without it nobody can sign in.
+- **Admins need a row.** Anyone who used to get in as admin without a row now
+  gets nothing until an admin adds them. On a hub with no admin row at all,
+  the first person to sign in becomes admin.
+- **Analysts lose unclassified collections.** They no longer see collections
+  nobody has classified. Classify them on `/admin`, or set
+  `HUB_DEFAULT_COLLECTION_VISIBILITY=open` while you do.
+- **The Secretary's memory writes will wait for approval.** That happens
+  whenever it has read the mailbox in the same run.
+
 ## Questions for a lawyer, and for us
 
 1. In the client-owned model, with break-glass access only, are we a

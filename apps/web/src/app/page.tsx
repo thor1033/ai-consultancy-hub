@@ -16,6 +16,7 @@ import { sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 import { DAYS, cadence, money, rel } from "@/lib/format";
 import { viewContext } from "@/lib/viewServer";
 import { SimpleHome } from "@/components/SimpleHome";
+import { hiddenPromptLabel, privateRun } from "@/lib/runPrivacy";
 
 export const dynamic = "force-dynamic";
 
@@ -44,7 +45,7 @@ export default async function OverviewPage() {
   const expert = ctx.view === "expert";
   // Each source is read independently: an empty knowledge base or an MCP server
   // that will not start should cost you that panel, not the whole page.
-  const [roster, days, recent, docs, servers, schedules] = await Promise.all([
+  const [roster, days, recentRows, docs, servers, schedules] = await Promise.all([
     agentRoster().catch(() => [] as AgentRosterRow[]),
     hubActivity(14).catch(() => [] as HubDay[]),
     listRecentRuns(8).catch(() => [] as HubRun[]),
@@ -55,6 +56,8 @@ export default async function OverviewPage() {
     listSchedules().catch(() => [] as Schedule[]),
   ]);
 
+  // Other people's prompts are not shown (lib/runPrivacy.ts).
+  const recent = recentRows.map((r) => privateRun(r, { id: ctx.principal?.id ?? null, admin: ctx.can.admin }));
   const now = Date.now();
   const embedder = embedderStatus();
   const thisWeek = days.slice(-7);
@@ -273,7 +276,7 @@ export default async function OverviewPage() {
                     />
                     <span className="min-w-0">
                       <span className="block truncate text-sm group-hover:text-[var(--brand)]">
-                        {r.prompt || <span className="text-[var(--muted)]">(no prompt)</span>}
+                        {r.prompt || (r.promptHidden ? <span className="text-[var(--muted)]">{hiddenPromptLabel(r)}</span> : <span className="text-[var(--muted)]">(no prompt)</span>)}
                       </span>
                       <span className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-[var(--muted)]">
                         <span className="font-medium text-[var(--text-soft)]">{r.agentName ?? "Workbench"}</span>

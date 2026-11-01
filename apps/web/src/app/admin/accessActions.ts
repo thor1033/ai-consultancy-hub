@@ -1,6 +1,5 @@
 "use server";
 
-import { withAuth } from "@workos-inc/authkit-nextjs";
 import {
   listPrincipals,
   upsertPrincipal,
@@ -23,7 +22,7 @@ import {
   mcpResource,
   defaultVisibility,
 } from "@ai-hub/authz";
-import { isAllowedEmail } from "@/lib/allowlist";
+import { sessionCan } from "@/lib/sessionPrincipal";
 import type { AccessSnapshot, AccessPrincipal } from "./types";
 
 /*
@@ -39,26 +38,26 @@ import type { AccessSnapshot, AccessPrincipal } from "./types";
 
 type Result<T> = T | { error: string };
 
-const DENIED = "Not authorized. Sign in with an allowlisted account.";
+const DENIED = "Only an admin can manage access.";
 
 /**
- * The signed-in operator's email, or null.
+ * The signed-in admin's email (or id), or null.
  *
- * Both halves matter: a valid WorkOS session proves who they are, the allowlist
- * decides whether that person may be here. middleware.ts already enforces this
- * for the page render — repeating it is not redundant, because a server action
- * is its own HTTP entry point and is perfectly callable without ever loading
- * the page.
+ * It used to be enough to be on the allowlist: that was written when the
+ * allowlist was the two founders and nobody else. Now it is everyone who may
+ * use the hub, viewers included, and every action below — making someone an
+ * admin, issuing a credential, opening a restricted collection — would have
+ * been theirs to call (docs/data-protection-review.md). So it is the
+ * admin:manage role, read from the person's row, the same check every other
+ * admin action makes. A new deployment's first admin is made by
+ * sessionPrincipal's bootstrap, so this cannot lock the hub out of itself.
+ *
+ * Repeated in every action, not only on the page: a server action is its own
+ * HTTP entry point and is callable without ever loading the page.
  */
 async function operator(): Promise<string | null> {
-  try {
-    const { user } = await withAuth();
-    const email = user?.email?.trim().toLowerCase();
-    if (!email || !isAllowedEmail(email)) return null;
-    return email;
-  } catch {
-    return null;
-  }
+  const principal = await sessionCan("admin:manage");
+  return principal ? (principal.email ?? principal.id) : null;
 }
 
 async function snapshot(): Promise<AccessSnapshot> {

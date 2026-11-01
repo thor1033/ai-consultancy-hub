@@ -216,6 +216,8 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
 
   let mcp: ConnectedMcp | undefined;
   const held = new Set<string>();
+  // Set by the gate (or below, for an ask) once the run reads outside content.
+  const outside: { from: string | null } = { from: null };
   try {
     const entryFor = (name: string) => input.serverEntries?.find((e) => entryName(e) === name);
     const configs = servers
@@ -229,6 +231,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
           principalId: input.principalId,
           entries: input.serverEntries,
           held,
+          outside,
         })
       : undefined;
 
@@ -240,7 +243,12 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
     const toolExecutor =
       ask || gated
         ? async (name: string, args: unknown) => {
-            if (ask && name === ASK_TOOL) return ask.execute(args);
+            if (ask && name === ASK_TOOL) {
+              // Another agent's answer can carry what it read; it counts as outside.
+              const out = await ask.execute(args);
+              outside.from ??= "another agent";
+              return out;
+            }
             if (gated) return gated.execute(name, args);
             return `No tool named ${name}.`;
           }

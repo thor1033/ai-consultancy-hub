@@ -22,7 +22,7 @@ export default async function RootLayout({
   // The person's view and permissions, read once per request and shared with
   // the page through React's cache (docs/views.md). On a public page — sign
   // in, access denied — there is nobody, and the defaults apply.
-  const { view, can } = await viewContext();
+  const { view, can, waitingForAccess } = await viewContext();
   return (
     <html lang="en" suppressHydrationWarning>
       <body>
@@ -32,6 +32,11 @@ export default async function RootLayout({
             <Sidebar />
             <div className="lg:pl-[15rem]">
               <MobileBar />
+              {waitingForAccess && (
+                <div role="status" className="panel notice-warning mx-5 mt-5 p-4 text-sm lg:mx-8">
+                  You are signed in, but nobody has given you access yet. Ask an admin of this hub to add you on the Admin page.
+                </div>
+              )}
               {children}
             </div>
           </ViewProvider>

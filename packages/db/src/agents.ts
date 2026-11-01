@@ -402,6 +402,10 @@ export async function agentOrgLabels(): Promise<{ functions: string[]; owners: s
 
 export interface AgentRun {
   id: string;
+  /** Who the run was for (the person, or a schedule's owner); null for a workbench run. */
+  principalId: string | null;
+  /** Their name, for "a run by …" where the prompt itself is not shown. */
+  askedBy: string | null;
   at: string;
   prompt: string;
   status: string;
@@ -417,9 +421,10 @@ export async function listAgentRuns(agentId: string, limit = 12): Promise<AgentR
   return sql<AgentRun[]>`
     select s.id, coalesce(s.started_at, s.created_at) as at, s.prompt, s.status,
            s.cost_usd::float8 as "costUsd", s.latency_ms as "latencyMs",
-           k.name as skill, s.error
+           k.name as skill, s.error, s.principal_id as "principalId", coalesce(nullif(pr.display_name, ''), pr.email, s.principal_id) as "askedBy"
       from agent_sessions s
       left join agent_skills k on k.id = s.agent_skill_id
+      left join principals pr on pr.id = s.principal_id
      where s.agent_id = ${agentId}
      order by coalesce(s.started_at, s.created_at) desc
      limit ${limit}
@@ -467,10 +472,11 @@ export async function listRecentRuns(limit = 8): Promise<HubRun[]> {
   return sql<HubRun[]>`
     select s.id, coalesce(s.started_at, s.created_at) as at, s.prompt, s.status,
            s.cost_usd::float8 as "costUsd", s.latency_ms as "latencyMs",
-           k.name as skill, s.error, a.name as "agentName", a.slug as "agentSlug"
+           k.name as skill, s.error, a.name as "agentName", a.slug as "agentSlug", s.principal_id as "principalId", coalesce(nullif(pr.display_name, ''), pr.email, s.principal_id) as "askedBy"
       from agent_sessions s
       left join agents a on a.id = s.agent_id
       left join agent_skills k on k.id = s.agent_skill_id
+      left join principals pr on pr.id = s.principal_id
      order by coalesce(s.started_at, s.created_at) desc
      limit ${limit}
   `;

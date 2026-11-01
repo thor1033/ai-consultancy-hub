@@ -22,8 +22,18 @@ import { createServer } from "node:http";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
+// The run's page asks who is signed in (lib/runPrivacy.ts: a prompt is shown
+// to the person whose run it was, and to admins). Signed in as the run's own
+// person; the stubs are only what Next would supply.
+const RUN_EMAIL = `verify-timing-${Date.now()}@example.com`;
+process.env.ALLOWED_EMAILS = [process.env.ALLOWED_EMAILS, RUN_EMAIL].filter(Boolean).join(",");
+const STUBS = {
+  "server-only": "export default null;",
+  "@workos-inc/authkit-nextjs": `export async function withAuth() { return { user: { id: "user_verify", email: ${JSON.stringify(RUN_EMAIL)} } }; }`,
+};
 registerHooks({
   resolve(specifier, context, nextResolve) {
+    if (STUBS[specifier] !== undefined) return { url: `data:text/javascript,${encodeURIComponent(STUBS[specifier])}`, shortCircuit: true };
     if (specifier.startsWith("@/")) {
       const base = new URL("./src/", import.meta.url);
       for (const ext of ["", ".ts", ".tsx", ".mjs", ".js", "/index.ts"]) {
@@ -161,7 +171,7 @@ const PERSON = { id: `verify-timing-${stamp}`, roles: ["analyst"], source: "cred
 let agent;
 let other;
 try {
-  await db.upsertPrincipal({ id: PERSON.id, roles: PERSON.roles, displayName: "Verify timing", email: null });
+  await db.upsertPrincipal({ id: PERSON.id, roles: PERSON.roles, displayName: "Verify timing", email: RUN_EMAIL });
   agent = await db.createAgent({ slug: `verify-timing-${stamp}`, name: "Verify Timing", instructions: "You are a stand-in. ".repeat(40), mcpServers: [] });
   other = await db.createAgent({ slug: `verify-timing-other-${stamp}`, name: "Verify Other", instructions: "Another stand-in.", mcpServers: [] });
 

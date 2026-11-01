@@ -28,7 +28,7 @@ import type { McpStdioConfig } from "./manager";
 // here.
 // `knowledge` is the Context Steward's: reads over chats, notes and memory,
 // and three writes it may propose. Whose chats it reads is the deployment's
-// (HUB_STEWARD_READERS); its writes are annotated as writes so the gate holds
+// (each person's own Settings switch); its writes are annotated as writes so the gate holds
 // them. See docs/context-steward.md.
 export const BUILTIN_SERVER_NAMES: readonly string[] = ["microsoft365", "teams", "teams-notes", "knowledge"];
 

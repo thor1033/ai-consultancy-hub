@@ -130,7 +130,24 @@ export interface GateContext {
    * toolsUsed whether or not the hub let it through.
    */
   held?: Set<string>;
+  /**
+   * Set once the run has read something from outside the hub — any tool that
+   * is not the agent's own memory, or another agent's answer. From then on
+   * the run's memory writes are held too (see gate). Shared with the caller,
+   * so a tool the gate does not wrap (asking another agent) can set it.
+   */
+  outside?: { from: string | null };
 }
+
+/**
+ * Memory tools that change what the agent remembers. Held once a run has read
+ * outside content (docs/data-protection-review.md, F10): an email or a
+ * connected system can carry instructions, and an agent talked into
+ * remembering something would carry it into every later run — everyone's,
+ * while memory is shared across the agent. Before the run reads anything
+ * outside, memory stays unheld: it is the agent's own notebook.
+ */
+export const MEMORY_WRITE_TOOLS: ReadonlySet<string> = new Set(["memory_write", "memory_set_active", "memory_forget"]);
 
 /**
  * The tool list the model sees, and the executor behind it.
@@ -150,6 +167,7 @@ export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; e
     return { ...t, input_schema: withReasonSchema(t.input_schema as Record<string, unknown>) as ToolDef["input_schema"] };
   });
 
+  const outside = ctx.outside ?? { from: null };
   const execute: ConnectedMcp["execute"] = async (name, input) => {
     const tool = byName.get(name);
     if (tool && isHeld(tool)) {
@@ -157,7 +175,15 @@ export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; e
       ctx.held?.add(tool.name);
       return heldText(proposal);
     }
-    return mcp.execute(name, input);
+    if (tool && tool.server === "memory" && MEMORY_WRITE_TOOLS.has(tool.name) && outside.from) {
+      const proposal = await hold(tool, input, ctx, `Remembered after reading from ${outside.from} in the same run, so a person checks it first: what an agent remembers is loaded into later runs.`);
+      ctx.held?.add(tool.name);
+      return heldText(proposal);
+    }
+    const out = await mcp.execute(name, input);
+    // Anything that is not the agent's own memory came from outside the hub.
+    if (tool && tool.server !== "memory" && !outside.from) outside.from = tool.server;
+    return out;
   };
   return { tools, execute };
 }
@@ -172,8 +198,11 @@ export function gatedExecutor(mcp: ConnectedMcp, ctx: GateContext): ConnectedMcp
  * itself. The reason is taken off the arguments here, so a proposal's `args`
  * are always exactly what the upstream will receive.
  */
-export async function hold(tool: McpToolInfo, input: unknown, ctx: GateContext): Promise<Proposal> {
-  const { args, reason } = takeReason(tool, input);
+export async function hold(tool: McpToolInfo, input: unknown, ctx: GateContext, hubReason?: string): Promise<Proposal> {
+  const taken = takeReason(tool, input);
+  const args = taken.args;
+  // The hub's own reason, when it is the hub and not the tool that asks for a person.
+  const reason = hubReason ?? taken.reason;
   return createProposal({
     agentId: ctx.agentId ?? null,
     runId: ctx.runId ?? null,

@@ -3,13 +3,14 @@ import { Suspense, cache } from "react";
 import { notFound } from "next/navigation";
 import { listHubConnections, listServerRuns, toolCallCounts, type ServerRun, type ToolCallCount } from "@ai-hub/db";
 import { describeMcpServer, type McpToolInfo } from "@/lib/mcpCatalog";
-import { sessionCan } from "@/lib/sessionPrincipal";
+import { sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
 import { rel } from "@/lib/format";
 import { serverDirectory } from "../directory";
 import { ServerSwitch } from "../ServerSwitch";
 import { ToolList, type ToolRow } from "./ToolList";
 import { ConnectionSettings } from "./ConnectionSettings";
 import { hubRemoteProblem } from "@ai-hub/mcp";
+import { hiddenPromptLabel, privateRun } from "@/lib/runPrivacy";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -39,10 +40,13 @@ export default async function McpDetailPage({ params }: { params: Promise<{ name
   const server = entries.find((s) => s.name === name);
   if (!server) notFound();
 
-  const [runs, canManage] = await Promise.all([
+  const [runRows, canManage, me] = await Promise.all([
     listServerRuns(name, 8).catch(() => [] as ServerRun[]),
     sessionCan("admin:manage"),
+    sessionPrincipal(),
   ]);
+  // Other people's prompts are not shown (lib/runPrivacy.ts).
+  const runs = runRows.map((r) => privateRun(r, { id: me?.id ?? null, admin: Boolean(canManage) }));
   // A connection added on the Connections page can be changed or removed here.
   // Only whether it has a token is read; the token itself never leaves the server.
   // Looked up by row, not by the registry: one whose token no longer opens is
@@ -227,7 +231,7 @@ export default async function McpDetailPage({ params }: { params: Promise<{ name
                         style={{ background: r.status === "failed" ? "var(--brand)" : "var(--ai)" }}
                       />
                       <span className="min-w-0">
-                        <span className="block truncate text-sm group-hover:text-[var(--brand)]">{r.prompt}</span>
+                        <span className="block truncate text-sm group-hover:text-[var(--brand)]">{r.prompt || (r.promptHidden ? <span className="text-[var(--muted)]">{hiddenPromptLabel(r)}</span> : <span className="text-[var(--muted)]">(no prompt)</span>)}</span>
                         <span className="block truncate text-xs text-[var(--muted)]">
                           <span className="text-[var(--text-soft)]">{r.agentName ?? "Workbench"}</span>
                           {r.toolsUsed.length > 0 && ` · ${[...new Set(r.toolsUsed)].join(", ")}`}

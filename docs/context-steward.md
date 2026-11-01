@@ -36,7 +36,7 @@ right place for that judgement.
 
 | Source | Tool | Boundary |
 |---|---|---|
-| Chats | `knowledge_recent_chats`, `knowledge_chat_get` | **Only people named in `HUB_STEWARD_READERS`** (by email). Never the steward's own chats, never a workbench run with nobody behind it. The tools take no principal argument, so a model cannot widen the set by asking. |
+| Chats | `knowledge_recent_chats`, `knowledge_chat_get` | **Only people who allowed it themselves**, in Settings → "Context Steward" (`principals.preferences.stewardMayRead`; each change is on the audit trail). Off until a person turns it on; a disabled person is not read. Never the steward's own chats, never a workbench run with nobody behind it. The tools take no principal argument, so a model cannot widen the set by asking. |
 | Meeting notes | `knowledge_recent_notes`, `knowledge_document_get` | The one collection it reads in full: `HUB_STEWARD_NOTES_COLLECTION`, default `meetings`. |
 | Agents' memory | `knowledge_agent_memories` | Any agent's active memories, read-only. |
 | The knowledge base | `knowledge_find`, `knowledge_collections` | Search goes through the hub's own `/api/rag/search` **as the steward's credential**, so it sees what that credential is granted and nothing else. |
@@ -80,8 +80,8 @@ Secretary run (meeting-to-pm) ──▶ recorded ──▶ steward run, same pri
 
 - **As the same person**, so a scheduled follow-up (which runs as the
   schedule's owner) hands to a steward that runs as them too, and the
-  steward's chat tools see the Secretary's session only if that person is in
-  `HUB_STEWARD_READERS`. The hand-off widens nothing: the steward is started
+  steward's chat tools see the Secretary's session only if that person
+  allowed the steward in their Settings. The hand-off widens nothing: the steward is started
   the way any agent is, through every check on the way.
 - **After the record.** The steward reads the session with
   `knowledge_chat_get`, so it is started only once the session is stored with
@@ -132,7 +132,7 @@ agents.mcp_servers = [{"name":"knowledge"}]        no "writes":"allow", ever
   └── servers/knowledge/server.mjs                  stdio, bundled
         reads   annotated readOnlyHint: true         pass the gate
         writes  annotated readOnlyHint: false        held → approve() replays them here
-        Postgres: sessions, documents, memory        HUB_STEWARD_READERS decides whose
+        Postgres: sessions, documents, memory        each person's Settings decides whose
         hub API: /api/documents, /api/rag/search     HUB_BASE_URL + HUB_STEWARD_TOKEN
 ```
 
@@ -159,13 +159,14 @@ agents.mcp_servers = [{"name":"knowledge"}]        no "writes":"allow", ever
    and `rag:search` to search). Store the token as `HUB_STEWARD_TOKEN`. Grant
    that credential's principal the restricted collections the steward should
    be able to search; what it is not granted it cannot see.
-2. **Who allows it:** `HUB_STEWARD_READERS=ditlev@teqneo.co,thor@teqneo.co`.
-   A person is added by their email, by the deployment, one at a time.
+2. **Who allows it:** each person, for themselves, in Settings → "Context
+   Steward". It used to be `HUB_STEWARD_READERS`, a list the people on it could
+   not see or leave (docs/data-protection-review.md, F9); that is no longer read.
 3. `HUB_BASE_URL` (already set) and, if the notes collection is not
    `meetings`, `HUB_STEWARD_NOTES_COLLECTION`.
 
    ```bash
-   flyctl secrets set -a teqneo-ai-hub HUB_STEWARD_TOKEN='…' HUB_STEWARD_READERS='ditlev@teqneo.co,thor@teqneo.co'
+   flyctl secrets set -a teqneo-ai-hub HUB_STEWARD_TOKEN='…'
    ```
 
 4. **The seed applies itself on the next release** (`src/seeds/all.ts` lists

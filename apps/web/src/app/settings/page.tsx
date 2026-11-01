@@ -1,6 +1,8 @@
 import { VIEWS, VIEW_INFO } from "@/lib/views";
 import { viewContext } from "@/lib/viewServer";
 import { ViewChooser } from "./ViewChooser";
+import { StewardConsent } from "./StewardConsent";
+import { getPrincipal } from "@ai-hub/db";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +11,8 @@ export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
   const { view, from, saves, principal } = await viewContext();
+  // Read fresh from the row: it is the steward's source of truth too.
+  const stewardAllowed = principal ? (await getPrincipal(principal.id).catch(() => null))?.preferences?.stewardMayRead === true : false;
   const fromText =
     from === "you"
       ? saves
@@ -34,6 +38,11 @@ export default async function SettingsPage() {
         views={VIEWS.map((v) => ({ id: v, ...VIEW_INFO[v] }))}
         signedIn={Boolean(principal)}
       />
+      {saves && (
+        <div className="mt-6">
+          <StewardConsent allowed={stewardAllowed} />
+        </div>
+      )}
     </main>
   );
 }

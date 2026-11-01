@@ -36,22 +36,23 @@ export type KnowledgeAccess =
 export const ALL_KNOWLEDGE: KnowledgeAccess = { kind: "all" };
 
 /**
- * How an unclassified collection is treated.
+ * How an unclassified collection — and an unfiled document — is treated.
  *
- * `open` (the default) keeps the existing corpus readable the moment this
- * deploys — the hub is running with 27 documents in three collections that
- * predate the concept of visibility, and failing closed on deploy would empty
- * every answer the terminal gives. That is an outage, not a security posture.
+ * `restricted` by default: something nobody has classified is private until
+ * an admin grants it, which is what a client handing the hub sensitive
+ * material should be able to assume (docs/data-protection-review.md, F7).
+ * Admins still read everything, so the people classifying are not locked out.
  *
- * Set HUB_DEFAULT_COLLECTION_VISIBILITY=restricted once everything is
- * classified. Same shape as the legacy-token migration: the safe end state is
- * one variable away, and /admin names every collection still relying on the
- * default so it cannot be quietly forgotten.
+ * It was `open` by default, as a migration affordance when visibility was
+ * introduced over an existing corpus. A deployment that relies on that can set
+ * HUB_DEFAULT_COLLECTION_VISIBILITY=open while it classifies; /admin names
+ * every collection still relying on the default. The knowledge server
+ * (packages/mcp/servers/knowledge) already read the default this way.
  */
 export function defaultVisibility(): "open" | "restricted" {
-  return process.env.HUB_DEFAULT_COLLECTION_VISIBILITY === "restricted"
-    ? "restricted"
-    : "open";
+  return process.env.HUB_DEFAULT_COLLECTION_VISIBILITY === "open"
+    ? "open"
+    : "restricted";
 }
 
 /**

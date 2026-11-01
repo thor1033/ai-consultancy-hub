@@ -140,6 +140,10 @@ export async function finishRun(id: string, result: FinishRunInput): Promise<voi
 
 export interface RunTiming {
   id: string;
+  /** Who the run was for (the person, or a schedule's owner); null for a workbench run. */
+  principalId: string | null;
+  /** Their name, for "a run by …" where the prompt itself is not shown. */
+  askedBy: string | null;
   agentId: string | null;
   at: string;
   status: string;
@@ -160,6 +164,10 @@ export interface RunTiming {
 
 export interface ChildRun {
   id: string;
+  /** Who the run was for (the person, or a schedule's owner); null for a workbench run. */
+  principalId: string | null;
+  /** Their name, for "a run by …" where the prompt itself is not shown. */
+  askedBy: string | null;
   agentId: string | null;
   agentSlug: string | null;
   agentName: string | null;
@@ -175,9 +183,10 @@ export async function listChildRuns(parentSessionId: string): Promise<ChildRun[]
   const sql = getSql();
   return sql<ChildRun[]>`
     select s.id, s.agent_id as "agentId", a.slug as "agentSlug", a.name as "agentName", s.status, s.prompt,
-           s.latency_ms as "latencyMs", coalesce(s.started_at, s.created_at) as at
+           s.latency_ms as "latencyMs", coalesce(s.started_at, s.created_at) as at, s.principal_id as "principalId", coalesce(nullif(pr.display_name, ''), pr.email, s.principal_id) as "askedBy"
       from agent_sessions s
       left join agents a on a.id = s.agent_id
+      left join principals pr on pr.id = s.principal_id
      where s.parent_session_id = ${parentSessionId}
      order by coalesce(s.started_at, s.created_at)`;
 }
@@ -195,9 +204,10 @@ export async function getRunTiming(id: string): Promise<RunTiming | null> {
     select s.id, s.agent_id as "agentId", coalesce(s.started_at, s.created_at) as at, s.status, s.prompt,
            k.name as skill, s.model, s.effort, s.latency_ms as "latencyMs", s.cost_usd::float8 as "costUsd",
            s.tokens, s.tools_used as "toolsUsed", s.error, s.timeline,
-           s.parent_session_id as "parentSessionId", s.depth
+           s.parent_session_id as "parentSessionId", s.depth, s.principal_id as "principalId", coalesce(nullif(pr.display_name, ''), pr.email, s.principal_id) as "askedBy"
       from agent_sessions s
       left join agent_skills k on k.id = s.agent_skill_id
+      left join principals pr on pr.id = s.principal_id
      where s.id = ${id}`;
   return row ?? null;
 }

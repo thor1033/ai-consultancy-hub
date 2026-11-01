@@ -214,6 +214,10 @@ export async function toolCallCounts(days = 30): Promise<ToolCallCount[]> {
 
 export interface ServerRun {
   id: string;
+  /** Who the run was for (the person, or a schedule's owner); null for a workbench run. */
+  principalId: string | null;
+  /** Their name, for "a run by …" where the prompt itself is not shown. */
+  askedBy: string | null;
   at: string;
   prompt: string;
   status: string;
@@ -227,9 +231,10 @@ export async function listServerRuns(name: string, limit = 8): Promise<ServerRun
   const sql = getSql();
   return sql<ServerRun[]>`
     select s.id, coalesce(s.started_at, s.created_at) as at, s.prompt, s.status,
-           s.tools_used as "toolsUsed", a.name as "agentName", a.slug as "agentSlug"
+           s.tools_used as "toolsUsed", a.name as "agentName", a.slug as "agentSlug", s.principal_id as "principalId", coalesce(nullif(pr.display_name, ''), pr.email, s.principal_id) as "askedBy"
       from agent_sessions s
       left join agents a on a.id = s.agent_id
+      left join principals pr on pr.id = s.principal_id
      where s.mcp_servers ? ${name}
      order by coalesce(s.started_at, s.created_at) desc
      limit ${limit}

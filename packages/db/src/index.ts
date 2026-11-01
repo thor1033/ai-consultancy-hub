@@ -103,6 +103,7 @@ export {
   findPrincipalByIdentity,
   bindWorkosUser,
   upsertPrincipal,
+  hasEnabledAdmin,
   setPrincipalEnabled,
   setPrincipalPreference,
   issueCredential,

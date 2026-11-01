@@ -11,7 +11,7 @@ import type { AgentInput } from "../agents";
  *                                   is annotated as a write, so the gate holds
  *                                   it for a person. The seed checks the entry
  *                                   carries no such switch.
- *   it reads what it was allowed .. HUB_STEWARD_READERS on the deployment; the
+ *   it reads what it was allowed .. each person's own Settings switch; the
  *                                   chat tools take no principal argument.
  *   it is one of the founders' ..... function Office of the founders, owner
  *                                   Ditlev, beside the Secretary whose notes it

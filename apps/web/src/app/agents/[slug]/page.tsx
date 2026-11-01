@@ -39,6 +39,7 @@ import { viewContext } from "@/lib/viewServer";
 import { atLeast } from "@/lib/views";
 import { appBaseUrl } from "@/lib/baseUrl";
 import { localAgentName, localSkillName, renderAgentFiles } from "@/lib/localAgents";
+import { hiddenPromptLabel, privateRun } from "@/lib/runPrivacy";
 
 export const dynamic = "force-dynamic";
 
@@ -56,9 +57,13 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
   const writesAllowed = serverWritesAllowed(agent.mcpServers);
   // Everything below is display; a failure in one source must not take the
   // page (and with it the only way to fix the agent) down.
-  const [memories, collections, skills, runs, schedules, roster, tools, canManage, activity, admin, viewer, orgLabels, handoffs, allAgents] =
+  const [memories, collections, skills, runRows, schedules, roster, tools, canManage, activity, admin, viewer, orgLabels, handoffs, allAgents] =
     await Promise.all([
-    listMemories(agent.id),
+    // What an agent remembers is shared by everyone who runs it (until memory
+    // gets scopes, phase 2 of docs/data-protection-review.md), so it is shown to
+    // people who may run agents and to nobody else — not to a viewer who
+    // switched to the Standard view.
+    sessionCan("agent:run").then((may) => (may ? listMemories(agent.id) : [])),
     sessionKnowledgeAccess()
       .then((access) => listCollections(access))
       .catch(() => [] as string[]),
@@ -80,11 +85,13 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
     listAgents().catch(() => []),
   ]);
   const baseUrl = appBaseUrl(await headers()) ?? "https://hub.example.com";
+  // Other people's prompts are not shown (lib/runPrivacy.ts).
+  const runs = runRows.map((r) => privateRun(r, { id: viewer?.id ?? null, admin: Boolean(admin) }));
   // The signed-in person's own runs, with their answers: "Your answers".
   const mine: MyRun[] = viewer ? await listMyRuns(agent.id, viewer.id).catch(() => []) : [];
   // How much of the agent this person is shown (docs/views.md). Simple is a
   // conversation and its skills; Expert is every dial and the tool names.
-  const { view } = await viewContext();
+  const { view, can } = await viewContext();
   const standard = atLeast(view, "standard");
   const expert = atLeast(view, "expert");
 
@@ -211,10 +218,10 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
                         title="Where this run's time went"
                         className="block truncate text-sm hover:text-[var(--brand-ink)] hover:underline hover:underline-offset-2"
                       >
-                        {r.prompt || <span className="text-[var(--muted)]">(no prompt)</span>}
+                        {r.prompt || (r.promptHidden ? <span className="text-[var(--muted)]">{hiddenPromptLabel(r)}</span> : <span className="text-[var(--muted)]">(no prompt)</span>)}
                       </Link>
                     ) : (
-                      <p className="truncate text-sm">{r.prompt || <span className="text-[var(--muted)]">(no prompt)</span>}</p>
+                      <p className="truncate text-sm">{r.prompt || (r.promptHidden ? <span className="text-[var(--muted)]">{hiddenPromptLabel(r)}</span> : <span className="text-[var(--muted)]">(no prompt)</span>)}</p>
                     )}
                     <p className="mt-0.5 flex flex-wrap gap-x-2 text-xs text-[var(--muted)]">
                       {r.skill && (
@@ -463,7 +470,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
         tabs={[
           ...(standard ? [{ id: "overview", label: "Overview", content: overview }] : []),
           { id: "conversation", label: "Conversation", content: conversation },
-          ...(standard
+          ...(standard && can.run
             ? [{ id: "memory", label: "Memory", count: memories.length, content: <MemoryPanel agentId={agent.id} name={agent.name} memories={memories} /> }]
             : []),
           ...(viewer ? [{ id: "answers", label: "Your answers", count: mine.length, content: <YourAnswers runs={mine} agentName={agent.name} now={now} /> }] : []),

@@ -84,13 +84,13 @@ const { getSql } = await import("./src/client.ts");
 console.log("\n— provisioning —");
 await applySeed({ agent: AGENT, skills: [], memories: MEMORIES, handoffs: HANDOFFS }, { log: (line) => console.log(line) });
 
-const missing = ["HUB_STEWARD_READERS", "HUB_STEWARD_TOKEN", "HUB_BASE_URL"].filter((k) => !process.env[k]);
+const missing = ["HUB_STEWARD_TOKEN", "HUB_BASE_URL"].filter((k) => !process.env[k]);
 if (missing.length) {
   console.log(`\nWARNING  this environment lacks ${missing.join(", ")}.`);
-  console.log("         The steward can be ticked and will start, but its chat tools answer");
-  console.log("         'no readers' and its proposals cannot file until the deployment that");
-  console.log("         runs it holds them. See docs/context-steward.md.");
+  console.log("         The steward can be ticked and will start, but its proposals cannot");
+  console.log("         file until the deployment that runs it holds them. See docs/context-steward.md.");
 }
+console.log("\nNote: it reads only the chats of people who allowed it in their own Settings.");
 
 console.log("\nNext: on the agent's page, add a nightly schedule owned by a founder, e.g.");
 console.log('      "Sweep what is new since your last sweep and propose what should be kept."');

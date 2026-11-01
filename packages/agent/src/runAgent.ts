@@ -1,6 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { getAnthropic } from "./client";
-import { getLangfuse } from "./tracing";
+import { getLangfuse, traceValue } from "./tracing";
 import {
   DEFAULT_MODEL,
   type ModelId,
@@ -139,7 +139,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
 
   const trace = langfuse?.trace({
     name: "agent.run",
-    input: { prompt: input.prompt },
+    input: traceValue({ prompt: input.prompt }),
     metadata: { model, ...input.metadata },
   });
 
@@ -178,7 +178,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         thinking: useThinking ? "adaptive" : "disabled",
         effort: input.effort ?? null,
       },
-      input: messages,
+      input: traceValue(messages),
     });
 
     // Streamed, then reassembled: `finalMessage()` folds the event stream back
@@ -253,7 +253,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     if (turnText) finalText = turnText;
 
     gen?.end({
-      output: turnText,
+      output: traceValue(turnText),
       usage: {
         input: turnUsage.inputTokens,
         output: turnUsage.outputTokens,
@@ -281,7 +281,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     const toolResults: Anthropic.ToolResultBlockParam[] = [];
     for (const t of toolUses) {
       if (!toolsUsed.includes(t.name)) toolsUsed.push(t.name);
-      const span = trace?.span({ name: `tool.${t.name}`, input: t.input });
+      const span = trace?.span({ name: `tool.${t.name}`, input: traceValue(t.input) });
       const toolStart = Date.now();
       let content: string;
       let isError = false;
@@ -296,7 +296,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         content = "No tools are registered in this hub yet.";
         isError = true;
       }
-      span?.end({ output: content });
+      span?.end({ output: traceValue(content) });
       const toolMs = Date.now() - toolStart;
       timeline.toolMs += toolMs;
       turn.tools.push({ name: t.name, ms: toolMs, resultChars: content.length, error: isError });
@@ -350,7 +350,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   const cost = costUsd(model, usage);
 
   trace?.update({
-    output: finalText,
+    output: traceValue(finalText),
     metadata: { stopReason, iterations, maxIterations, exhausted, costUsd: cost, latencyMs, ...usage },
   });
   await langfuse?.flushAsync();

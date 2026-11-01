@@ -17,6 +17,10 @@ import { fileURLToPath } from "node:url";
 registerHooks({
   resolve(specifier, context, nextResolve) {
     try {
+  // Sections 1–6 test grants against a corpus whose unclassified collections
+  // are open; the default is restricted now, which section 7 checks unset.
+  process.env.HUB_DEFAULT_COLLECTION_VISIBILITY = "open";
+
       return nextResolve(specifier, context);
     } catch (err) {
       if (!specifier.startsWith(".") || !context.parentURL) throw err;
@@ -189,7 +193,9 @@ try {
   );
 
   // --- 7. the fail-closed default -----------------------------------------
-  process.env.HUB_DEFAULT_COLLECTION_VISIBILITY = "restricted";
+  // Unset is restricted (docs/data-protection-review.md, F7): sections 1–6
+  // ran with the variable set to "open" to test grants over an open corpus.
+  delete process.env.HUB_DEFAULT_COLLECTION_VISIBILITY;
   const strict = await knowledgeAccessFor(principal(`${TAG}-analyst`, ["analyst"]));
   const strictTitles = titles(await listDocuments(strict));
   check(

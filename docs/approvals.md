@@ -19,8 +19,13 @@ A tool call is held when all of these are true:
   `readOnlyHint: true` — "not proven read-only" is the safe reading, the same one
   `proxyTools.ts` uses to drop writes. A server that annotates nothing therefore
   has every tool held until it annotates;
-- it is not the agent's own memory (`memory_*`), which never leaves the hub, and
-  not one of the hub's own `hub_*` tools, each of which decides for itself;
+- it is not the agent's own memory (`memory_*`), which never leaves the hub —
+  **until the run has read something from outside**: once any tool other than
+  memory (or another agent's answer) has returned content in the run, its
+  memory writes are held too, with the hub's own reason line. An email or a
+  connected system can carry instructions, and what an agent remembers is
+  loaded into later runs (docs/data-protection-review.md, F10);
+- it is not one of the hub's own `hub_*` tools, each of which decides for itself;
 - the agent's entry for that server does not say `"writes": "allow"`.
 
 The bundled servers declare themselves: every `microsoft365` and `teams` tool

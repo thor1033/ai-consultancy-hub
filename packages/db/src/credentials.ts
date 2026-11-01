@@ -174,6 +174,17 @@ export interface PrincipalInput {
   enabled?: boolean;
 }
 
+/**
+ * Whether the hub has anyone who can administer it. False only for a new,
+ * empty deployment — which is when the first signed-in, allowlisted person is
+ * made its admin (apps/web/src/lib/sessionPrincipal.ts), once.
+ */
+export async function hasEnabledAdmin(): Promise<boolean> {
+  const sql = getSql();
+  const [row] = await sql`select 1 from principals where enabled and roles ? 'admin' limit 1`;
+  return Boolean(row);
+}
+
 export async function upsertPrincipal(input: PrincipalInput): Promise<PrincipalRow> {
   const sql = getSql();
   const email = input.email?.trim().toLowerCase() || null;

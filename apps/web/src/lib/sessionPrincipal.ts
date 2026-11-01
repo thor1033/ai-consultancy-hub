@@ -1,6 +1,8 @@
 import { withAuth } from "@workos-inc/authkit-nextjs";
-import { findPrincipalByIdentity } from "@ai-hub/db";
+import { findPrincipalByIdentity, hasEnabledAdmin, recordAuthEvent, upsertPrincipal } from "@ai-hub/db";
 import {
+  AUTO_PROVISION_ROLES,
+  autoProvisionable,
   authorize,
   knowledgeAccessFor,
   type Action,
@@ -10,34 +12,41 @@ import {
 import { isAllowedEmail } from "@/lib/allowlist";
 
 /**
- * The signed-in browser user, as a Principal.
+ * The signed-in browser user, as a Principal, or null.
  *
  * The browser and the MCP endpoint reach the same data through different doors
- * — a WorkOS session cookie here, a bearer token there — and before increment
- * 02 that did not matter, because neither was filtered. Now it does: the
- * knowledge console and `/api/mcp` must narrow by the same rule, or the console
- * becomes the way around it.
+ * — a WorkOS session cookie here, a bearer token there — and both now resolve
+ * a person the same way: by a `principals` row. Roles come from that row and
+ * nowhere else.
  *
- * Resolution order:
- *   1. A `principals` row matching the session's WorkOS user id or email. This
- *      is the real answer, and the one that carries grants.
- *   2. An allowlisted email with no row yet ⇒ treated as an operator.
+ *   1. A row matching the session's WorkOS user id or email ⇒ that row's roles.
+ *      A disabled row ⇒ null.
+ *   2. No row, and the email's domain is in HUB_AUTO_PROVISION_DOMAINS ⇒ an
+ *      analyst row is made, on the audit trail (as the bearer door does).
+ *   3. No row, and the hub has no enabled admin at all ⇒ the first admin is
+ *      made: a row, and a `principal.bootstrap` event. This is how a new
+ *      deployment gets its first operator, and it happens once.
+ *   4. Otherwise ⇒ null: signed in and allowlisted, but nobody has given them
+ *      access yet. The layout says so.
  *
- * Step 2 is the same bootstrap /admin runs on: the email allowlist is the root
- * of trust for the browser door, it defaults to the two owner accounts, and
- * adding anyone to it is a deliberate act. Without it, the owners would open
- * their own knowledge console on the day this deploys and find it empty —
- * before they have had any chance to create the rows that would fix it. A real
- * row always wins, so the fallback disappears the moment one exists.
+ * What is gone is the old step 2, "an allowlisted email with no row is an
+ * admin": it made every allowlisted person an operator, created no row and
+ * left no trace (docs/data-protection-review.md, F4). A database that cannot
+ * be read now fails closed — the admin console cannot work without it anyway.
+ *
+ * The allowlist still gates every step: it is the deployment's list of who may
+ * enter at all.
  */
 export async function sessionPrincipal(): Promise<Principal | null> {
   let email: string | undefined;
   let workosUserId: string | undefined;
+  let name = "";
 
   try {
     const { user } = await withAuth();
     email = user?.email?.trim().toLowerCase();
     workosUserId = user?.id;
+    name = [user?.firstName, user?.lastName].filter(Boolean).join(" ");
   } catch {
     return null;
   }
@@ -45,25 +54,34 @@ export async function sessionPrincipal(): Promise<Principal | null> {
   if (!email || !isAllowedEmail(email)) return null;
 
   try {
-    const row = await findPrincipalByIdentity({ workosUserId, email });
-    // A disabled row must refuse, not fall through: the fallback below grants
-    // admin, so falling through would turn "disable this person" into a promotion.
-    if (row && !row.enabled) return null;
-    if (row) {
-      return {
-        id: row.id,
-        roles: row.roles,
-        ...(row.agentId ? { agentId: row.agentId } : {}),
-        source: "oauth",
-        email: row.email ?? email,
-      };
+    let row = await findPrincipalByIdentity({ workosUserId, email });
+    if (!row) {
+      const provisioned = autoProvisionable(email);
+      const bootstrap = !provisioned && !(await hasEnabledAdmin());
+      if (provisioned || bootstrap) {
+        const roles = provisioned ? AUTO_PROVISION_ROLES : ["admin"];
+        row = await upsertPrincipal({ id: email, email, displayName: name, roles });
+        await recordAuthEvent({
+          event: provisioned ? "principal.provisioned" : "principal.bootstrap",
+          source: "oauth",
+          principalId: row.id,
+          detail: { email, workosUserId, roles, rule: provisioned ? "HUB_AUTO_PROVISION_DOMAINS" : "first admin of an empty hub" },
+        });
+      }
     }
+    // A disabled row must refuse: disabling a person takes them out at once.
+    if (!row || !row.enabled) return null;
+    return {
+      id: row.id,
+      roles: row.roles,
+      ...(row.agentId ? { agentId: row.agentId } : {}),
+      source: "oauth",
+      email: row.email ?? email,
+    };
   } catch {
-    // A database outage must not lock an operator out of the console they would
-    // use to diagnose it. The fallback below is allowlist-gated either way.
+    // Fail closed: no row could be read, so no roles can be known.
+    return null;
   }
-
-  return { id: email, roles: ["admin"], source: "oauth", email };
 }
 
 /**

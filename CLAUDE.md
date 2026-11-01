@@ -56,13 +56,13 @@ paths against throwaway fixtures (fake Messages API / Graph / MCP servers), with
 API spend. Each script's header comment says how to run it and what it needs.
 Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 
-- No DB needed: `verify:loop`, `verify:bench` (agent; the bench's skill half runs when `DATABASE_URL` is set), `verify:remote`, `verify:m365`, `verify:teams` (mcp),
+- No DB needed: `verify:loop`, `verify:tracing`, `verify:bench` (agent; the bench's skill half runs when `DATABASE_URL` is set), `verify:remote`, `verify:m365`, `verify:teams` (mcp),
   `verify:github` (rag; its sync half runs when `DATABASE_URL` is set), `verify:large-args`,
   `verify:work-log` (web).
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds`, `verify:patterns` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access` (rag), `verify:credentials` (authz),
   `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing`,
-  `verify:import`, `verify:views`, `verify:design-tools`, `verify:connections` (web).
+  `verify:import`, `verify:views`, `verify:design-tools`, `verify:connections`, `verify:data-protection` (web).
 - `bench:prompt` (agent) calls the real model and spends money; it says how many calls first. See
   docs/agent-testing.md, "Prompt speed".
 - `verify:pm-tool` talks to the real PM-tool endpoint — don't run it casually.
@@ -93,6 +93,10 @@ commit or print `.env*` files; `*.bak` is gitignored because backups held secret
 - Remote MCP servers come from `HUB_REMOTE_MCP_SERVERS` and from the Connections page (docs/connections.md,
   sealed in `mcp_servers`). Code that reads the registry (`remoteServer*`, `knownServers`) must run after
   `await loadHubConnections()` — every entry point already does; a new one must too.
+- Sensitive data (docs/data-protection-review.md): a page that lists runs passes them through
+  `privateRun` (lib/runPrivacy.ts) on the server — another person's prompt never reaches the browser.
+  Traces carry no content unless `HUB_TRACE_CONTENT=1`. A run that has read outside content has its
+  memory writes held. Sign-in needs a principal row; the allowlist alone grants nothing.
 - Failures must surface in the output a person reads — never return an empty or
   truncated agent answer as success.
 - Schema changes go in `packages/db/schema.sql` and must stay idempotent

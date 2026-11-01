@@ -3,7 +3,9 @@ import Link from "next/link";
 import { getAgent, getRunTiming, listChildRuns } from "@ai-hub/db";
 import type { RunTimeline, TurnTiming } from "@ai-hub/agent";
 import { money } from "@/lib/format";
+import { sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
 import { PART_STYLE, count, duration, isTimeline, readTimeline, type Part } from "@/lib/runTiming";
+import { hiddenPromptLabel, privateRun } from "@/lib/runPrivacy";
 
 export const dynamic = "force-dynamic";
 
@@ -16,8 +18,12 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
   const { slug, id } = await params;
   const agent = await getAgent(slug);
   if (!agent) notFound();
-  const run = await getRunTiming(id);
-  if (!run || run.agentId !== agent.id) notFound();
+  const found = await getRunTiming(id);
+  if (!found || found.agentId !== agent.id) notFound();
+  // Other people's prompts are not shown (lib/runPrivacy.ts): the timing is,
+  // since it says how the run went and nothing of what it was about.
+  const [me, admin] = await Promise.all([sessionPrincipal(), sessionCan("admin:manage")]);
+  const run = privateRun(found, { id: me?.id ?? null, admin: Boolean(admin) });
 
   const timeline = isTimeline(run.timeline) ? run.timeline : null;
   const reading = timeline ? readTimeline(timeline, run.latencyMs) : null;
@@ -45,7 +51,7 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
           {run.skill && <span>· {run.skill}</span>}
           <span className="mono normal-case tracking-normal text-[var(--faint)]">{run.id}</span>
         </div>
-        <h1 className="mt-3 line-clamp-3 max-w-3xl text-2xl md:text-3xl">{firstLine(run.prompt)}</h1>
+        <h1 className="mt-3 line-clamp-3 max-w-3xl text-2xl md:text-3xl">{run.promptHidden ? hiddenPromptLabel(run) : firstLine(run.prompt)}</h1>
         <dl className="mt-4 flex flex-wrap gap-x-8 gap-y-3 text-sm">
           <Fact label="Took" value={run.latencyMs !== null ? duration(run.latencyMs) : "—"} />
           <Fact label="Cost" value={run.costUsd !== null ? money(run.costUsd) : "—"} />

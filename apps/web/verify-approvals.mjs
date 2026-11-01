@@ -155,8 +155,16 @@ try {
   const silentProposal = silentId ? await db.getProposal(silentId) : null;
   check("a write without a reason is still held, with no reason recorded", silentProposal?.status === "pending" && silentProposal.reason === null);
   if (silentId) await db.rejectProposal(silentId, ADMIN.id, "test");
-  const mem = await exec("memory_write", { key: "verify-gate", content: "remembered" });
-  check("memory writes are not held: the agent's notebook never leaves the hub", !/HELD/.test(mem) && !/error/i.test(mem), mem.slice(0, 60));
+  // Memory: unheld while the run has read nothing from outside, held once it
+  // has (docs/data-protection-review.md, F10). A fresh gate is a fresh run.
+  const fresh = gate.gate(mcp, { agentId: asks.id, principalId: OWNER.id, entries: asks.mcpServers });
+  const mem = await fresh.execute("memory_write", { key: "verify-gate", content: "remembered" });
+  check("a memory write before reading anything outside is not held: the agent's own notebook", !/HELD/.test(mem) && !/error/i.test(mem), mem.slice(0, 60));
+  const tainted = await exec("memory_write", { key: "verify-gate-after", content: "remembered after a read" });
+  const [memProposal] = await sql`select id, reason from proposals where agent_id = ${asks.id} and tool = 'memory_write'`;
+  check("after the run read from verify-pm, a memory write is held, with the hub's reason", /HELD FOR APPROVAL/.test(tainted) && /verify-pm/.test(memProposal?.reason ?? ""), memProposal?.reason);
+  // Rejected here, so the count of waiting proposals below is about the PM-tool calls alone.
+  if (memProposal) await gate.reject(memProposal.id, { id: OWNER.id, roles: ["analyst"], source: "credential" }, "verify: cleared");
   await mcp.close();
 
   const allowEntry = allows.mcpServers[0];

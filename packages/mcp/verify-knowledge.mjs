@@ -184,10 +184,12 @@ try {
   Object.assign(process.env, {
     HUB_BASE_URL: `${origin}/`,
     HUB_STEWARD_TOKEN: TOKEN,
-    HUB_STEWARD_READERS: ` ${FOUNDER.email.toUpperCase()} , nobody@example.com`,
     HUB_STEWARD_NOTES_COLLECTION: NOTES,
     HUB_TIMEZONE: "Europe/Copenhagen",
   });
+
+  // Whose chats it reads is each person's own switch (principals.preferences.stewardMayRead).
+  await sql`update principals set preferences = preferences || '{"stewardMayRead": true}'::jsonb where id = ${FOUNDER.id}`;
 
   const { connectMcpServers } = await import("./src/manager.ts");
   const { builtinServerConfig, BUILTIN_SERVER_NAMES, BUILTIN_SERVER_INFO } = await import("./src/servers.ts");
@@ -218,7 +220,7 @@ try {
   check("not the steward's own", !ids.includes(ownChat));
   check("not a workbench run with nobody behind it", !ids.includes(workbench));
   check("not one older than the default window", !ids.includes(oldChat));
-  check("readers are matched by email, trimmed and case-folded", recent.readers?.length === 2 && recent.chats?.[0]?.person === FOUNDER.name, JSON.stringify(recent.readers));
+  check("readers are the people who allowed it themselves, and only they", recent.readers?.includes(FOUNDER.email) && recent.chats?.[0]?.person === FOUNDER.name && recent.chats.every((c) => c.person === FOUNDER.name), JSON.stringify(recent.readers));
   check("each chat says who asked which agent what, and the answer in short", recent.chats?.[0]?.agent === "Project Manager (verify)" && /standup day/.test(recent.chats[0].asked) && /Thursday 09:30/.test(recent.chats[0].answered) && recent.chats[0].tools?.[0] === undefined);
   const windowed = parse(await mcp.execute("knowledge_recent_chats", { since: hoursAgo(24).toISOString() }));
   check("`since` narrows the window (the cursor a sweep continues from)", windowed.chats?.length === 1 && windowed.chats[0].sessionId === founderChat);
@@ -316,17 +318,23 @@ try {
   mcp = undefined;
 
   // ── without readers, without the hub ───────────────────────────────────────
-  process.env.HUB_STEWARD_READERS = "";
+  // The founder switches it off in Settings. Others in this database may have
+  // it on, so the check is that the founder's chats are gone, not that nobody is read.
+  await sql`update principals set preferences = preferences - 'stewardMayRead' where id = ${FOUNDER.id}`;
+  process.env.HUB_STEWARD_READERS = FOUNDER.email; // no longer read: setting it must not bring them back
   const noReaders = await connectMcpServers([builtinServerConfig("knowledge")]);
   try {
-    const r = await noReaders.execute("knowledge_recent_chats", {});
-    check("with nobody allowing it, the chat tools say so instead of returning chats", /No one has allowed/.test(r) && /HUB_STEWARD_READERS/.test(r));
+    const r = await noReaders.execute("knowledge_recent_chats", { since: "2000-01-01" });
+    check("once the person switches it off, their chats are not read — whatever the old env variable says", !r.includes(founderChat) && !r.includes(FOUNDER.email), r.slice(0, 120));
     const g = await noReaders.execute("knowledge_chat_get", { sessionId: founderChat });
-    check("by id as well", /No one has allowed/.test(g));
+    check("by id as well", /No one has allowed|No such chat/.test(g), g.slice(0, 120));
+    const [{ n }] = await sql`select count(*)::int as n from principals where enabled and preferences->>'stewardMayRead' = 'true'`;
+    if (n === 0) check("with nobody allowing it, the chat tools say so and where it is decided", /No one has allowed/.test(r) && /Settings/.test(r));
   } finally {
     await noReaders.close();
   }
-  process.env.HUB_STEWARD_READERS = FOUNDER.email;
+  delete process.env.HUB_STEWARD_READERS;
+  await sql`update principals set preferences = preferences || '{"stewardMayRead": true}'::jsonb where id = ${FOUNDER.id}`;
   process.env.HUB_STEWARD_TOKEN = "";
   const noHub = await connectMcpServers([builtinServerConfig("knowledge")]);
   try {
