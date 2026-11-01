@@ -287,6 +287,8 @@ export interface MyRun {
   error: string | null;
   skill: string | null;
   at: string;
+  /** Its question and answer were removed by retention (docs/retention.md). */
+  expired: boolean;
 }
 
 /**
@@ -300,7 +302,7 @@ export async function listMyRuns(agentId: string, principalId: string, limit = 2
   const sql = getSql();
   return sql<MyRun[]>`
     select s.id, s.status, s.prompt, s.output, s.error, k.name as skill,
-           coalesce(s.started_at, s.created_at) as at
+           coalesce(s.started_at, s.created_at) as at, (s.content_expired_at is not null) as expired
       from agent_sessions s
       left join agent_skills k on k.id = s.agent_skill_id
      where s.agent_id = ${agentId}

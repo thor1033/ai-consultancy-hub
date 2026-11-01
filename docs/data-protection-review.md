@@ -363,6 +363,19 @@ deployed.
 Existing memories became `agent` (shared), which is what they were. Read
 through each agent's Memory tab once for anything that should not be shared.
 
+**Phase 3 is done** (docs/retention.md). It is on the same branch and not
+deployed.
+
+| | What changed | Proven by |
+|---|---|---|
+| F2 · retention | A run's transcript goes after 7 days. Its question, answer and error go after 90, and so do a decided proposal's details. Audit entries go after 365, except records of erasure. The numbers stay. Running runs and pending proposals are never touched. All three periods are settings with guard rails. It is swept every six hours, paced by the last sweep, or run by hand | `verify:retention` (web), 38 checks |
+| 2.7 · rights | Anyone downloads their own data; admins download anyone's. Admins erase a person after typing their email (never themselves), in one transaction, and the erasure is recorded. Admins can find everything about a name. Every export, erasure and search is on the audit trail | the same |
+
+**When this deploys,** the first sweep removes the transcripts of runs older
+than 7 days, and the questions and answers of runs older than 90 days. Set
+the `HUB_RETAIN_*` periods on Fly first if you want different ones, and match
+Neon's restore window to them.
+
 **Before deploying:**
 - **Set `ALLOWED_EMAILS` on Fly first.** Without it nobody can sign in.
 - **Admins need a row.** Anyone who used to get in as admin without a row now

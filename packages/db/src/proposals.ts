@@ -33,6 +33,8 @@ export interface Proposal {
   result: string | null;
   error: string | null;
   createdAt: string;
+  /** Its arguments and result were removed by retention after the decision (docs/retention.md). */
+  contentExpiredAt: string | null;
   /** Joined for display. */
   agentName: string | null;
   agentSlug: string | null;
@@ -59,7 +61,7 @@ const COLUMNS = `
   p.id, p.agent_id as "agentId", p.run_id as "runId", p.principal_id as "principalId",
   p.server, p.tool, p.args, p.description, p.reason, p.status,
   p.decided_by as "decidedBy", p.decided_at as "decidedAt", p.note, p.result, p.error,
-  p.created_at as "createdAt",
+  p.created_at as "createdAt", p.content_expired_at as "contentExpiredAt",
   p.assigned_to as "assignedTo", p.assigned_by as "assignedBy",
   p.assigned_at as "assignedAt", p.assign_note as "assignNote",
   a.name as "agentName", a.slug as "agentSlug",

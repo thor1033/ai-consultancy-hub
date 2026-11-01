@@ -39,7 +39,7 @@ export function YourAnswers({ runs, agentName, now }: { runs: MyRun[]; agentName
                   className={`inline-block h-2 w-2 shrink-0 ${r.status === "running" ? "ctx-blink" : ""}`}
                   style={{ background: r.status === "failed" ? "var(--brand)" : r.status === "running" ? "var(--muted)" : "var(--ai)" }}
                 />
-                <span className="min-w-0 flex-1 text-sm font-medium">{r.skill ?? firstLine(r.prompt)}</span>
+                <span className="min-w-0 flex-1 text-sm font-medium">{r.skill ?? (r.expired ? "A conversation" : firstLine(r.prompt))}</span>
                 <span className="text-xs text-[var(--muted)]">
                   {r.status === "running" ? "Still working · " : r.status === "failed" ? "Did not finish · " : ""}
                   {rel(r.at, now)}
@@ -47,7 +47,9 @@ export function YourAnswers({ runs, agentName, now }: { runs: MyRun[]; agentName
               </summary>
               <div className="mt-3 pl-5">
                 {r.skill && <p className="mb-2 text-xs text-[var(--muted)]">{firstLine(r.prompt)}</p>}
-                {finished(r) && r.output ? (
+                {r.expired ? (
+                  <p className="text-sm text-[var(--muted)]">The question and answer were removed after the hub&apos;s retention period. What remains is that it happened.</p>
+                ) : finished(r) && r.output ? (
                   <div className="inset p-4">
                     <Markdown>{r.output}</Markdown>
                   </div>

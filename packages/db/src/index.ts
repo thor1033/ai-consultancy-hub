@@ -187,3 +187,14 @@ export { listChildRuns } from "./sessions";
 export { parseAgentFile, githubTarget, rawUrl, licenseFromText, skillTemplateFrom, HUB_RULES_ADDENDUM, SKILL_REQUEST_PARAMETER } from "./skillmd";
 export type { ParsedAgentFile, ImportSource, GithubTarget } from "./skillmd";
 export type { ChildRun } from "./sessions";
+export {
+  retentionPolicy,
+  DEFAULT_RETENTION,
+  sweepRetention,
+  sweepRetentionAndRecord,
+  lastRetentionSweep,
+  exportPerson,
+  erasePerson,
+  findSubject,
+} from "./personalData";
+export type { RetentionPolicy, RetentionSweep, PersonExport, Erasure, SubjectHits } from "./personalData";

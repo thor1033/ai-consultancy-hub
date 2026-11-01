@@ -3,6 +3,9 @@ import {
   getPrincipal,
   type Schedule,
   type TickOutcome,
+  lastRetentionSweep,
+  sweepRetentionAndRecord,
+  type RetentionSweep,
 } from "@ai-hub/db";
 import type { Principal } from "@ai-hub/authz";
 import { runAgentForPrincipal, runSkillForPrincipal } from "./agentRuns";
@@ -85,6 +88,22 @@ export async function tick(now: Date = new Date()): Promise<TickOutcome> {
   }, now);
 }
 
+/**
+ * Retention (docs/retention.md): every six hours, the policy runs once —
+ * paced by the last sweep on record, so several machines ticking at once
+ * still sweep about once per window, and a restart does not sweep again.
+ * A sweep is idempotent, so two that do overlap only repeat no-ops.
+ */
+export const RETENTION_EVERY_MS = 6 * 60 * 60_000;
+
+export async function maybeSweepRetention(now: Date = new Date()): Promise<RetentionSweep | null> {
+  const last = await lastRetentionSweep();
+  if (last && now.getTime() - new Date(last.at).getTime() < RETENTION_EVERY_MS) return null;
+  return sweepRetentionAndRecord("scheduler");
+}
+
+let sweeping = false;
+
 let timer: ReturnType<typeof setInterval> | null = null;
 let ticking = false;
 
@@ -124,6 +143,18 @@ export function startScheduler(): boolean {
       .finally(() => {
         ticking = false;
       });
+    // Retention on its own track: a slow sweep never delays a schedule, nor the reverse.
+    if (!sweeping) {
+      sweeping = true;
+      maybeSweepRetention()
+        .then((out) => {
+          if (out) console.log(`[retention] swept: ${JSON.stringify(out)}`);
+        })
+        .catch((err) => console.warn(`[retention] sweep failed: ${err instanceof Error ? err.message : err}`))
+        .finally(() => {
+          sweeping = false;
+        });
+    }
   }, TICK_MS);
 
   // Do not hold the process open on its own account; the HTTP server does that.

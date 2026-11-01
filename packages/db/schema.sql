@@ -654,3 +654,15 @@ alter table agent_memories add constraint agent_memories_scope_check
 alter table agent_memories drop constraint if exists agent_memories_agent_id_key_key;
 create unique index if not exists agent_memories_scoped_key
   on agent_memories (agent_id, key, scope, scope_ref);
+
+-- Retention (docs/retention.md, docs/data-protection-review.md 2.2). Keep the
+-- outcome, drop the evidence: a run's full transcript (every tool result —
+-- emails, records) is dropped after a short window; its question and answer
+-- after a longer one; what is left is the numbers (tools, cost, timings). A
+-- decided proposal's arguments go with the answers. Stamped, so the sweep is
+-- idempotent and a page can say "removed after N days" instead of "empty".
+alter table agent_sessions add column if not exists transcript_dropped_at timestamptz;
+alter table agent_sessions add column if not exists content_expired_at timestamptz;
+alter table proposals add column if not exists content_expired_at timestamptz;
+create index if not exists agent_sessions_retention_idx
+  on agent_sessions (created_at) where content_expired_at is null;

@@ -2,7 +2,7 @@ import { VIEWS, VIEW_INFO } from "@/lib/views";
 import { viewContext } from "@/lib/viewServer";
 import { ViewChooser } from "./ViewChooser";
 import { StewardConsent } from "./StewardConsent";
-import { getPrincipal } from "@ai-hub/db";
+import { getPrincipal, retentionPolicy } from "@ai-hub/db";
 
 export const dynamic = "force-dynamic";
 
@@ -43,6 +43,28 @@ export default async function SettingsPage() {
           <StewardConsent allowed={stewardAllowed} />
         </div>
       )}
+      {principal && <YourData />}
     </main>
+  );
+}
+
+/** What the hub keeps about you and for how long, and a copy of it (docs/retention.md). */
+function YourData() {
+  const p = retentionPolicy();
+  return (
+    <section className="panel mt-6 p-5 md:p-6">
+      <div className="eyebrow">Your data</div>
+      <p className="mt-2 max-w-2xl text-sm text-[var(--text-soft)]">
+        What you ask the agents and what they answer is kept for {p.answersDays} days, so you can find it again under &ldquo;Your
+        answers&rdquo;. The full record of a conversation — everything its tools read — is kept for {p.transcriptsDays} days. After that
+        only the numbers stay: which agent, how long, how much. Memories and documents stay until someone removes them.
+      </p>
+      <a className="btn mt-4 inline-flex min-h-11" href="/settings/export">
+        Download everything about you
+      </a>
+      <p className="mt-2 text-xs text-[var(--muted)]">
+        To have your data erased, ask an admin of this hub; they can do it from the Admin page.
+      </p>
+    </section>
   );
 }

@@ -859,6 +859,12 @@ function DecidedRow({ p, now, nameOf }: { p: Proposal; now: number; nameOf: (id:
         <span className="text-xs text-[var(--faint)]">{open ? "Less" : "More"}</span>
       </button>
       {open && (
+        p.contentExpiredAt ? (
+          <p className="px-1 pb-3 text-sm text-[var(--muted)]">
+            The details of this change were removed after the hub&apos;s retention period. What remains is that it was {p.status}, by whom and when.
+          </p>
+        ) : (
+
         <div className="px-4 pb-4 pl-10">
           {p.reason && <p className="mb-3 max-w-[68ch] text-sm text-[var(--text-soft)]">{p.reason}</p>}
           <ExactCall p={p} long={[]} />
@@ -869,6 +875,7 @@ function DecidedRow({ p, now, nameOf }: { p: Proposal; now: number; nameOf: (id:
             </div>
           )}
         </div>
+        )
       )}
     </li>
   );
