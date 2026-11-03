@@ -24,6 +24,27 @@ import { useView } from "@/components/ViewProvider";
  */
 
 type Person = { id: string; name: string; email: string };
+
+/** "Ditlev", "you and Ditlev", "Anna, Ditlev and you". */
+function joinNames(names: string[]): string {
+  if (names.length <= 1) return names[0] ?? "nobody";
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+}
+
+/** Who a proposal is with, from where the viewer stands: you first, by name otherwise. */
+function sentToNames(p: Proposal, viewerId: string): string {
+  const mine = p.sentTo.filter((x) => x.id === viewerId).map(() => "you");
+  return joinNames([...mine, ...p.sentTo.filter((x) => x.id !== viewerId).map((x) => x.name)]);
+}
+
+/** Who sent it: a person, or — when the agent's own setting did — the agent. */
+function sentByName(p: Proposal, nameOf: (id: string | null) => string): string {
+  return p.assignedBy ? nameOf(p.assignedBy) : `${p.agentName ?? "The agent"}'s setting`;
+}
+
+/** Same people, same sender: one note for a run instead of one per row. */
+const sameHandoff = (a: Proposal, b: Proposal) =>
+  a.assignedBy === b.assignedBy && a.sentTo.map((x) => x.id).join() === b.sentTo.map((x) => x.id).join();
 type Viewer = { id: string; admin: boolean };
 type Tab = "mine" | "sent" | "decided";
 
@@ -42,9 +63,10 @@ export function ApprovalsView({ pending, decided, people, viewer, now }: Props) 
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [flash, setFlash] = useState<{ tone: "ok" | "bad"; text: string } | null>(null);
 
-  const mine = useMemo(() => pending.filter((p) => !p.assignedTo || p.assignedTo === viewer.id), [pending, viewer.id]);
-  const sent = useMemo(() => pending.filter((p) => p.assignedTo && p.assignedTo !== viewer.id), [pending, viewer.id]);
-  const sentToMe = mine.filter((p) => p.assignedTo === viewer.id).length;
+  const toMe = (p: Proposal) => p.sentTo.some((x) => x.id === viewer.id);
+  const mine = useMemo(() => pending.filter((p) => p.sentTo.length === 0 || p.sentTo.some((x) => x.id === viewer.id)), [pending, viewer.id]);
+  const sent = useMemo(() => pending.filter((p) => p.sentTo.length > 0 && !p.sentTo.some((x) => x.id === viewer.id)), [pending, viewer.id]);
+  const sentToMe = mine.filter(toMe).length;
   const [tab, setTab] = useState<Tab>("mine");
 
   const week = now - 7 * 864e5;
@@ -86,7 +108,7 @@ export function ApprovalsView({ pending, decided, people, viewer, now }: Props) 
   const actions: Actions = {
     approve: (ids) => run("Approved", ids, () => approveProposalsAction(ids)),
     reject: (ids, note) => run("Rejected", ids, () => rejectProposalsAction(ids, note)),
-    send: (ids, to, note) => run(to ? `Sent to ${nameOf(to)}:` : "Took back", ids, () => sendProposalsAction(ids, to, note)),
+    send: (ids, to, note) => run(to.length ? `Sent to ${joinNames(to.map(nameOf))}:` : "Took back", ids, () => sendProposalsAction(ids, to, note)),
     busy,
   };
 
@@ -175,7 +197,7 @@ export function ApprovalsView({ pending, decided, people, viewer, now }: Props) 
 
       {/* ── the selection bar ───────────────────────────────────────────── */}
       {tab !== "decided" && selected.size > 0 && (
-        <SelectionBar ids={[...selected]} people={people} actions={actions} clear={() => setSelected(new Set())} />
+        <SelectionBar ids={[...selected]} people={people} viewer={viewer} actions={actions} clear={() => setSelected(new Set())} />
       )}
     </>
   );
@@ -186,7 +208,8 @@ export function ApprovalsView({ pending, decided, people, viewer, now }: Props) 
 interface Actions {
   approve: (ids: string[]) => void;
   reject: (ids: string[], note: string) => void;
-  send: (ids: string[], to: string | null, note: string) => void;
+  /** An empty list takes them back to whoever the run acted as. */
+  send: (ids: string[], to: string[], note: string) => void;
   busy: boolean;
 }
 
@@ -310,14 +333,14 @@ function RunList(props: ListProps) {
 
 type Panel = { kind: "approve" | "reject" | "send"; ids: string[] } | null;
 
-function RunCard({ group, people, now, selected, toggle, actions, nameOf, sentView, delay }: ListProps & { group: RunGroup; delay: number }) {
+function RunCard({ group, people, viewer, now, selected, toggle, actions, nameOf, sentView, delay }: ListProps & { group: RunGroup; delay: number }) {
   const [panel, setPanel] = useState<Panel>(null);
   const live = group.items.filter((p) => p.status === "pending");
   const ids = live.map((p) => p.id);
   const allOn = ids.length > 0 && ids.every((id) => selected.has(id));
   const someOn = ids.some((id) => selected.has(id));
   const first = group.items[0];
-  const allHanded = Boolean(first.assignedTo) && group.items.every((p) => p.assignedTo === first.assignedTo);
+  const allHanded = first.sentTo.length > 0 && group.items.every((p) => sameHandoff(p, first));
 
   return (
     <article className="panel fade-in shadow-[var(--shadow-soft)]" style={{ animationDelay: `${Math.min(delay, 6) * 40}ms` }}>
@@ -370,11 +393,13 @@ function RunCard({ group, people, now, selected, toggle, actions, nameOf, sentVi
         )}
       </header>
 
-      {allHanded && <HandoffNote by={nameOf(first.assignedBy)} to={nameOf(first.assignedTo)} note={first.assignNote} at={first.assignedAt} now={now} />}
+      {allHanded && (
+        <HandoffNote by={sentByName(first, nameOf)} to={sentToNames(first, viewer.id)} note={first.assignNote} at={first.assignedAt} now={now} />
+      )}
 
       {panel && (
         <div className="border-t border-[var(--border)] bg-[var(--panel-inset)] px-5 py-4">
-          <ActionPanel panel={panel} people={people} actions={actions} close={() => setPanel(null)} />
+          <ActionPanel panel={panel} people={people} viewer={viewer} actions={actions} close={() => setPanel(null)} />
         </div>
       )}
 
@@ -385,6 +410,7 @@ function RunCard({ group, people, now, selected, toggle, actions, nameOf, sentVi
             p={p}
             index={i + 1}
             people={people}
+            viewer={viewer}
             now={now}
             checked={selected.has(p.id)}
             onCheck={(on) => toggle([p.id], on)}
@@ -406,6 +432,7 @@ function HandoffNote({ by, to, note, at, now }: { by: string; to: string; note: 
       <p className="min-w-0 pt-0.5">
         <span className="text-[var(--muted)]">
           {by === "you" ? "You sent this" : `${by} sent this`} to {to}
+          {to.includes(" and ") && " — whoever decides first, decides"}
           {at && ` · ${rel(at, now).toLowerCase()}`}
         </span>
         {note && <span className="text-[var(--text)]"> — “{note}”</span>}
@@ -420,6 +447,7 @@ function Row({
   p,
   index,
   people,
+  viewer,
   now,
   checked,
   onCheck,
@@ -431,6 +459,7 @@ function Row({
   p: Proposal;
   index: number;
   people: Person[];
+  viewer: Viewer;
   now: number;
   checked: boolean;
   onCheck: (on: boolean) => void;
@@ -492,10 +521,10 @@ function Row({
             </dl>
           )}
 
-          {showHandoff && p.assignedTo && (
+          {showHandoff && p.sentTo.length > 0 && (
             <p className="mt-3 flex flex-wrap items-center gap-2 text-xs text-[var(--muted)]">
-              <PersonMark name={sentView ? nameOf(p.assignedTo) : nameOf(p.assignedBy) === "you" ? "You" : nameOf(p.assignedBy)} size={20} />
-              {sentView ? `With ${nameOf(p.assignedTo)}` : `Sent to you by ${nameOf(p.assignedBy)}`}
+              <PersonMark name={sentView ? p.sentTo[0].name : sentByName(p, nameOf) === "you" ? "You" : sentByName(p, nameOf)} size={20} />
+              {sentView ? `With ${sentToNames(p, viewer.id)}` : `Sent to ${sentToNames(p, viewer.id)} by ${sentByName(p, nameOf)}`}
               {p.assignedAt && ` · ${rel(p.assignedAt, now).toLowerCase()}`}
               {p.assignNote && <span className="text-[var(--text-soft)]">— “{p.assignNote}”</span>}
             </p>
@@ -536,7 +565,7 @@ function Row({
               </QuietButton>
             </div>
             {sentView && (
-              <QuietButton disabled={actions.busy} onClick={() => actions.send([p.id], null, "")}>
+              <QuietButton disabled={actions.busy} onClick={() => actions.send([p.id], [], "")}>
                 Take back
               </QuietButton>
             )}
@@ -546,7 +575,7 @@ function Row({
 
       {panel && (
         <div className="border-t border-[var(--border)] bg-[var(--panel-inset)] px-5 py-4 md:pl-14">
-          <ActionPanel panel={panel} people={people} actions={actions} close={() => setPanel(null)} />
+          <ActionPanel panel={panel} people={people} viewer={viewer} actions={actions} close={() => setPanel(null)} />
         </div>
       )}
     </li>
@@ -602,9 +631,21 @@ function ExactCall({ p, long }: { p: Proposal; long: { field: string; value: str
 
 // ── deciding ─────────────────────────────────────────────────────────────────
 
-function ActionPanel({ panel, people, actions, close }: { panel: NonNullable<Panel>; people: Person[]; actions: Actions; close: () => void }) {
+function ActionPanel({
+  panel,
+  people,
+  viewer,
+  actions,
+  close,
+}: {
+  panel: NonNullable<Panel>;
+  people: Person[];
+  viewer: Viewer;
+  actions: Actions;
+  close: () => void;
+}) {
   const [note, setNote] = useState("");
-  const [to, setTo] = useState<string | null>(people.length === 1 ? people[0].id : null);
+  const [to, setTo] = useState<string[]>(people.length === 1 ? [people[0].id] : []);
   const n = panel.ids.length;
   const them = n === 1 ? "it" : `all ${n}`;
 
@@ -678,22 +719,27 @@ function ActionPanel({ panel, people, actions, close }: { panel: NonNullable<Pan
       </div>
     );
   }
-  const target = people.find((p) => p.id === to);
+  // You are offered too, so "Thor and Ditlev" is one send: it then waits on
+  // both of you, and whoever decides first, decides. You alone is not a send.
+  const options: Person[] = [{ id: viewer.id, name: "You", email: "keep it waiting on you too" }, ...people];
+  const others = to.filter((id) => id !== viewer.id);
+  const names = joinNames(to.map((id) => (id === viewer.id ? "you" : (people.find((p) => p.id === id)?.name.split(" ")[0] ?? id))));
+  const flip = (id: string) => setTo((t) => (t.includes(id) ? t.filter((x) => x !== id) : [...t, id]));
   return (
     <form
       className="flex flex-col gap-4"
       onSubmit={(e) => {
         e.preventDefault();
-        if (!to) return;
+        if (!others.length) return;
         actions.send(panel.ids, to, note);
         close();
       }}
     >
       <fieldset>
-        <legend className="eyebrow mb-2">Send {n === 1 ? "this write" : `${n} writes`} to</legend>
+        <legend className="eyebrow mb-2">Send {n === 1 ? "this write" : `${n} writes`} to — pick one or more</legend>
         <div className="flex flex-wrap gap-2">
-          {people.map((person) => {
-            const on = person.id === to;
+          {options.map((person) => {
+            const on = to.includes(person.id);
             return (
               <label
                 key={person.id}
@@ -701,7 +747,7 @@ function ActionPanel({ panel, people, actions, close }: { panel: NonNullable<Pan
                   on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"
                 }`}
               >
-                <input type="radio" name="to" className="sr-only" checked={on} onChange={() => setTo(person.id)} />
+                <input type="checkbox" className="sr-only" checked={on} onChange={() => flip(person.id)} />
                 <PersonMark name={person.name} active={on} />
                 <span className="flex flex-col leading-tight">
                   <span className="font-medium">{person.name}</span>
@@ -717,26 +763,30 @@ function ActionPanel({ panel, people, actions, close }: { panel: NonNullable<Pan
         <input className="field" placeholder="e.g. “Your call — these are the commercial tasks from Saturday.”" value={note} onChange={(e) => setNote(e.target.value)} />
       </label>
       <div className="flex flex-wrap items-center gap-2">
-        <button type="submit" className="btn-brand min-h-9" disabled={!to || actions.busy}>
-          {target ? `Send to ${target.name.split(" ")[0]}` : "Choose a person"}
+        <button type="submit" className="btn-brand min-h-9" disabled={!others.length || actions.busy}>
+          {others.length ? `Send to ${names}` : to.length ? "Pick someone besides you" : "Choose who"}
         </button>
         <button type="button" className="btn min-h-9" onClick={close}>
           Cancel
         </button>
-        <span className="text-xs text-[var(--muted)]">They see it under “Waiting on you”. You can still decide it, or take it back.</span>
+        <span className="text-xs text-[var(--muted)]">
+          {others.length > 1 || to.includes(viewer.id)
+            ? "It waits on each of them under “Waiting on you”; whoever decides first, decides."
+            : "They see it under “Waiting on you”. You can still decide it, or take it back."}
+        </span>
       </div>
     </form>
   );
 }
 
-function SelectionBar({ ids, people, actions, clear }: { ids: string[]; people: Person[]; actions: Actions; clear: () => void }) {
+function SelectionBar({ ids, people, viewer, actions, clear }: { ids: string[]; people: Person[]; viewer: Viewer; actions: Actions; clear: () => void }) {
   const [panel, setPanel] = useState<Panel>(null);
   return (
     <div className="fixed inset-x-0 bottom-0 z-30 lg:left-[15rem]" role="region" aria-label="Selected writes">
       {panel && (
         <div className="mx-auto max-w-[80rem] px-5 lg:px-8">
           <div className="border border-b-0 border-[var(--border-strong)] bg-[var(--panel)] px-5 py-4 shadow-[var(--shadow-popover)]">
-            <ActionPanel panel={panel} people={people} actions={actions} close={() => setPanel(null)} />
+            <ActionPanel panel={panel} people={people} viewer={viewer} actions={actions} close={() => setPanel(null)} />
           </div>
         </div>
       )}

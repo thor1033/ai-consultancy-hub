@@ -77,6 +77,11 @@ export interface Agent extends AgentSummary {
   pattern: PatternTag | null;
   /** Where it was imported from, if it was (docs/skill-import.md). */
   source: ImportSource | null;
+  /**
+   * Principal ids its held writes are sent to as they are made, any one of
+   * whom may decide. Empty: to whoever the run acted as (docs/approvals.md).
+   */
+  sendApprovalsTo: string[];
 }
 
 /**
@@ -209,6 +214,7 @@ export interface AgentInput {
   keepsMemory?: boolean;
   pattern?: PatternTag | null;
   source?: ImportSource | null;
+  sendApprovalsTo?: string[];
 }
 
 // Unqualified on purpose: this list is reused in a RETURNING clause, where
@@ -219,6 +225,7 @@ const AGENT_COLUMNS = `
   knowledge_all as "knowledgeAll", max_iterations as "maxIterations",
   enabled, placement, function_name as "functionName", owner,
   keeps_memory as "keepsMemory", pattern, source,
+  send_approvals_to as "sendApprovalsTo",
   created_at as "createdAt", updated_at as "updatedAt"
 `;
 
@@ -258,7 +265,8 @@ export async function createAgent(input: AgentInput): Promise<Agent> {
   const rows = await sql<Agent[]>`
     insert into agents (slug, name, description, instructions, model, effort,
                         mcp_servers, knowledge_collections, knowledge_all, max_iterations,
-                        enabled, placement, function_name, owner, keeps_memory, pattern, source)
+                        enabled, placement, function_name, owner, keeps_memory, pattern, source,
+                        send_approvals_to)
     values (${input.slug}, ${input.name}, ${input.description ?? ""},
             ${input.instructions ?? ""}, ${input.model ?? null}, ${input.effort ?? null},
             ${sql.json((input.mcpServers ?? []) as Parameters<typeof sql.json>[0])},
@@ -266,7 +274,8 @@ export async function createAgent(input: AgentInput): Promise<Agent> {
             ${input.maxIterations ?? null}, ${input.enabled ?? true}, ${input.placement ?? "hub"},
             ${(input.functionName ?? "").trim()}, ${(input.owner ?? "").trim()},
             ${input.keepsMemory ?? true}, ${sql.json((input.pattern ?? null) as never)},
-            ${sql.json((input.source ?? null) as never)})
+            ${sql.json((input.source ?? null) as never)},
+            ${cleanNames(input.sendApprovalsTo)}::text[])
     returning ${sql.unsafe(AGENT_COLUMNS)}, 0 as "memoryCount"
   `;
   return rows[0];
@@ -310,6 +319,7 @@ export async function updateAgent(
       keeps_memory = ${next.keepsMemory ?? true},
       pattern = ${sql.json((next.pattern ?? null) as never)},
       source = ${sql.json((next.source ?? null) as never)},
+      send_approvals_to = ${cleanNames(next.sendApprovalsTo)}::text[],
       updated_at = now()
     where id = ${id}
     returning ${sql.unsafe(AGENT_COLUMNS)},

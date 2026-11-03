@@ -28,6 +28,7 @@ import { listCollections } from "@ai-hub/rag";
 import { sessionCan, sessionKnowledgeAccess, sessionPrincipal } from "@/lib/sessionPrincipal";
 import { DAYS, money, rel } from "@/lib/format";
 import { AgentForm } from "../AgentForm";
+import { peopleToSendTo } from "@/lib/approvals";
 import { toolCatalog } from "../catalog";
 import { MODELS, agentToolName, serverMailboxes, serverNames, serverWritesAllowed, skillToolName } from "../models";
 import { AgentTabs } from "./AgentTabs";
@@ -58,6 +59,8 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
   const named = serverNames(agent.mcpServers).filter((n) => n !== "memory");
   const mailboxes = serverMailboxes(agent.mcpServers);
   const writesAllowed = serverWritesAllowed(agent.mcpServers);
+  // Who its writes could be sent to, for Settings. Display only: the save checks each person again.
+  const approvers = await peopleToSendTo(null).catch(() => []);
   // Everything below is display; a failure in one source must not take the
   // page (and with it the only way to fix the agent) down.
   const [memories, collections, skills, runRows, schedules, roster, tools, canManage, activity, admin, viewer, orgLabels, handoffs, allAgents] =
@@ -372,7 +375,9 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           writesAllowed,
           keepsMemory: agent.keepsMemory,
           asks: askedAgents(agent.mcpServers),
+          sendApprovalsTo: agent.sendApprovalsTo,
         }}
+        approvers={approvers}
         agents={allAgents.map((a) => ({ slug: a.slug, name: a.name, description: a.description }))}
         functions={orgLabels.functions}
         owners={orgLabels.owners}

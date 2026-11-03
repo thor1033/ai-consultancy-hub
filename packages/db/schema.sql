@@ -494,6 +494,21 @@ alter table proposals add column if not exists assigned_by text;
 alter table proposals add column if not exists assigned_at timestamptz;
 alter table proposals add column if not exists assign_note text;
 create index if not exists proposals_assigned_idx on proposals (assigned_to, status);
+-- Sent to several people at once: whoever of them decides first, decides
+-- (claimProposal is conditional on pending, so two approvals make one call).
+-- `sent_to` is the list; `assigned_to` is kept as its first entry, so the
+-- backfill below — which runs on every release — finds nothing left to do.
+-- An array rather than a table because its order is the order the sender
+-- picked and it is read whole; erasePerson takes a person out of it.
+alter table proposals add column if not exists sent_to text[] not null default '{}';
+update proposals set sent_to = array[assigned_to]
+ where assigned_to is not null and cardinality(sent_to) = 0;
+create index if not exists proposals_sent_to_idx on proposals using gin (sent_to);
+-- The people an agent's held writes go to as they are made (the Secretary's
+-- to both founders, say). Empty: to whoever the run acted as, as before.
+-- Principal ids; checked when saved and again when a write is held, so a
+-- person who has since lost the role, or left, is skipped rather than sent to.
+alter table agents add column if not exists send_approvals_to text[] not null default '{}';
 create index if not exists proposals_status_idx on proposals (status, created_at desc);
 create index if not exists proposals_run_idx on proposals (run_id);
 create index if not exists proposals_principal_idx on proposals (principal_id, status);

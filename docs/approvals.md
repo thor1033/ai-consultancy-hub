@@ -77,22 +77,48 @@ gate at all.
 ### Sending one on
 
 A write that is someone else's call — the commercial tasks from a meeting, say —
-can be sent to a colleague with a note: from a row, a whole run, or a selection
-on `/approvals`, or with `hub_send_proposal` from Claude Code ("send these to
-Ditlev"). It is recorded on the proposal (`assigned_to`, `assigned_by`,
-`assigned_at`, `assign_note`), and the rules are:
+can be sent to one colleague or several with a note: from a row, a whole run,
+or a selection on `/approvals`, or with `hub_send_proposal` from Claude Code
+("send these to Ditlev", or to Thor and Ditlev). It is recorded on the proposal
+(`sent_to`, the people in the order picked; `assigned_by`, `assigned_at`,
+`assign_note`; `assigned_to` is kept as the first of `sent_to`), and the rules
+are:
 
 - **Only someone who may decide it may send it.** A decision that is not yours
   is not yours to hand over.
-- **Only to a person who could decide it in turn**: an enabled principal with
-  an email (a person, not a service credential), not bound to an agent, whose
-  role includes `agent:run`. A colleague must have signed in once to be listed.
-- **Sending adds a decider; it removes none.** The person who sent it can still
+- **Only to people who could decide it in turn**: enabled principals with an
+  email (people, not service credentials), not bound to an agent, whose role
+  includes `agent:run`. A colleague must have signed in once to be listed. The
+  list is checked whole: one name that does not qualify sends it to nobody.
+- **Any one of them decides.** Whoever approves or rejects first decides;
+  approving is conditional on the proposal still pending, so two people
+  approving at the same moment run the call once.
+- **Sending adds deciders; it removes none.** The person who sent it can still
   approve, reject or take it back, so a handoff to someone who is away never
-  strands a write. Sending again moves it; it never copies.
-- **It counts as waiting on them**, not on the sender: it is under their
-  *Waiting on you* and on the red count beside Approvals in their sidebar, and
-  under the sender's *Sent on*.
+  strands a write. The sender can tick themselves too, to keep it waiting on
+  them as well. Sending again replaces the list; it never adds to it.
+- **It counts as waiting on each of them**, not on the sender (unless they
+  ticked themselves): it is under each one's *Waiting on you* and on the red
+  count beside Approvals in their sidebar, and under the sender's *Sent on*.
+
+### An agent that sends its own
+
+An agent can send its held writes to people as they are made: *Send its
+approvals to* on the agent's Settings, or `sendApprovalsTo` on
+`hub_agent_update`. The Secretary's to both founders, say: every change it
+proposes after a meeting waits on Thor and on Ditlev, and either decides.
+
+- Stored on the agent (`agents.send_approvals_to`, principal ids). Each person
+  is checked when it is saved — the same rule as sending one on — and again
+  when a write is held: someone who has since left, been switched off or lost
+  the role is skipped rather than sent a decision they cannot make. Nobody
+  left: the write waits on whoever the run acted as, as without the setting.
+- The person the run acted as may still decide, as with any send. The page
+  says the agent's setting sent it (`assigned_by` is empty).
+- Changing it needs `agent:manage`, like the rest of an agent's settings. It
+  widens nothing: it only chooses among people who could already decide.
+- Erasing a person (`erasePerson`) takes them out of every list, on proposals
+  and on agents.
 
 Nobody is mailed or messaged when a write is sent — the count in the sidebar is
 the notice, refreshed on every page and every minute. A push (mail, Teams) is the
@@ -143,7 +169,9 @@ npm run verify:approvals -w web
 ```
 
 Needs `DATABASE_URL`; no API key. A real remote MCP server stands in for the
-PM-tool. 62 checks, sending on included. It proves which calls are held and which pass, that the held call is
+PM-tool. 81 checks, sending on included — to several people at once, two of
+them approving in the same moment, and an agent's own setting (skipping someone
+who lost the role, kept when another field is saved, emptied by an erasure). It proves which calls are held and which pass, that the held call is
 recorded with its exact arguments and not made, that only the right people can
 decide, that approving runs the same call with the hub's credential and records
 the result, that rejections and double decisions behave, and that the gate

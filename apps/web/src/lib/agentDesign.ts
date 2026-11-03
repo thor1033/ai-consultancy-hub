@@ -18,6 +18,7 @@ import { isKnownServer } from "@/lib/runSession";
 import { undeclaredPlaceholders } from "@/lib/skillPrompt";
 import { MAILBOX_SERVERS, MODELS, serverWritesAllowed } from "@/app/agents/models";
 import { loadHubConnections } from "@/lib/connections";
+import { decider } from "@/lib/approvals";
 
 /*
  * Designing agents and skills: the checks behind saving one, for every door.
@@ -174,6 +175,21 @@ export async function saveAgentAs(
   const owner = label(input.owner ?? existing?.owner, "The owner");
   if (typeof owner !== "string") return owner;
 
+  // Who its held writes go to. Each must be someone who could decide one:
+  // a write sent to a person who cannot act on it waits for nobody. Omitted,
+  // it stays as it is, so a tool call that only edits the brief keeps it.
+  let sendApprovalsTo = existing?.sendApprovalsTo ?? [];
+  if (input.sendApprovalsTo !== undefined) {
+    if (!Array.isArray(input.sendApprovalsTo)) return { error: "Who it sends its approvals to must be a list of people." };
+    const ids = [...new Set(input.sendApprovalsTo.filter((x): x is string => typeof x === "string" && x.trim() !== "").map((x) => x.trim()))];
+    if (ids.length > 20) return { error: "Send its approvals to at most 20 people." };
+    for (const person of ids) {
+      const ok = await decider(person);
+      if ("error" in ok) return ok;
+    }
+    sendApprovalsTo = ids;
+  }
+
   const placement = input.placement ?? existing?.placement ?? "hub";
   if (!isPlacement(placement)) return { error: "Unknown placement." };
   if (placement !== (existing?.placement ?? "hub") && !admin) {
@@ -209,6 +225,7 @@ export async function saveAgentAs(
         placement,
         functionName,
         owner,
+        sendApprovalsTo,
       });
       if (!updated) return { error: "That agent no longer exists." };
       return { ok: true, id: updated.id, slug: updated.slug };
@@ -226,6 +243,7 @@ export async function saveAgentAs(
       placement,
       functionName,
       owner,
+      sendApprovalsTo,
     });
     return { ok: true, id: created.id, slug: created.slug };
   } catch (e) {

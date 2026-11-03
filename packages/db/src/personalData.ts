@@ -234,6 +234,14 @@ export async function erasePerson(principalId: string, actor: string): Promise<E
     const localCalls = await tx`delete from agent_local_calls where principal_id = ${principalId}`;
     const audit = await tx`delete from auth_events where principal_id = ${principalId}`;
     const reads = await tx`delete from knowledge_reads where principal_id = ${principalId}`;
+    // Lists of people are arrays, which no cascade reaches: take them out by hand.
+    await tx`
+      update proposals
+         set sent_to = array_remove(sent_to, ${principalId}),
+             assigned_to = (array_remove(sent_to, ${principalId}))[1]
+       where ${principalId} = any(sent_to)
+    `;
+    await tx`update agents set send_approvals_to = array_remove(send_approvals_to, ${principalId}) where ${principalId} = any(send_approvals_to)`;
     const principal = await tx`delete from principals where id = ${principalId}`;
     return {
       runs: runs.count,
