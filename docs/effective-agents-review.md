@@ -532,6 +532,20 @@ see, every write is still held.
 Every phase gets a verify script in the existing style; E1 is the one that
 also spends model money by design, and says so before it does.
 
+## Progress
+
+**Phase 1 is done.** On branch `claude/available-mcps-wurs52`, not deployed.
+
+| | What changed | Proven by |
+|---|---|---|
+| A1 | `/agents/choose`: one question per shape, one agent first, each pattern's question kept in its own code (`Pattern.question`); the link opens that pattern on the patterns page | `verify:views` (web), 89 checks |
+| A2 | The patterns page says most jobs need one agent, and links the chooser; the New agent and Agents pages point at the chooser before any team | the same |
+| A3 | Workers, specialists, stages and the reviewer are created on the cheaper model (`CHEAPER_MODEL`); the archivist, coordinator, writer and front desk stay on the default; the form's model list says which is which | `verify:patterns` (db), 84 checks |
+| B2, D2 | "Start from the template" on an empty brief: headed sections, one example, and a self-check ("say what you did not do") as the last section | `verify:views` |
+| C3 | The coordinator's and the front desk's briefs scale their asks to the question and say which specialists they will ask before asking | `verify:patterns` |
+| F1 | The scaffolding table in docs/agent-patterns.md: every number, what it protects against, when to revisit; and what is structural | a doc |
+| G2 | The skill form says a connected client reads only the name and description to decide whether to call it | — |
+
 ## What this deliberately leaves out
 
 - **Agent teams that talk to each other** (Claude Code's peer-to-peer

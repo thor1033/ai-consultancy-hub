@@ -184,7 +184,7 @@ export {
   HANDOFF_PLACEHOLDERS,
 } from "./handoffs";
 export type { Handoff, HandoffInput, HandoffVars } from "./handoffs";
-export { PATTERNS, COMMON_PARAMS, getPattern, previewPattern, instantiatePattern, patternSlug, ASK_SERVER, askedAgents } from "./patterns";
+export { PATTERNS, COMMON_PARAMS, CHEAPER_MODEL, getPattern, previewPattern, instantiatePattern, patternSlug, ASK_SERVER, askedAgents } from "./patterns";
 export type { Pattern, PatternParam, PatternRole, PatternPreview, PatternInstance, PatternValues } from "./patterns";
 export { listChildRuns } from "./sessions";
 export { parseAgentFile, githubTarget, rawUrl, licenseFromText, skillTemplateFrom, HUB_RULES_ADDENDUM, SKILL_REQUEST_PARAMETER } from "./skillmd";

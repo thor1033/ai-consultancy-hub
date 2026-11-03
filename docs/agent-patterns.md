@@ -112,6 +112,17 @@ page.
 | Writer and reviewer | **Critic loop** | Writer (remembers), Reviewer (no memory) | Writer asks Reviewer, up to three rounds | the output has a standard you can write down |
 | One door, many specialists | **Front desk** | Front desk, one Specialist per area | Front desk asks ONE Specialist per question | people should not have to know which agent to ask |
 
+**Which model.** The roles that do bounded work — a worker, a specialist, a
+stage, the reviewer — are created on the cheaper model (`CHEAPER_MODEL`,
+Sonnet); the roles that plan, delegate or reconcile — the archivist, the
+coordinator, the writer, the front desk — stay on the deployment's default.
+Anthropic's research system ran this way, lead on the largest model and
+subagents one down. Any role's model is changed on its page.
+
+**Which shape.** `/agents/choose` asks one question per pattern, the
+`question` each carries in code, with "one agent" as the first row and the
+answer for most jobs (docs/effective-agents-review.md, A1).
+
 Every pattern takes a name for the set, an owner and a function (the org
 chart's columns), then its own parameters. A `list` parameter is one line
 per item, written `Name: what it covers`; each line becomes an agent. The
@@ -167,6 +178,32 @@ to any run carries the finished run's answer.
 well, or a real reviewer judges well. That is the model's doing, read on the
 run pages, and the reason every pattern's page lists what to decide after
 creating it.
+
+## The scaffolding, and what is not
+
+Every number below was chosen for a model the hub no longer runs, to
+protect against something. Anthropic's advice is to question such
+scaffolding on each model change and remove what is no longer load-bearing
+(docs/effective-agents-review.md, F1). Revisit this table when the default
+model changes.
+
+| Number | Where | Protects against | Revisit when |
+|---|---|---|---|
+| 10 tool rounds per run, ceiling 100 | `DEFAULT_MAX_ITERATIONS`, `MAX_ITERATIONS_CEILING` (@ai-hub/agent) | a run that loops; a misconfigured agent's cost | the model needs fewer calls for the same work |
+| 12 asks per run | `ASK_BUDGET` (lib/askAgents.ts) | a coordinator that asks in a loop | asks run in parallel, or a client needs more specialists |
+| 1 ask deep | `ASK_MAX_DEPTH` | fan-out of fan-outs, loops | a pattern wants a second level — none does |
+| 2 hand-offs deep | `HANDOFF_MAX_DEPTH` (lib/handoffs.ts) | two agents handing to each other forever | a pipeline needs a fourth stage from one run |
+| 10 minutes per ask | `ASK_TIMEOUT_MS` | an asker that waits on a hung run | runs get faster, or asks run in parallel |
+| 5 passages retrieved | `retrieveChunks(…, 5, …)` in agentRuns and the chat | context rot from retrieval | the window or the chunking changes |
+| 3 rounds in the critic loop | the Writer's brief | a draft that never passes | the reviewer's verdicts say otherwise on the run pages |
+| 400 words for a brief to the worker | the Archivist's brief | the archivist doing the worker's job | the worker's model reads more for the same money |
+| 7 days of transcript | `HUB_RETAIN_TRANSCRIPTS_DAYS` | holding evidence longer than it is read | never for a longer default; shorter if nobody reads them |
+
+What is **not** scaffolding, and never moves with the model: who a run runs
+as (docs/schedules.md); memory scopes (docs/memory-scopes.md); sensitivity
+labels and what leaves the hub (docs/sensitivity.md); every write held for
+a person (docs/approvals.md); and that an agent's reach is the caller's
+(docs/knowledge-access.md).
 
 ## Against Anthropic's own patterns
 

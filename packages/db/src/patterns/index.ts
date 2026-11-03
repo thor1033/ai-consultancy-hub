@@ -64,6 +64,18 @@ export interface PatternSkill {
   parameters?: SkillParameter[];
 }
 
+/**
+ * The model a role that does bounded work runs on: a worker, a specialist, a
+ * stage, a reviewer. Anthropic's research system ran its lead on the largest
+ * model and its subagents on the next one down, and "Building effective
+ * agents" names routing easy work to a smaller model as a pattern of its
+ * own. Coordinators, archivists and writers — the roles that plan, judge
+ * what to delegate and reconcile — stay on the deployment's default. The
+ * agent form's model list names this one as the balanced choice; a person
+ * changes any role's model on its page.
+ */
+export const CHEAPER_MODEL = "claude-sonnet-4-6";
+
 export interface PatternRole {
   /** Slug suffix; the instance's slug is prepended. */
   key: string;
@@ -78,6 +90,8 @@ export interface PatternRole {
   knowledgeAll?: boolean;
   maxIterations?: number;
   effort?: "low" | "medium" | "high";
+  /** Pinned model; absent ⇒ the deployment's default. CHEAPER_MODEL for bounded roles. */
+  model?: string;
   skills?: PatternSkill[];
   memories?: { key: string; content: string }[];
 }
@@ -97,6 +111,11 @@ export interface Pattern {
   /** The name people use for it. */
   nickname: string;
   summary: string;
+  /**
+   * The one question that, answered yes, says this is the shape — for the
+   * chooser (/agents/choose), where one agent is the first answer.
+   */
+  question: string;
   /** When it is the right shape, one line each. */
   when: string[];
   /** A drawing of who talks to whom. */
@@ -223,6 +242,7 @@ export function previewPattern(pattern: Pattern, values: PatternValues): Pattern
       knowledgeCollections: [],
       maxIterations: r.maxIterations ?? null,
       effort: r.effort ?? null,
+      model: r.model ?? null,
       keepsMemory: r.keepsMemory,
       enabled: true,
       placement: "hub",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { BRIEF_TEMPLATE, wordCount } from "./briefTemplate";
 import { useRouter } from "next/navigation";
 import type { Placement } from "@ai-hub/db";
 import { saveAgentAction, deleteAgentAction } from "./actions";
@@ -147,7 +148,7 @@ export function AgentForm({
   // the agent already names that is not (yet, or any more) among them.
   const knowledgeChoices = [...new Set([...collections, ...v.knowledgeCollections])];
   const picked = tools.filter((t) => v.servers.includes(t.name));
-  const words = v.instructions.trim() ? v.instructions.trim().split(/\s+/).length : 0;
+  const words = wordCount(v.instructions);
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -271,17 +272,22 @@ export function AgentForm({
         <Section
           n="02"
           title="Its brief"
-          hint="Loaded in full at the start of every run. Say who it works for, what it may and may not do, and which tools to reach for first."
+          hint="Read in full at the start of every run, so short beats long. Say who it works for, what a good answer looks like — one example teaches more than ten rules — and what it must not do."
         >
           <textarea
             className="field min-h-72 resize-y leading-relaxed"
             value={v.instructions}
             onChange={(e) => set("instructions", e.target.value)}
-            placeholder={
-              "You are the delivery lead at Teqneo.\n\nCheck your memory first. Use pm-tool for live project state — never guess a status.\n\nYou may read the board; you may not change it. When something is late, say what it blocks."
-            }
+            placeholder={"You are the delivery lead at Teqneo.\n\nCheck your memory first. Use the project board for live state — never guess a status.\n\nYou may read the board; you may not change it. When something is late, say what it blocks."}
           />
-          <div className="mt-1.5 text-xs text-[var(--muted)]">{words ? `${words} words` : "Empty — the agent runs on its tools and memory alone."}</div>
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-[var(--muted)]">
+            <span>{words ? `${words} words` : "Empty — the agent runs on its tools and memory alone."}</span>
+            {!v.instructions.trim() && (
+              <button type="button" className="underline underline-offset-2 hover:text-[var(--text)]" onClick={() => set("instructions", BRIEF_TEMPLATE)}>
+                Start from the template
+              </button>
+            )}
+          </div>
         </Section>
 
         <Section n="03" title="What it may use" hint="Each tool is a live connection the agent can call while it works. Memory is on unless this is a worker meant to start clean.">

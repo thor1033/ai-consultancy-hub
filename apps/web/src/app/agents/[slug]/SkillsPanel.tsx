@@ -279,7 +279,7 @@ function SkillEditor({
       </div>
       <div className="mt-4">
         <Field
-          label="What it does — the calling model reads this to decide when to use it"
+          label="What it does, and when to use it — a connected client reads only this and the name to decide whether to call it"
           value={draft.description}
           onChange={(description) => onChange({ ...draft, description })}
           placeholder="Draft the weekly delivery update for a client, from PM-tool and the knowledge base."

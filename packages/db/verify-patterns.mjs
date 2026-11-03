@@ -73,6 +73,12 @@ for (const p of patterns.PATTERNS) {
   check(`${p.nickname}: every agent carries the pattern tag with its role`, pv.agents.every((a) => a.pattern?.slug === p.slug && a.pattern.instance === "research-insight" && a.slug.endsWith(`-${a.pattern.role}`)));
   check(`${p.nickname}: owner and function land on every agent`, pv.agents.every((a) => a.owner === "Thor Simonsen" && a.functionName === "Delivery"));
 }
+check("every pattern carries the one question the chooser asks", patterns.PATTERNS.every((p) => /\?$/.test(p.question)));
+// Bounded roles run on the cheaper model; the roles that plan, delegate or reconcile stay on the default (docs/effective-agents-review.md, A3).
+const cheap = (pv, role) => pv.agents.find((a) => a.pattern.role === role)?.model;
+check("workers, specialists, stages and the reviewer are pinned to the cheaper model", cheap(previews["long-memory-short-hands"], "worker") === patterns.CHEAPER_MODEL && cheap(previews["coordinator-specialists"], "legal") === patterns.CHEAPER_MODEL && previews.pipeline.agents.every((a) => a.model === patterns.CHEAPER_MODEL) && cheap(previews["writer-reviewer"], "reviewer") === patterns.CHEAPER_MODEL && cheap(previews["front-desk"], "it") === patterns.CHEAPER_MODEL);
+check("the archivist, coordinator, writer and front desk stay on the deployment's default", [cheap(previews["long-memory-short-hands"], "archivist"), cheap(previews["coordinator-specialists"], "coordinator"), cheap(previews["writer-reviewer"], "writer"), cheap(previews["front-desk"], "front-desk")].every((m) => m === null));
+check("the coordinator and the front desk are told to scale their asks to the question", /How many asks/.test(previews["coordinator-specialists"].agents[0].instructions) && /one ask per area it touches/.test(previews["coordinator-specialists"].agents[0].instructions) && /Almost every question is one ask/.test(previews["front-desk"].agents[0].instructions));
 const lm = previews["long-memory-short-hands"];
 check("elephant & goldfish: the archivist remembers and reads everything; the worker neither", lm.agents.find((a) => a.slug.endsWith("-archivist")).keepsMemory === true && lm.agents.find((a) => a.slug.endsWith("-archivist")).knowledgeAll === true && lm.agents.find((a) => a.slug.endsWith("-worker")).keepsMemory === false && lm.agents.find((a) => a.slug.endsWith("-worker")).knowledgeAll === false);
 check("the archivist may ask the worker, and the worker may ask nobody", JSON.stringify(patterns.askedAgents(lm.agents[0].mcpServers)) === '["research-insight-worker"]' && patterns.askedAgents(lm.agents[1].mcpServers).length === 0);
@@ -115,7 +121,7 @@ try {
     made.push(out);
     cleanupSlugs.push(...out.agents.map((a) => a.id));
     const pv = patterns.previewPattern(p, values);
-    check(`${p.nickname}: creates every agent of its preview, with memory switch and tag`, out.agents.length === pv.agents.length && out.agents.every((a, i) => a.slug === pv.agents[i].slug && a.keepsMemory === pv.agents[i].keepsMemory && a.pattern?.role === pv.agents[i].pattern.role));
+    check(`${p.nickname}: creates every agent of its preview, with memory switch, model and tag`, out.agents.length === pv.agents.length && out.agents.every((a, i) => a.slug === pv.agents[i].slug && a.keepsMemory === pv.agents[i].keepsMemory && a.model === pv.agents[i].model && a.pattern?.role === pv.agents[i].pattern.role));
     const skills = (await Promise.all(out.agents.map((a) => db.listSkills(a.id)))).flat();
     check(`${p.nickname}: its skills and hand-offs are rows`, skills.length === pv.skills.length && out.handoffs.length === pv.handoffs.length, `${skills.length} skills, ${out.handoffs.length} hand-offs`);
     const again = await patterns.instantiatePattern(p, values).then(() => null, (e) => e.message);

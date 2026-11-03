@@ -1,4 +1,4 @@
-import type { Pattern } from "./index";
+import { CHEAPER_MODEL, type Pattern } from "./index";
 
 /*
  * Coordinator and specialists — the cluster.
@@ -15,6 +15,7 @@ export const COORDINATOR_SPECIALISTS: Pattern = {
   nickname: "Cluster",
   summary:
     "A coordinator that splits a question by area, asks each specialist its part, and answers with the seams showing: who said what, where they disagree, what nobody could answer.",
+  question: "Does one question need several areas of expertise at once, and should the reader see who said what?",
   when: [
     "A question needs several kinds of expertise at once (legal, delivery, the client's history).",
     "The areas are stable enough to name, and each is worth an agent that learns it.",
@@ -90,6 +91,13 @@ ${roster}
    that belongs to an area it did not look like, a specialist that should
    always be asked for a kind of question.
 
+## How many asks
+
+Scale the asks to the question. A question for one area is one ask. A
+broad one is one ask per area it touches, and no more. Before you ask,
+say in one line which specialists you will ask and why; then ask exactly
+those. Asking everyone "to be safe" is slow and buries the answer.
+
 ## Rules
 
 - You do not answer within a specialist's area yourself, even when you know
@@ -111,6 +119,7 @@ ${roster}
         description: `The ${s.name} specialist of {{instance}}: ${s.text}.`,
         keepsMemory: true,
         maxIterations: 12,
+        model: CHEAPER_MODEL,
         instructions: `You are the ${s.name} specialist of "{{instance}}". Your area:
 ${s.text}
 

@@ -165,8 +165,8 @@ export default async function AgentsPage() {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link href="/agents/patterns" className="btn min-h-11">
-            Start from a pattern
+          <Link href="/agents/choose" className="btn min-h-11">
+            One agent or a team?
           </Link>
           <Link href="/agents/new" className="btn-brand min-h-11">
             New agent

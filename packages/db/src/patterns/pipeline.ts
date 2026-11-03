@@ -1,4 +1,4 @@
-import type { Pattern } from "./index";
+import { CHEAPER_MODEL, type Pattern } from "./index";
 
 /*
  * Stages, one after another — the assembly line.
@@ -16,6 +16,7 @@ export const PIPELINE: Pattern = {
   nickname: "Assembly line",
   summary:
     "A chain of agents, each doing one transformation on what the stage before it produced. Started by running the first stage's skill; the hub hands each finished stage to the next.",
+  question: "Are there clear steps that different briefs do best, with nothing ever going back a step?",
   when: [
     "The work has clear steps that different briefs do best (extract → check → write up).",
     "You want to read each step's output on its own, and change one step without touching the others.",
@@ -59,6 +60,7 @@ export const PIPELINE: Pattern = {
         description: `Stage ${i + 1} of ${stages.length} of {{instance}}: ${s.text}.`,
         keepsMemory: false,
         maxIterations: 10,
+        model: CHEAPER_MODEL,
         instructions: `You are stage ${i + 1} of ${stages.length} in "{{instance}}": ${s.name}.
 ${first ? `What comes in: ${v.input}.` : `You receive the answer of stage ${i} (${stages[i - 1].name}) in your prompt.`}
 Your job: ${s.text}

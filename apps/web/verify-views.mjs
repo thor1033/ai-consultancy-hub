@@ -341,6 +341,35 @@ try {
   const exAdmin = await render(admin);
   check("Admin in Expert is the control plane, with the registry", /Control plane/.test(exAdmin) && /MCP servers/.test(exAdmin));
 
+  // ── 3b. one agent or a team: the chooser (docs/effective-agents-review.md, A1) ──
+  console.log("\n— one agent or a team —");
+  const choose = () => import("./src/app/agents/choose/page.tsx");
+  const patternsPage = () => import("./src/app/agents/patterns/page.tsx");
+  const newAgent = () => import("./src/app/agents/new/page.tsx");
+  const { PATTERNS, CHEAPER_MODEL } = await import("../../packages/db/src/index.ts");
+  signIn(PEOPLE.analyst, "simple");
+  const sChoose = await render(choose);
+  const firstRow = sChoose.indexOf("One agent.");
+  check("the chooser puts one agent first, before any team", firstRow > 0 && PATTERNS.every((p) => sChoose.indexOf(p.question) > firstRow), sChoose.slice(0, 160));
+  check("every pattern's question is on it, in the pattern's own words", PATTERNS.every((p) => sChoose.includes(p.question) && sChoose.includes(p.summary)));
+  check("in Simple it names no nicknames and shows no internals", !/Cluster|Elephant|Critic loop|Assembly line/.test(sChoose) && leaks(sChoose).length === 0, leaks(sChoose).join(" "));
+  signIn(PEOPLE.admin, "expert");
+  const exChoose = await render(choose);
+  check("in Expert the nicknames are there", PATTERNS.every((p) => exChoose.includes(p.nickname)));
+  const deep = await render(patternsPage, { searchParams: Promise.resolve({ pattern: "front-desk" }) });
+  // The open pattern's section reads name, nickname, summary; the nav reads nickname, name — so the order tells them apart.
+  check("the chooser's link opens that pattern on the patterns page", /One door, many specialists Front desk One agent people ask/.test(deep), deep.slice(deep.indexOf("Front desk One agent") - 60, deep.indexOf("Front desk One agent") + 40));
+  const bogus = await render(patternsPage, { searchParams: Promise.resolve({ pattern: "no-such-pattern" }) });
+  check("an unknown pattern in the link opens the first, not an error", !bogus.startsWith("threw") && /Long memory, short hands Elephant & goldfish An archivist/.test(bogus));
+  check("the patterns page says one agent is enough for most jobs, and links the chooser", /Most jobs need one agent/.test(bogus) && /Not sure which shape/.test(bogus) && !/Hire a team, not an agent/.test(bogus));
+  signIn(PEOPLE.analyst, "simple");
+  const sNew = await render(newAgent);
+  check("New agent below Expert points at the chooser, not straight at a team", /Not sure one agent is enough/.test(sNew) && !/ready-made team/.test(sNew.slice(0, sNew.indexOf("Not sure one agent"))));
+  const { BRIEF_TEMPLATE } = await import("./src/app/agents/briefTemplate.ts");
+  check("the brief template is headed sections that end with a self-check", /^## Who you are/m.test(BRIEF_TEMPLATE) && /## What a good answer looks like/.test(BRIEF_TEMPLATE) && /ONE example/.test(BRIEF_TEMPLATE) && /## Before you answer/.test(BRIEF_TEMPLATE) && /what you did not do/.test(BRIEF_TEMPLATE));
+  const { MODELS } = await import("./src/app/agents/models.ts");
+  check("the model list names the cheaper model as the one a team's bounded roles get", MODELS.some((m) => m.id === CHEAPER_MODEL && /worker|specialist|reviewer/.test(m.note)));
+
   // ── 4. the navigation, rendered ────────────────────────────────────────────
   const { Sidebar } = await import("./src/components/Sidebar.tsx");
   const nav = async () => {

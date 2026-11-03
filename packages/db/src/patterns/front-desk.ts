@@ -1,4 +1,4 @@
-import type { Pattern } from "./index";
+import { CHEAPER_MODEL, type Pattern } from "./index";
 
 /*
  * One door — the front desk.
@@ -16,6 +16,7 @@ export const FRONT_DESK: Pattern = {
   nickname: "Front desk",
   summary:
     "One agent people ask, which routes each question to the one specialist it is for and returns the answer with the specialist's name on it.",
+  question: "Should people be able to ask one place without knowing which agent their question is for?",
   when: [
     "People should not have to know which agent to ask.",
     "The areas are distinct enough that a question belongs to one of them.",
@@ -82,6 +83,13 @@ ${roster}
 4. memory_write what helps you route next time: a kind of question that
    belongs to an area it did not look like, and who tends to ask about what.
 
+## How many asks
+
+Almost every question is one ask, to the one specialist it is for. Only a
+question that plainly spans two areas is two asks, each its part. Before you ask,
+say in one line which specialists you will ask and why; then ask exactly
+those. Asking everyone "to be safe" is slow and buries the answer.
+
 ## Rules
 
 - You never answer within a specialist's area yourself, even if you could.
@@ -102,6 +110,7 @@ ${roster}
         description: `The ${s.name} specialist of {{instance}}: ${s.text}.`,
         keepsMemory: true,
         maxIterations: 12,
+        model: CHEAPER_MODEL,
         instructions: `You are the ${s.name} specialist of "{{instance}}". Your area:
 ${s.text}
 
