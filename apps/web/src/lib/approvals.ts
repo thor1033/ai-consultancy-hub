@@ -260,7 +260,40 @@ export async function hold(tool: McpToolInfo, input: unknown, ctx: GateContext, 
     args,
     description: tool.description,
     reason,
+    sentTo: await agentRecipients(ctx.agentId),
   });
+}
+
+/**
+ * Who an agent's held writes go to as they are made: its "send its approvals
+ * to" setting, re-checked now. Someone who has left, been switched off or lost
+ * the role since the setting was saved is skipped — sending them a decision
+ * they cannot make would strand it. Nobody left: the run's own person, as
+ * without the setting.
+ */
+async function agentRecipients(agentId: string | null | undefined): Promise<string[]> {
+  if (!agentId) return [];
+  const agent = await getAgent(agentId);
+  const out: string[] = [];
+  for (const id of agent?.sendApprovalsTo ?? []) {
+    if (!("error" in (await decider(id)))) out.push(id);
+  }
+  return out;
+}
+
+/**
+ * A person a proposal can go to: an enabled principal with an email, not
+ * bound to an agent, whose role may decide writes. The one check behind every
+ * way a proposal is sent — by a person, by an agent's setting, and when that
+ * setting is saved.
+ */
+export async function decider(id: string): Promise<{ id: string; name: string } | { error: string }> {
+  const row = await getPrincipal(id);
+  if (!row || !row.enabled || !row.email || row.agentId) return { error: "That is not a person who can be sent a proposal." };
+  if (!(await authorize(asPrincipal(row), "agent:run"))) {
+    return { error: `${row.displayName || row.email}'s role cannot decide writes, so they could not act on it.` };
+  }
+  return { id: row.id, name: row.displayName || row.email };
 }
 
 /**
@@ -278,7 +311,7 @@ export async function mayDecide(principal: Principal, proposal: Proposal): Promi
   if (principal.agentId) return false;
   if (!(await authorize(principal, "agent:run"))) return false;
   if (await authorize(principal, "admin:manage")) return true;
-  if (proposal.assignedTo && proposal.assignedTo === principal.id) return true;
+  if (proposal.sentTo.some((p) => p.id === principal.id)) return true;
   return Boolean(proposal.principalId) && proposal.principalId === principal.id;
 }
 
@@ -295,10 +328,10 @@ const asPrincipal = (row: PrincipalRow): Principal => ({
  * email, not bound to an agent) whose role may run agents, and so may decide
  * a write. Someone who could not decide it would only be handed a dead end.
  */
-export async function peopleToSendTo(principal: Principal): Promise<{ id: string; name: string; email: string }[]> {
+export async function peopleToSendTo(principal: Principal | null): Promise<{ id: string; name: string; email: string }[]> {
   const out: { id: string; name: string; email: string }[] = [];
   for (const row of await listPeople()) {
-    if (row.id === principal.id) continue;
+    if (principal && row.id === principal.id) continue;
     if (!(await authorize(asPrincipal(row), "agent:run"))) continue;
     out.push({ id: row.id, name: row.displayName || row.email!, email: row.email! });
   }
@@ -306,25 +339,52 @@ export async function peopleToSendTo(principal: Principal): Promise<{ id: string
 }
 
 /**
- * Send a pending proposal to someone else to decide, or take it back
- * (`to` null). Only someone who may decide it may pass it on — you cannot
- * hand over a decision that is not yours — and only to a person who could
- * decide it in turn.
+ * Names, emails or ids, as a person or a model writes them, to principal ids.
+ * Each must match exactly one person who could decide; otherwise nothing is
+ * returned but the reason, because a list half resolved sends a decision to
+ * the wrong people. `exclude` is the sender, who cannot be sent their own.
  */
-export async function sendOn(id: string, principal: Principal, to: string | null, note?: string): Promise<Decision> {
+export async function resolvePeople(wanted: string[], exclude: Principal | null = null): Promise<{ ids: string[] } | { error: string }> {
+  const people = await peopleToSendTo(exclude);
+  const ids: string[] = [];
+  for (const w of wanted.map((x) => x.trim()).filter(Boolean)) {
+    const want = w.toLowerCase();
+    const exact = people.filter((p) => p.id.toLowerCase() === want || p.email.toLowerCase() === want || p.name.toLowerCase() === want);
+    const loose = exact.length ? exact : people.filter((p) => p.name.toLowerCase().includes(want) || p.email.toLowerCase().startsWith(want));
+    if (loose.length !== 1) {
+      return {
+        error: loose.length
+          ? `"${w}" matches ${loose.length} people: ${loose.map((p) => `${p.name} <${p.email}>`).join(", ")}. Use an email.`
+          : `No one who can decide writes matches "${w}". People who can: ${people.map((p) => `${p.name} <${p.email}>`).join(", ") || "none"}.`,
+      };
+    }
+    if (!ids.includes(loose[0].id)) ids.push(loose[0].id);
+  }
+  return { ids };
+}
+
+/**
+ * Send a pending proposal to one or more people to decide, or take it back
+ * (an empty list). Whoever of them decides first, decides. Only someone who
+ * may decide it may pass it on — you cannot hand over a decision that is not
+ * yours — and only to people who could decide it in turn. The list replaces
+ * whoever it was with; it is checked whole, so one wrong name sends nothing.
+ */
+export async function sendOn(id: string, principal: Principal, to: string[], note?: string): Promise<Decision> {
   const proposal = await getProposal(id);
   if (!proposal) return { error: "No such proposal." };
   if (!(await mayDecide(principal, proposal))) return { error: "You may not decide this proposal, so you cannot send it on." };
   if (proposal.status !== "pending") return { error: `This proposal is already ${proposal.status}.` };
-  if (to !== null) {
-    if (to === principal.id) return { error: "That is you: decide it here instead." };
-    const row = await getPrincipal(to);
-    if (!row || !row.enabled || !row.email || row.agentId) return { error: "That is not a person who can be sent a proposal." };
-    if (!(await authorize(asPrincipal(row), "agent:run"))) {
-      return { error: `${row.displayName || row.email}'s role cannot decide writes, so they could not act on it.` };
-    }
+  const list = [...new Set(to)];
+  if (list.length > 20) return { error: "Send it to at most 20 people." };
+  // Sending to yourself alone is "decide it here"; with others it is "us".
+  if (list.length === 1 && list[0] === principal.id) return { error: "That is you: decide it here instead." };
+  for (const person of list) {
+    if (person === principal.id) continue;
+    const ok = await decider(person);
+    if ("error" in ok) return ok;
   }
-  if (!(await assignProposal(id, to, principal.id, note))) return { error: "This proposal was decided in the meantime." };
+  if (!(await assignProposal(id, list, principal.id, note))) return { error: "This proposal was decided in the meantime." };
   return { ok: true, proposal: (await getProposal(id))! };
 }
 

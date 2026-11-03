@@ -39,6 +39,15 @@ export interface AgentFormValues {
   keepsMemory: boolean;
   /** Slugs of the agents it may ask while it runs (the "agents" entry). */
   asks: string[];
+  /** People its held writes are sent to as they are made; empty = whoever the run acted as. */
+  sendApprovalsTo: string[];
+}
+
+/** Someone who could decide a held write, offered as a person to send them to. */
+export interface Approver {
+  id: string;
+  name: string;
+  email: string;
 }
 
 /** Another agent on the hub, offered as one this agent may ask. */
@@ -107,6 +116,7 @@ export function AgentForm({
   functions = [],
   owners = [],
   agents = [],
+  approvers = [],
 }: {
   initial: AgentFormValues;
   tools: ToolOption[];
@@ -124,6 +134,8 @@ export function AgentForm({
   /** Functions and owners other agents already use, offered as suggestions. */
   functions?: string[];
   owners?: string[];
+  /** Everyone who could decide a held write — the choices for "send its approvals to". */
+  approvers?: Approver[];
 }) {
   const router = useRouter();
   const { atLeast } = useView();
@@ -175,6 +187,7 @@ export function AgentForm({
         placement: v.placement,
         functionName: v.functionName,
         owner: v.owner,
+        sendApprovalsTo: v.sendApprovalsTo,
       });
       if ("error" in res) {
         setMessage({ text: res.error, error: true });
@@ -415,6 +428,46 @@ export function AgentForm({
               );
             })}
           </ul>
+          <div className="mt-5 border-t border-[var(--border)] pt-4">
+            <span className="block text-sm font-medium">Send its approvals to</span>
+            <span className="mt-0.5 block text-xs text-[var(--muted)]">
+              The people its held writes wait on, as they are made. Any one of them may approve or reject; whoever decides
+              first, decides. Nobody ticked: they wait on whoever started the run.
+            </span>
+            {approvers.length === 0 ? (
+              <p className="mt-2 text-xs text-[var(--muted)]">
+                No one can decide writes yet. A person needs to have signed in once, with a role that runs agents.
+              </p>
+            ) : (
+              <ul className="mt-2 flex flex-wrap gap-2">
+                {approvers.map((p) => {
+                  const on = v.sendApprovalsTo.includes(p.id);
+                  return (
+                    <li key={p.id}>
+                      <label
+                        className={`flex cursor-pointer items-center gap-2 border px-3 py-2 text-sm transition-colors ${
+                          on ? "border-[var(--text)] bg-[var(--panel)]" : "border-[var(--border-strong)] hover:border-[var(--brand)]"
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4 accent-[var(--text)]"
+                          checked={on}
+                          onChange={() =>
+                            set("sendApprovalsTo", on ? v.sendApprovalsTo.filter((x) => x !== p.id) : [...v.sendApprovalsTo, p.id])
+                          }
+                        />
+                        <span className="flex flex-col leading-tight">
+                          <span className="font-medium">{p.name}</span>
+                          <span className="text-xs text-[var(--muted)]">{p.email}</span>
+                        </span>
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
         </Section>
 
         <Section
