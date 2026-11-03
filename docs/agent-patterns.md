@@ -168,6 +168,13 @@ well, or a real reviewer judges well. That is the model's doing, read on the
 run pages, and the reason every pattern's page lists what to decide after
 creating it.
 
+## Against Anthropic's own patterns
+
+[effective-agents-review.md](effective-agents-review.md) sets these patterns
+against everything Anthropic has published on building agents, and proposes
+what the hub should add so a champion can choose a shape, write a brief,
+delegate, verify and test without us.
+
 ## Known limits
 
 - **Asks are hub-only.** An agent placed in Claude Code is served its tools,
