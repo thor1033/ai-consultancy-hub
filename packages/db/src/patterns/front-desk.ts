@@ -70,8 +70,9 @@ ${roster}
 
 1. memory_list: who asked about what before, and what nobody covers.
 2. Decide which ONE specialist the question is for. Pass it on with
-   agents_ask: the question as asked, plus the context the asker gave
-   (copied in — the specialist sees nothing else).
+   agents_ask: objective (the question as asked), context (what the asker
+   said, copied in — the specialist sees nothing else), format (an answer
+   the asker can use as it is).
    - If it is plainly for two specialists, ask both, each their part, and say
      in the answer which answered which.
    - If it is about this desk itself (what can you do, who is there), answer

@@ -1,7 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Principal } from "@ai-hub/authz";
-import { ASK_SERVER, getAgent, listSkills, type McpEntry, type SkillParameter } from "@ai-hub/db";
+import { ASK_SERVER, CHECK_KINDS, CHECK_WORDS, getAgent, listSkills, type McpEntry, type SkillParameter, type SkillCheck, type CheckKind } from "@ai-hub/db";
 import { saveAgentAs, saveSkillAs } from "@/lib/agentDesign";
 import { knownServers } from "@/lib/runSession";
 import { resolveLargeArgs } from "@/lib/mcp/largeArgs";
@@ -37,6 +37,12 @@ const parameterSchema = z.object({
   required: z.boolean().optional(),
   type: z.enum(["string", "number", "boolean"]).optional(),
   options: z.array(z.string()).optional().describe("When set, the value must be one of these."),
+});
+
+const checkSchema = z.object({
+  kind: z.enum(CHECK_KINDS as unknown as [CheckKind, ...CheckKind[]]).describe(CHECK_KINDS.map((k) => `${k}: ${CHECK_WORDS[k].label.toLowerCase()}`).join("; ")),
+  value: z.string().describe("The phrase, the number, or for judge the numbered points of the standard."),
+  tool: z.string().optional().describe("For writes: count only this tool's proposals."),
 });
 
 const agentFields = {
@@ -134,6 +140,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
           description: s.description,
           prompt: s.promptTemplate,
           parameters: s.parameters,
+          ...(s.checks?.length ? { checks: s.checks } : {}),
           enabled: s.enabled,
         })),
       });
@@ -242,7 +249,9 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
     {
       description:
         "Give an agent a skill: a named task with a prompt and the blanks a person fills in. It appears as a form with a Run " +
-        "button on the agent's page, and as a hub_skill_* tool in every connected client. The prompt refers to each parameter as {{name}}.",
+        "button on the agent's page, and as a hub_skill_* tool in every connected client. The prompt refers to each parameter as {{name}}. " +
+        "Checks are judged on every answer and shown with it: a phrase it must or must not contain, a word limit, how many changes it should propose, " +
+        "or a standard a second model reads the answer against.",
       inputSchema: {
         agent: z.string().min(1).describe("The slug of the agent that carries it out."),
         name: z.string().min(1).describe("What a person sees, e.g. \"Review a contract\"."),
@@ -250,6 +259,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         description: z.string().default("").describe("One line: what it produces."),
         prompt: z.string().min(1).describe("What the agent is asked to do, with {{parameter}} blanks. Long prompts go through hub_put_text first."),
         parameters: z.array(parameterSchema).default([]),
+        checks: z.array(checkSchema).default([]).describe("Checks on every answer (see the description)."),
       },
     },
     async (args) => {
@@ -265,6 +275,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         description: args.description,
         promptTemplate: String(big.args.prompt),
         parameters: args.parameters as SkillParameter[],
+        checks: args.checks as SkillCheck[],
       });
       if ("error" in out) return text(`Not created: ${out.error}`);
       return text(
@@ -278,7 +289,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
     "hub_skill_update",
     {
       description:
-        "Change one of an agent's skills. Only the fields you send change; parameters, when sent, replace the list. enabled: false hides it everywhere without deleting it.",
+        "Change one of an agent's skills. Only the fields you send change; parameters and checks, when sent, replace the list. enabled: false hides it everywhere without deleting it.",
       inputSchema: {
         agent: z.string().min(1).describe("The agent's slug."),
         skill: z.string().min(1).describe("The skill's slug."),
@@ -286,6 +297,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         description: z.string().optional(),
         prompt: z.string().min(1).optional(),
         parameters: z.array(parameterSchema).optional(),
+        checks: z.array(checkSchema).optional().describe("Checks on every answer, as in hub_skill_create. Replaces the list; [] removes them."),
         enabled: z.boolean().optional(),
       },
     },
@@ -304,6 +316,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         description: args.description ?? current.description,
         promptTemplate: args.prompt === undefined ? current.promptTemplate : String(big.args.prompt),
         parameters: (args.parameters as SkillParameter[] | undefined) ?? current.parameters,
+        checks: (args.checks as SkillCheck[] | undefined) ?? current.checks,
         enabled: args.enabled,
       });
       if ("error" in out) return text(`Not changed: ${out.error}`);

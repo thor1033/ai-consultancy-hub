@@ -3,6 +3,7 @@ import { getSql } from "./client";
 // bundle, and the file ships with the MCP servers (docs/sensitivity.md).
 import { maskDeep, maskIdentifiers } from "../../mcp/servers/detect.mjs";
 import type { Sensitivity } from "./sensitivity";
+import type { CheckResult } from "./checks";
 
 // What is stored about a run is masked at rest (docs/sensitivity.md): CPR,
 // card and account numbers in the question, the answer, the error and the
@@ -63,6 +64,8 @@ export interface RecordSessionInput {
   timeline?: unknown;
   /** The highest label the run touched (docs/sensitivity.md). */
   sensitivity?: Sensitivity;
+  /** The skill's checks, judged on the answer (docs/effective-agents-review.md, D1). */
+  checks?: CheckResult[] | null;
 }
 
 export async function recordSession(input: RecordSessionInput): Promise<string> {
@@ -72,7 +75,7 @@ export async function recordSession(input: RecordSessionInput): Promise<string> 
     insert into agent_sessions
       (prompt, system, model, effort, mcp_servers, transcript, tools_used,
        output, status, cost_usd, latency_ms, tokens, trace_id, timeline,
-       agent_id, principal_id, started_at, finished_at, sensitivity, transcript_dropped_at)
+       agent_id, principal_id, started_at, finished_at, sensitivity, transcript_dropped_at, checks)
     values
       (${mask(input.prompt) ?? ""}, ${input.system ?? null}, ${input.model ?? null},
        ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
@@ -83,7 +86,8 @@ export async function recordSession(input: RecordSessionInput): Promise<string> 
        ${sql.json((input.tokens ?? null) as never)}, ${input.traceId ?? null},
        ${sql.json((input.timeline ?? null) as never)},
        ${input.agentId ?? null}, ${input.principalId ?? null}, now(), now(),
-       ${input.sensitivity ?? "internal"}, ${transcript.dropped ? sql`now()` : null})
+       ${input.sensitivity ?? "internal"}, ${transcript.dropped ? sql`now()` : null},
+       ${sql.json((input.checks ?? null) as never)})
     returning id
   `;
   return row.id;
@@ -141,6 +145,8 @@ export interface FinishRunInput {
   timeline?: unknown;
   /** The highest label the run touched (docs/sensitivity.md). Only ever raises the row's. */
   sensitivity?: Sensitivity;
+  /** The skill's checks, judged on the answer (docs/effective-agents-review.md, D1). */
+  checks?: CheckResult[] | null;
 }
 
 export async function finishRun(id: string, result: FinishRunInput): Promise<void> {
@@ -166,6 +172,7 @@ export async function finishRun(id: string, result: FinishRunInput): Promise<voi
       tokens      = ${sql.json((result.tokens ?? null) as never)},
       trace_id    = ${result.traceId ?? null},
       timeline    = ${sql.json((result.timeline ?? null) as never)},
+      checks      = ${sql.json((result.checks ?? null) as never)},
       finished_at = now()
     where id = ${id}
   `;
@@ -306,6 +313,8 @@ export interface RunStatus {
   finishedAt: string | null;
   /** The highest label it touched (docs/sensitivity.md). */
   sensitivity: Sensitivity;
+  /** The skill's checks on the answer, when the skill had any. */
+  checks: CheckResult[] | null;
 }
 
 /**
@@ -329,7 +338,7 @@ export async function getRunStatus(
            tools_used   as "toolsUsed",
            started_at   as "startedAt",
            finished_at  as "finishedAt",
-           sensitivity
+           sensitivity, checks
       from agent_sessions
      where id = ${id} and principal_id = ${principalId}
   `;
@@ -347,6 +356,8 @@ export interface MyRun {
   at: string;
   /** Its question and answer were removed by retention (docs/retention.md). */
   expired: boolean;
+  /** The skill's checks on the answer, when the skill had any. */
+  checks: CheckResult[] | null;
 }
 
 /**
@@ -359,7 +370,7 @@ export interface MyRun {
 export async function listMyRuns(agentId: string, principalId: string, limit = 20): Promise<MyRun[]> {
   const sql = getSql();
   return sql<MyRun[]>`
-    select s.id, s.status, s.prompt, s.output, s.error, k.name as skill,
+    select s.id, s.status, s.prompt, s.output, s.error, k.name as skill, s.checks,
            coalesce(s.started_at, s.created_at) as at, (s.content_expired_at is not null) as expired
       from agent_sessions s
       left join agent_skills k on k.id = s.agent_skill_id

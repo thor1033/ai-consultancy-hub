@@ -221,3 +221,5 @@ export {
 export type { Sensitivity, ReadDoor, KnowledgeRead, KnowledgeReadRow } from "./sensitivity";
 export { grantTemporaryAccess, endTemporaryAccess, listTemporaryAccess } from "./temporaryAccess";
 export type { TemporaryAccessRow } from "./temporaryAccess";
+export { CHECK_KINDS, CHECK_WORDS, checkProblem, cleanChecks, evaluateCheck, summarizeChecks } from "./checks";
+export type { CheckKind, SkillCheck, CheckResult } from "./checks";

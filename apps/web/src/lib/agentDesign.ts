@@ -11,6 +11,9 @@ import {
   updateSkill,
   type Skill,
   type SkillParameter,
+  cleanChecks,
+  checkProblem,
+  type SkillCheck,
 } from "@ai-hub/db";
 import { authorize, type Action, type Principal } from "@ai-hub/authz";
 import { MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
@@ -247,6 +250,8 @@ export interface SkillDraft {
   description: string;
   promptTemplate: string;
   parameters: SkillParameter[];
+  /** Checks judged on every answer (docs/effective-agents-review.md, D1); omitted, none. */
+  checks?: SkillCheck[];
   /** Switch it on or off in the same save; omitted, it stays as it is. */
   enabled?: boolean;
 }
@@ -283,6 +288,12 @@ export async function saveSkillAs(principal: Principal | null, input: SkillDraft
     };
   }
 
+  // A check that could never pass or never be judged is refused here, so a
+  // skill does not fail every run from a typo in a number.
+  const checks = cleanChecks(input.checks ?? []);
+  const badCheck = checks.map(checkProblem).find(Boolean);
+  if (badCheck) return { error: badCheck };
+
   // An update names the skill by id, and the list shown afterwards is the
   // agent's named in the call: they must agree before anything is written, or
   // the page would show one agent's skills after changing another's.
@@ -299,6 +310,7 @@ export async function saveSkillAs(principal: Principal | null, input: SkillDraft
           description: input.description.trim(),
           promptTemplate: input.promptTemplate,
           parameters,
+          checks,
         })
       : await createSkill({
           agentId: input.agentId,
@@ -307,6 +319,7 @@ export async function saveSkillAs(principal: Principal | null, input: SkillDraft
           description: input.description.trim(),
           promptTemplate: input.promptTemplate,
           parameters,
+          checks,
         });
     if (!saved) return { error: "That skill no longer exists." };
     return { skills: await listSkills(input.agentId), saved };

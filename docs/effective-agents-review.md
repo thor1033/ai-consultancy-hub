@@ -554,6 +554,16 @@ also spends model money by design, and says so before it does.
 | B1 | Brief health beside the word count, in the form as a person types and in `hub_agent_create` / `hub_agent_update`'s answer: tokens read on every turn, no example, no headings, a tool named but not given, memory on an agent that keeps none, asking when it may ask nobody, a brief that is mostly always/never. Hints, never refusals | `verify:views` (web), 99 checks; `verify:design-tools`, 30 |
 | B3 | The Memory tab says how many memories are read before every answer and about how many words, and warns when it is a lot. The Steward's fourth proposal, `knowledge_set_aside`: keep a memory, stop loading it, held for a person like its others | `verify:views`; `verify:knowledge` (mcp), 57 |
 
+**Phase 3 is done.** On the same branch, not deployed.
+
+| | What changed | Proven by |
+|---|---|---|
+| C1 | `agents_ask` takes `objective`, `context`, `format` and optional `boundaries`; the hub joins them into the asked run's prompt under headings, objective first. The old `task` still works. The four patterns that ask say the four fields | `verify:asks` (web), 27 checks |
+| C2 | A turn's parallel-safe tool calls run at once: asks, tools the server marks read-only, the memory server's reads. Writes, held or not, run after them one at a time; results go back in the model's order. The gate decides what is safe (`parallelSafe`), the loop only runs it; the timeline charges the turn the wall time | `verify:loop` (agent), 47 checks; `verify:asks` (two asks in one turn take one worker's time) |
+| D1 | Checks on a skill: must mention, must not mention, at most N words, proposes N changes (optionally of one tool), and a standard a second model judges (APPROVED / NOT YET with the points / CANNOT JUDGE; no verdict is never a pass). Judged in code where code can, else one model call with no tools on the cheaper model; stored on the run; shown under the answer in the runner, under Your answers and in `hub_run_status`; a judge that fails does not fail the run. Set in the skill editor and `hub_skill_create` / `hub_skill_update`; a check that could never be judged is refused at save | `verify:checks` (web), 34 checks; `verify:design-tools`, 34 |
+
+Not done from C: the asked run's page does not yet show the four fields apart — it shows the prompt they were joined into, which carries the headings. Not done from D: "cites" as its own kind; a standard ("every number names its source") does the same through the judge.
+
 ## What this deliberately leaves out
 
 - **Agent teams that talk to each other** (Claude Code's peer-to-peer

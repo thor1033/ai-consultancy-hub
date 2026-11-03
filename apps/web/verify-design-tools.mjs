@@ -204,6 +204,15 @@ try {
   const keep = await call(admin, "hub_skill_update", { agent: row.slug, skill: `review-contract-${stamp}`, description: "Changed." });
   const s3 = (await db.listSkills(row.id))[0];
   check("and an update of one field leaves the rest, including off", s3.description === "Changed." && s3.enabled === false && s3.promptTemplate === "Review: {{contract}}", keep);
+  const checked = await call(admin, "hub_skill_update", { agent: row.slug, skill: `review-contract-${stamp}`, checks: [{ kind: "maxWords", value: "300" }, { kind: "writes", value: "0", tool: "pm_create_task" }, { kind: "judge", value: "1. Names the clause." }] });
+  const s4 = (await db.listSkills(row.id))[0];
+  check("checks sent with an update are saved on the skill, tool kept only on writes", /Saved/.test(checked) && s4.checks.length === 3 && s4.checks[1].tool === "pm_create_task" && s4.checks[2].kind === "judge", JSON.stringify(s4.checks));
+  const badCheck = await call(admin, "hub_skill_update", { agent: row.slug, skill: `review-contract-${stamp}`, checks: [{ kind: "maxWords", value: "a few" }] });
+  check("a check that could never be judged is refused, and the old ones stay", /Not changed: .*whole number/.test(badCheck) && (await db.listSkills(row.id))[0].checks.length === 3, badCheck);
+  const got2 = await call(admin, "hub_agent_get", { agent: row.slug });
+  check("hub_agent_get shows a skill's checks", got2.skills?.[0]?.checks?.length === 3);
+  const noChecks = await call(admin, "hub_skill_update", { agent: row.slug, skill: `review-contract-${stamp}`, checks: [] });
+  check("checks: [] removes them", /Saved/.test(noChecks) && (await db.listSkills(row.id))[0].checks.length === 0);
   const elsewhere = await call(admin, "hub_skill_update", { agent: helper.slug, skill: `review-contract-${stamp}`, description: "Hijack" });
   check("a skill is found only under its own agent", /has no skill/.test(elsewhere) && (await db.listSkills(row.id))[0].description === "Changed.");
 

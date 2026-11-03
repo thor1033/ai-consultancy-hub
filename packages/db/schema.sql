@@ -738,3 +738,12 @@ create table if not exists source_syncs (
   summary      text not null default '',
   error        text
 );
+
+-- Checks on a skill (docs/effective-agents-review.md, D1): what a good answer
+-- must pass, written by whoever owns the skill, and run by the hub on the
+-- answer before the run is recorded. [{ "kind": "mentions" | "avoids" |
+-- "maxWords" | "writes" | "judge", "value": "…", "tool": "pm_create_task" }].
+-- The verdicts are stored on the run beside the answer, so "Your answers" can
+-- say what passed; they hold the check and a line about it, never the answer.
+alter table agent_skills add column if not exists checks jsonb not null default '[]'::jsonb;
+alter table agent_sessions add column if not exists checks jsonb;

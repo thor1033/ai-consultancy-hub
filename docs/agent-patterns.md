@@ -78,6 +78,22 @@ and at one deep it is offered no `agents_ask`, whatever its own entry says.
 So a coordinator asks workers and workers ask nobody: no fan-out of
 fan-outs, no loops.
 
+**An ask has four fields** (docs/effective-agents-review.md, C1): the
+`objective`, the `context` the asked agent cannot see, the `format` the
+answer should take, and optional `boundaries`. The hub joins them into the
+asked run's prompt — the objective first, the rest under `## What you need
+to know`, `## The answer`, `## Boundaries` — so the asked run's page shows
+a weak delegation at a glance. The schema asks for them one by one, which
+is the point: a single free-text task is where a model forgets the context.
+The old single `task` field still works, as the objective.
+
+**Asks that do not depend on each other run at once** (C2). When the model
+makes several tool calls in one turn, the loop runs the parallel-safe ones
+together: an ask, a tool the server marks read-only, the memory server's
+reads. A write — held or allowed — runs after them, one at a time, in the
+model's order, and the results go back in the model's order whatever
+finished first. A cluster of four specialists takes one wait, not four.
+
 **Decided, and why:**
 
 - **An ask is not held for approval.** It starts a run; the run's own
@@ -190,10 +206,10 @@ model changes.
 | Number | Where | Protects against | Revisit when |
 |---|---|---|---|
 | 10 tool rounds per run, ceiling 100 | `DEFAULT_MAX_ITERATIONS`, `MAX_ITERATIONS_CEILING` (@ai-hub/agent) | a run that loops; a misconfigured agent's cost | the model needs fewer calls for the same work |
-| 12 asks per run | `ASK_BUDGET` (lib/askAgents.ts) | a coordinator that asks in a loop | asks run in parallel, or a client needs more specialists |
+| 12 asks per run | `ASK_BUDGET` (lib/askAgents.ts) | a coordinator that asks in a loop | a client needs more specialists (asks in one turn already run at once) |
 | 1 ask deep | `ASK_MAX_DEPTH` | fan-out of fan-outs, loops | a pattern wants a second level — none does |
 | 2 hand-offs deep | `HANDOFF_MAX_DEPTH` (lib/handoffs.ts) | two agents handing to each other forever | a pipeline needs a fourth stage from one run |
-| 10 minutes per ask | `ASK_TIMEOUT_MS` | an asker that waits on a hung run | runs get faster, or asks run in parallel |
+| 10 minutes per ask | `ASK_TIMEOUT_MS` | an asker that waits on a hung run | runs get faster |
 | 5 passages retrieved | `retrieveChunks(…, 5, …)` in agentRuns and the chat | context rot from retrieval | the window or the chunking changes |
 | 3 rounds in the critic loop | the Writer's brief | a draft that never passes | the reviewer's verdicts say otherwise on the run pages |
 | 400 words for a brief to the worker | the Archivist's brief | the archivist doing the worker's job | the worker's model reads more for the same money |

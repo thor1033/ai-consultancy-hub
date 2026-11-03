@@ -1,5 +1,6 @@
 import type { MyRun } from "@ai-hub/db";
 import { Markdown } from "@/components/Markdown";
+import { CheckVerdict } from "@/components/CheckVerdict";
 import { rel } from "@/lib/format";
 
 // "Your answers" on an agent's page (docs/views.md): what you asked this agent
@@ -52,6 +53,7 @@ export function YourAnswers({ runs, agentName, now }: { runs: MyRun[]; agentName
                 ) : finished(r) && r.output ? (
                   <div className="inset p-4">
                     <Markdown>{r.output}</Markdown>
+                    <CheckVerdict checks={r.checks} />
                   </div>
                 ) : r.status === "failed" ? (
                   <p className="text-sm text-[var(--danger)]">{r.error || "It stopped without an answer."}</p>

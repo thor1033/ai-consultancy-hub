@@ -4,9 +4,11 @@ import { ASK_SERVER } from "@ai-hub/db";
 /*
  * One agent asking another while it runs (docs/agent-patterns.md).
  *
- * The tool is `agents_ask`: give it the slug of an agent you may ask and a
- * task, and it runs that agent AS THE SAME PERSON, waits, and returns the
- * answer. It is the hub's own tool, built here in-process rather than as an
+ * The tool is `agents_ask`: give it the slug of an agent you may ask and the
+ * ask in four fields (objective, context, format, boundaries), and it runs
+ * that agent AS THE SAME PERSON, waits, and returns the answer. Asks that do
+ * not depend on each other are run at once when the model makes them in one
+ * turn (runSession's parallelSafe). It is the hub's own tool, built here in-process rather than as an
  * MCP server, because starting an agent needs the whole runtime (the person,
  * their reach, the approval gate) that a child process does not have.
  *
@@ -57,21 +59,52 @@ export interface Asks {
 
 type ToolDef = ConnectedMcp["tools"][number];
 
+/**
+ * The fields of an ask (docs/effective-agents-review.md, C1). Anthropic's
+ * multi-agent post found that a delegation which names its objective, the
+ * context the worker lacks, the answer's shape and its limits is the
+ * difference between a worker that helps and one that wanders. The schema
+ * asks for them one by one, so the model cannot forget one the way it can in
+ * a single free-text task. `task` is kept for the old shape: an agent whose
+ * brief still says "task" is not broken by this.
+ */
+export interface AskFields {
+  objective: string;
+  context?: string;
+  format?: string;
+  boundaries?: string;
+}
+
+/** The prompt the asked agent reads, built from the fields: the objective first, the rest under headings. */
+export function askPrompt(fields: AskFields): string {
+  const parts = [fields.objective.trim()];
+  if (fields.context?.trim()) parts.push(`## What you need to know\n${fields.context.trim()}`);
+  if (fields.format?.trim()) parts.push(`## The answer\n${fields.format.trim()}`);
+  if (fields.boundaries?.trim()) parts.push(`## Boundaries\n${fields.boundaries.trim()}`);
+  return parts.join("\n\n");
+}
+
 /** The tool as the model sees it: the agents it may ask are in the description and the schema. */
 export function askTool(allowed: Askable[]): ToolDef {
   return {
     name: ASK_TOOL,
     description:
       "Ask another agent to do a task and get its answer. It runs as the same person you run as, with its own tools, memory and knowledge; " +
-      "any write it proposes waits for a person's approval, like yours. It sees ONLY the task you send: copy in the facts and context it needs. " +
+      "any write it proposes waits for a person's approval, like yours. It sees ONLY what you send: it cannot see your conversation, " +
+      "so copy in the facts it needs. Say the objective, the context, the answer's shape and the boundaries one by one. " +
+      "Asks that do not depend on each other can be made in the same turn; they run at once. " +
       `You may ask:\n${allowed.map((a) => `- ${a.slug}: ${a.name}${a.description ? ` — ${a.description}` : ""}`).join("\n")}`,
     input_schema: {
       type: "object",
       properties: {
         agent: { type: "string", enum: allowed.map((a) => a.slug), description: "Which agent, by slug." },
-        task: { type: "string", description: "What you want it to do, with everything it needs to do it. It cannot see your conversation." },
+        objective: { type: "string", description: "What you want it to do, in one or two sentences, and what it is for." },
+        context: { type: "string", description: "What it needs to know that it cannot see: the facts, names, dates and material from your conversation." },
+        format: { type: "string", description: "What a good answer looks like: shape, length, what must be in it." },
+        boundaries: { type: "string", description: "What it must not do or assume, and where to stop. Optional." },
+        task: { type: "string", description: "The old single field. Use objective, context and format instead." },
       },
-      required: ["agent", "task"],
+      required: ["agent", "objective", "context", "format"],
     },
   };
 }
@@ -79,15 +112,20 @@ export function askTool(allowed: Askable[]): ToolDef {
 /** The executor behind the tool, with the budget counted per run. */
 export function askExecutor(asks: Asks, state: { used: number } = { used: 0 }): (input: unknown) => Promise<string> {
   const bySlug = new Map(asks.allowed.map((a) => [a.slug, a]));
+  const str = (v: unknown) => (typeof v === "string" ? v.trim() : "");
   return async (input) => {
-    const { agent, task } = (input ?? {}) as { agent?: unknown; task?: unknown };
-    const slug = typeof agent === "string" ? agent.trim() : "";
+    const raw = (input ?? {}) as Record<string, unknown>;
+    const slug = str(raw.agent);
     const target = bySlug.get(slug);
     if (!target) {
       return `You may not ask "${slug || "(no agent)"}". You may ask: ${asks.allowed.map((a) => a.slug).join(", ") || "nobody"}.`;
     }
-    const text = typeof task === "string" ? task.trim() : "";
-    if (!text) return `Say what you want ${target.name} to do.`;
+    // The objective is the one field without which there is no ask; a bare
+    // `task` stands in for it. The others are asked for, not demanded: a
+    // worker told less does worse, not nothing.
+    const objective = str(raw.objective) || str(raw.task);
+    if (!objective) return `Say what you want ${target.name} to do: its objective, what it needs to know, and what the answer should look like.`;
+    const text = askPrompt({ objective, context: str(raw.context), format: str(raw.format), boundaries: str(raw.boundaries) });
     if (state.used >= ASK_BUDGET) {
       return `You have asked other agents ${ASK_BUDGET} times in this run, which is the limit. Finish with what you have and say what you could not ask.`;
     }

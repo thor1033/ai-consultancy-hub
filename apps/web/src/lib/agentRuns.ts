@@ -13,7 +13,10 @@ import {
   runSensitivity,
   setRunSensitivity,
   type Sensitivity,
+  type SkillCheck,
+  type CheckResult,
 } from "@ai-hub/db";
+import { runChecks } from "@/lib/checks";
 import { runHandoffs } from "@/lib/handoffs";
 import { ASK_MAX_DEPTH, ASK_TIMEOUT_MS, type Asks } from "@/lib/askAgents";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
@@ -69,6 +72,8 @@ export type AgentRunOutcome =
       sources: number;
       /** The highest label it touched; above internal, the answer may not leave the hub (lib/sensitivity.ts). */
       sensitivity: Sensitivity;
+      /** The skill's checks, judged on the answer; null when there were none (lib/checks.ts). */
+      checks: CheckResult[] | null;
     }
   | { kind: "running"; runId: string; agentName: string }
   | { kind: "error"; message: string };
@@ -81,8 +86,8 @@ export interface AgentRunInput {
   deadlineMs?: number;
   /** The skill this run came from, when it came from one. */
   skillId?: string | null;
-  /** The skill by slug and name, for the hand-offs keyed to it. */
-  skill?: { slug: string; name: string } | null;
+  /** The skill by slug and name, for the hand-offs keyed to it, and its checks, judged on the answer. */
+  skill?: { slug: string; name: string; checks?: SkillCheck[] } | null;
   /** Prior chat turns, for the conversation on the agent's page. */
   history?: { role: "user" | "assistant"; content: string }[];
   /**
@@ -237,6 +242,8 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     runId,
     keepsMemory: together.keepsMemory,
     asks: together.asks,
+    // The skill's checks are judged on the answer and stored with the run.
+    check: input.skill?.checks?.length ? (result) => runChecks({ checks: input.skill!.checks!, answer: result.text, runId }) : undefined,
     afterRun: handoffsAfter({
       sessionId: runId,
       agentId: agent.id,
@@ -277,6 +284,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     toolsUsed: raced.out.result.toolsUsed ?? [],
     sources,
     sensitivity: raced.out.sensitivity,
+    checks: raced.out.checks,
   };
 }
 
@@ -317,7 +325,7 @@ export async function runSkillForPrincipal(input: {
     principal: input.principal,
     deadlineMs: input.deadlineMs,
     skillId: skill.id,
-    skill: { slug: skill.slug, name: skill.name },
+    skill: { slug: skill.slug, name: skill.name, checks: skill.checks },
   });
 }
 

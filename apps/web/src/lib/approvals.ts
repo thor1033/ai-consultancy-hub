@@ -161,6 +161,9 @@ export const MEMORY_PLACE_ARG = "__place";
  */
 export const MEMORY_WRITE_TOOLS: ReadonlySet<string> = new Set(["memory_write", "memory_set_active", "memory_forget"]);
 
+/** The memory server's reads; it marks none of its tools, so they are known by name. */
+export const MEMORY_READ_TOOLS: ReadonlySet<string> = new Set(["memory_list", "memory_search"]);
+
 /** Tools that write a memory's content: refused when it carries an identifier. */
 const REMEMBERING_TOOLS: ReadonlySet<string> = new Set(["memory_write", "knowledge_remember_for"]);
 
@@ -171,10 +174,21 @@ const REMEMBERING_TOOLS: ReadonlySet<string> = new Set(["memory_write", "knowled
  * whose calls will be held carries the reason line in its schema — the two
  * halves agree because they are decided by the same `needsApproval`.
  */
-export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; execute: ConnectedMcp["execute"] } {
+export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; execute: ConnectedMcp["execute"]; parallelSafe: (name: string) => boolean } {
   const byName = new Map(mcp.details.map((t) => [t.name, t]));
   const entryFor = (server: string) => ctx.entries?.find((e) => entryName(e) === server);
   const isHeld = (tool: McpToolInfo | undefined) => Boolean(tool && needsApproval(tool, entryFor(tool.server)));
+  // Calls the loop may run side by side when the model makes several in one
+  // turn (docs/effective-agents-review.md, C2): a read the server marks
+  // read-only, or one of the memory server's reads, which carry no
+  // annotations. A write is never one, held or not: a held one becomes a
+  // proposal, an allowed one changes something, and order can matter to both.
+  const parallelSafe = (name: string) => {
+    const tool = byName.get(name);
+    if (!tool || isHeld(tool)) return false;
+    if (tool.server === "memory") return MEMORY_READ_TOOLS.has(tool.name);
+    return isReadOnlyTool(tool);
+  };
 
   const tools = mcp.tools.map((t) => {
     const detail = byName.get(t.name);
@@ -225,7 +239,7 @@ export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; e
     }
     return out;
   };
-  return { tools, execute };
+  return { tools, execute, parallelSafe };
 }
 
 function withoutPlaceArg(t: ToolDef): ToolDef {

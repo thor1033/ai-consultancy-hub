@@ -284,9 +284,8 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     const toolUses = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
-    for (const t of toolUses) {
-      if (!toolsUsed.includes(t.name)) toolsUsed.push(t.name);
+    for (const t of toolUses) if (!toolsUsed.includes(t.name)) toolsUsed.push(t.name);
+    const runOne = async (t: Anthropic.ToolUseBlock) => {
       const span = trace?.span({ name: `tool.${t.name}`, input: traceValue(t.input) });
       const toolStart = Date.now();
       let content: string;
@@ -303,15 +302,25 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         isError = true;
       }
       span?.end({ output: traceValue(content) });
-      const toolMs = Date.now() - toolStart;
-      timeline.toolMs += toolMs;
-      turn.tools.push({ name: t.name, ms: toolMs, resultChars: content.length, error: isError });
-      toolResults.push({
-        type: "tool_result",
-        tool_use_id: t.id,
-        content,
-        is_error: isError,
-      });
+      return { t, content, isError, ms: Date.now() - toolStart };
+    };
+    // Reads and asks run together; anything that changes something runs
+    // after them, one at a time, in the model's order (docs/effective-agents-
+    // review.md, C2). The results go back in the model's order whatever ran
+    // when, in one user message, as the API expects of parallel calls.
+    const safe = input.parallelSafe ? toolUses.filter((t) => input.parallelSafe!(t.name)) : [];
+    const serial = toolUses.filter((t) => !safe.includes(t));
+    const toolsStart = Date.now();
+    const done = new Map<string, Awaited<ReturnType<typeof runOne>>>();
+    for (const r of await Promise.all(safe.map(runOne))) done.set(r.t.id, r);
+    for (const t of serial) done.set(t.id, await runOne(t));
+    timeline.toolMs += Date.now() - toolsStart;
+    turn.toolsWallMs = Date.now() - toolsStart;
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const t of toolUses) {
+      const r = done.get(t.id)!;
+      turn.tools.push({ name: t.name, ms: r.ms, resultChars: r.content.length, error: r.isError });
+      toolResults.push({ type: "tool_result", tool_use_id: t.id, content: r.content, is_error: r.isError });
     }
     messages.push({ role: "user", content: toolResults });
   }

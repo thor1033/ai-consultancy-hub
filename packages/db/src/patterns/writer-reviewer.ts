@@ -69,8 +69,10 @@ ${v.standard}
 
 1. memory_list: what earlier reviews taught you.
 2. Draft the piece, from the facts you were given and your tools.
-3. agents_ask the Reviewer with the whole draft and the standard, both in
-   full. Ask for a verdict.
+3. agents_ask the Reviewer: objective "review this draft against the
+   standard", context the whole draft and the standard in full, format "a
+   verdict: APPROVED or NOT YET on the first line, then the numbered points
+   that fail".
 4. If the first line of the verdict is APPROVED, deliver.
    If it is NOT YET: revise exactly the numbered points it names — not the
    rest — and ask again. At most three rounds in all.

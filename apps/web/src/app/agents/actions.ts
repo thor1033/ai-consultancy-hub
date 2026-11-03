@@ -34,6 +34,7 @@ import {
   getRunStatus,
   recordKnowledgeReads,
   highestRunSensitivity,
+  type CheckResult,
 } from "@ai-hub/db";
 import { retrieveChunks, chunksToContext } from "@ai-hub/rag";
 import { runSession, isKnownServer } from "@/lib/runSession";
@@ -536,7 +537,7 @@ export async function listOtherAgentsAction(): Promise<{ id: string; slug: strin
 // check holds and every write is held.
 
 export type SkillRunResult =
-  | { status: "done"; runId: string; output: string }
+  | { status: "done"; runId: string; output: string; checks?: CheckResult[] | null }
   | { status: "running"; runId: string }
   | { status: "failed"; runId?: string; error: string };
 
@@ -557,7 +558,7 @@ export async function runSkillAction(skillId: string, args: Record<string, unkno
   if (out.kind === "error") return { status: "failed", error: out.message };
   if (out.kind === "running") return { status: "running", runId: out.runId };
   revalidatePath("/agents");
-  return { status: "done", runId: out.runId, output: out.output };
+  return { status: "done", runId: out.runId, output: out.output, checks: out.checks };
 }
 
 /** A run this person started, for the page to poll. Scoped to them: a run id is not a bearer token. */
@@ -568,5 +569,5 @@ export async function runStatusAction(runId: string): Promise<SkillRunResult> {
   if (!run) return { status: "failed", runId, error: "That run is not one of yours." };
   if (run.status === "running") return { status: "running", runId };
   if (run.status === "failed") return { status: "failed", runId, error: run.error ?? "The run failed." };
-  return { status: "done", runId, output: run.output ?? "" };
+  return { status: "done", runId, output: run.output ?? "", checks: run.checks };
 }

@@ -1,5 +1,6 @@
 import { getSql } from "./client";
 import type { ImportSource } from "./skillmd";
+import type { SkillCheck } from "./checks";
 
 /*
  * Skills: a named, parameterised thing one agent knows how to do.
@@ -33,6 +34,8 @@ export interface Skill {
   description: string;
   promptTemplate: string;
   parameters: SkillParameter[];
+  /** What a good answer must pass (docs/effective-agents-review.md, D1). */
+  checks: SkillCheck[];
   enabled: boolean;
   /** Where it was imported from, if it was (docs/skill-import.md). */
   source: ImportSource | null;
@@ -53,7 +56,7 @@ const SKILL_COLUMNS = `
   agent_id        as "agentId",
   slug, name, description,
   prompt_template as "promptTemplate",
-  parameters, enabled, source,
+  parameters, checks, enabled, source,
   created_at      as "createdAt",
   updated_at      as "updatedAt"
 `;
@@ -82,7 +85,7 @@ export async function listRunnableSkills(): Promise<SkillWithAgent[]> {
            s.agent_id        as "agentId",
            s.slug, s.name, s.description,
            s.prompt_template as "promptTemplate",
-           s.parameters, s.enabled, s.source,
+           s.parameters, s.checks, s.enabled, s.source,
            s.created_at      as "createdAt",
            s.updated_at      as "updatedAt",
            a.slug            as "agentSlug",
@@ -107,7 +110,7 @@ export async function getSkill(slugOrId: string): Promise<SkillWithAgent | null>
            s.agent_id        as "agentId",
            s.slug, s.name, s.description,
            s.prompt_template as "promptTemplate",
-           s.parameters, s.enabled, s.source,
+           s.parameters, s.checks, s.enabled, s.source,
            s.created_at      as "createdAt",
            s.updated_at      as "updatedAt",
            a.slug            as "agentSlug",
@@ -130,6 +133,7 @@ export interface SkillInput {
   description?: string;
   promptTemplate?: string;
   parameters?: SkillParameter[];
+  checks?: SkillCheck[];
   enabled?: boolean;
   source?: ImportSource | null;
 }
@@ -138,11 +142,12 @@ export async function createSkill(input: SkillInput): Promise<Skill> {
   const sql = getSql();
   const rows = await sql<Skill[]>`
     insert into agent_skills
-      (agent_id, slug, name, description, prompt_template, parameters, enabled, source)
+      (agent_id, slug, name, description, prompt_template, parameters, checks, enabled, source)
     values
       (${input.agentId}, ${input.slug}, ${input.name}, ${input.description ?? ""},
        ${input.promptTemplate ?? ""},
        ${sql.json((input.parameters ?? []) as never)},
+       ${sql.json((input.checks ?? []) as never)},
        ${input.enabled ?? true}, ${sql.json((input.source ?? null) as never)})
     returning ${sql.unsafe(SKILL_COLUMNS)}
   `;
@@ -169,6 +174,7 @@ export async function updateSkill(
       description     = ${next.description ?? ""},
       prompt_template = ${next.promptTemplate ?? ""},
       parameters      = ${sql.json((next.parameters ?? []) as never)},
+      checks          = ${sql.json((next.checks ?? []) as never)},
       enabled         = ${next.enabled ?? true},
       source          = ${sql.json((next.source ?? null) as never)},
       updated_at      = now()

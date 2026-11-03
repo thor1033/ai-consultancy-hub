@@ -58,7 +58,7 @@ function check(label, ok, detail = "") {
 // `pace` slows the stream down by kind — before the first block, inside a
 // thinking block, inside a text block — so the timeline's split can be checked
 // against delays the fixture chose.
-const plan = { calls: 0, answerOn: Infinity, textEachTurn: false, thinkOnly: false, thinkFirst: false, pace: null, requests: [] };
+const plan = { calls: 0, answerOn: Infinity, textEachTurn: false, thinkOnly: false, thinkFirst: false, pace: null, requests: [], fan: null };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -136,12 +136,15 @@ const http = createServer(async (req, res) => {
     stopReason = "end_turn";
   } else {
     if (plan.textEachTurn) blocks.push({ type: "text", text: `Checking the calendar (round ${plan.calls})…` });
-    blocks.push({
-      type: "tool_use",
-      id: `tu_${plan.calls}`,
-      name: "probe",
-      input: { round: plan.calls, note: "assembled from two partial-JSON deltas" },
-    });
+    // `fan` names several tools asked for in one turn (the parallel scenario).
+    for (const [i, name] of (plan.fan ?? ["probe"]).entries()) {
+      blocks.push({
+        type: "tool_use",
+        id: plan.fan ? `tu_${plan.calls}_${i}` : `tu_${plan.calls}`,
+        name,
+        input: { round: plan.calls, note: "assembled from two partial-JSON deltas" },
+      });
+    }
     stopReason = "tool_use";
   }
   writeStream(res, blocks, stopReason);
@@ -161,6 +164,7 @@ const TOOLS = [
 
 let toolCalls = 0;
 let lastToolInput = null;
+let toolOrder = [];
 /** Runs one scenario with a fresh fixture state. */
 async function run({
   answerOn = Infinity,
@@ -172,7 +176,11 @@ async function run({
   pace = null,
   toolMs = 0,
   tools = TOOLS,
+  parallelSafe,
+  fan = null,
+  prompt = "What is on tomorrow?",
 } = {}) {
+  plan.fan = fan;
   plan.thinkFirst = thinkFirst;
   plan.pace = pace;
   plan.calls = 0;
@@ -182,15 +190,18 @@ async function run({
   plan.requests = [];
   toolCalls = 0;
   lastToolInput = null;
+  toolOrder = [];
   const result = await runAgent({
-    prompt: "What is on tomorrow?",
+    prompt,
     tools,
-    toolExecutor: async (_name, input) => {
+    toolExecutor: async (name, input) => {
       toolCalls++;
       lastToolInput = input;
       if (toolMs) await sleep(toolMs);
+      toolOrder.push(name);
       return "two events";
     },
+    ...(parallelSafe ? { parallelSafe } : {}),
     ...(maxIterations === undefined ? {} : { maxIterations }),
     ...(maxTokens === undefined ? {} : { maxTokens }),
   });
@@ -322,6 +333,25 @@ try {
     plan.calls === 14 && generous.exhausted === false,
     `${plan.calls} model calls`,
   );
+
+  // ── several tools in one turn ────────────────────────────────────────────
+  // The model asks for three tools at once, each taking ~300ms. The ones the
+  // caller marks parallel-safe run side by side; the rest one at a time,
+  // after them; and the results go back in the model's order whatever
+  // finished first (the API requires every tool_use answered, in order).
+  const FAN = ["read_a", "read_b", "write_c"];
+  const fanTools = FAN.map((name) => ({ name, description: name, input_schema: { type: "object", properties: {} } }));
+  const serialFan = await run({ answerOn: 2, fan: FAN, tools: fanTools, toolMs: 300 });
+  const serialWall = serialFan.timeline.turns[0].toolsWallMs;
+  check("without parallelSafe, three 300ms tools take three times as long, in the model's order", serialWall >= 850 && toolOrder.join() === FAN.join(), `${serialWall}ms, ran ${toolOrder.join(" ")}`);
+  const parallelFan = await run({ answerOn: 2, fan: FAN, tools: fanTools, toolMs: 300, parallelSafe: (name) => name.startsWith("read_") });
+  const parallelWall = parallelFan.timeline.turns[0].toolsWallMs;
+  check("with the two reads parallel-safe, the turn's tools take about two tools' time, not three", parallelWall >= 550 && parallelWall < 850, `${parallelWall}ms`);
+  check("the write ran after the reads, on its own", toolOrder[2] === "write_c" && toolOrder.slice(0, 2).sort().join() === "read_a,read_b", toolOrder.join(" "));
+  const answered = plan.requests[1]?.messages.at(-1)?.content;
+  check("the results went back in the model's order, one per call", Array.isArray(answered) && answered.map((b) => b.tool_use_id).join() === "tu_1_0,tu_1_1,tu_1_2" && answered.every((b) => b.type === "tool_result"), JSON.stringify(answered?.map((b) => b.tool_use_id)));
+  check("the timeline charges the turn the wall time, not the sum", parallelFan.timeline.toolMs < 850 && parallelFan.timeline.turns[0].tools.length === 3, `${parallelFan.timeline.toolMs}ms over ${parallelFan.timeline.turns[0].tools.length} calls`);
+  check("the turn's tools each carry their own time", parallelFan.timeline.turns[0].tools.every((t) => t.ms >= 250 && t.ms < 600), JSON.stringify(parallelFan.timeline.turns[0].tools.map((t) => t.ms)));
 
   // ── clamping ─────────────────────────────────────────────────────────────
   // The row is editable, so the runtime — not the form — has to hold the line.

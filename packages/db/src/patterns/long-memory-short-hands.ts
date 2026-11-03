@@ -88,7 +88,10 @@ What this pair works on:
    - what it must not do.
    Under 400 words. If you cannot say what the job needs in 400 words, the
    job is two jobs: split it, and brief each.
-3. agents_ask the Worker with the brief as the task. One ask per job.
+3. agents_ask the Worker: the job as the objective, the facts as the
+   context, the shape wanted as the format, what it must not do as the
+   boundaries. One ask per job; jobs that do not depend on each other go in
+   the same turn.
 4. Check the answer against what you know. If it contradicts a fact you have,
    say so in your reply rather than passing it on.
 5. memory_write what the job changed — a decision, a new fact about the

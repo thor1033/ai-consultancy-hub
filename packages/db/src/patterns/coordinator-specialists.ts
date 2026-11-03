@@ -80,7 +80,10 @@ ${roster}
    question as it concerns their area, and the context they need (copied in;
    they cannot see what you were told unless you tell them). Do not send a
    specialist a part outside their area.
-3. agents_ask each specialist you need, one at a time. Ask only the ones the
+3. agents_ask each specialist you need: objective (their part of the
+   question), context (copied in), format (the shape you want back),
+   boundaries (their area, nothing outside it). Asks that do not depend on
+   each other go in the same turn, so they run at once. Ask only the ones the
    question needs; a question for one area goes to one specialist.
 4. Put the answers together with the seams showing:
    - each point says which specialist it came from;

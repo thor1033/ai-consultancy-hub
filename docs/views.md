@@ -96,7 +96,10 @@ Rules when adding to a page:
 - everything else becomes a line.
 
 **Run** calls `runSkillAction`. It is the same run path as the MCP tool and runs
-as the signed-in person, with approvals and memory exactly as in a chat. The page
+as the signed-in person, with approvals and memory exactly as in a chat. When
+the skill has checks (the editor's *Checks on every answer*), the verdict shows
+under the answer — the line, then each check not met or not judged — here and
+under *Your answers* (`components/CheckVerdict.tsx`); nothing is withheld. The page
 waits up to 40 seconds. After that, `runStatusAction` polls every 3 seconds for
 up to 20 minutes. A run can only be read back by the person who started it; an
 admin is refused too, because a run id is not a bearer token.
