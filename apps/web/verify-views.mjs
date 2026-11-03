@@ -370,6 +370,33 @@ try {
   const { MODELS } = await import("./src/app/agents/models.ts");
   check("the model list names the cheaper model as the one a team's bounded roles get", MODELS.some((m) => m.id === CHEAPER_MODEL && /worker|specialist|reviewer/.test(m.note)));
 
+  // ── 3c. brief health and the memory budget (docs/effective-agents-review.md, B1, B3) ──
+  console.log("\n— brief health —");
+  const { briefHealth } = await import("./src/app/agents/briefHealth.ts");
+  const catalog = [{ name: "pm-tool", label: "PM-tool" }, { name: "microsoft365", label: "Microsoft 365" }];
+  const clean = briefHealth({ instructions: "## Who you are\nYou answer contract questions.\n\n## What a good answer looks like\nShort, with the clause. For example: \"Clause 4.2 lets either side end it with 30 days' notice.\"", servers: ["pm-tool"], catalog, keepsMemory: true, asks: [] });
+  check("a short, headed brief with an example gets no hints", clean.hints.length === 0 && clean.words > 0 && clean.tokens > 0, clean.hints.join(" | "));
+  const long = briefHealth({ instructions: "word ".repeat(14000), servers: [], catalog, keepsMemory: true, asks: [] });
+  check("a very long brief is told what it costs on every turn", long.hints.some((h) => /read again on every turn/.test(h) && /reference material/.test(h)), long.hints.join(" | "));
+  const bare = briefHealth({ instructions: "You are the delivery lead. ".repeat(40), servers: [], catalog, keepsMemory: true, asks: [] });
+  check("a brief with no example and no headings is told so", bare.hints.some((h) => /No example of a good answer/.test(h)) && bare.hints.some((h) => /No headed sections/.test(h)), bare.hints.join(" | "));
+  const unticked = briefHealth({ instructions: "Check PM-tool for the live status before answering.", servers: [], catalog, keepsMemory: false, asks: [] });
+  check("a tool named in the brief but not given is pointed out", unticked.hints.some((h) => /Mentions PM-tool, but is not given it/.test(h)), unticked.hints.join(" | "));
+  const noMem = briefHealth({ instructions: "Check your memory first, then answer.", servers: [], catalog, keepsMemory: false, asks: [] });
+  check("talk of memory on an agent that keeps none is pointed out", noMem.hints.some((h) => /keeps none/.test(h)));
+  const askNobody = briefHealth({ instructions: "Use agents_ask to get the Legal agent's view.", servers: [], catalog, keepsMemory: true, asks: [] });
+  check("so is asking when it may ask nobody", askNobody.hints.some((h) => /may ask nobody/.test(h)));
+  const rules = briefHealth({ instructions: "Always cite. Never guess. Always check. Never write. Always ask. Never assume. Always list. ".repeat(3), servers: [], catalog, keepsMemory: true, asks: [] });
+  check("a brief that is mostly always and never is told it is brittle", rules.hints.some((h) => /absolute rules/.test(h)), rules.hints.join(" | "));
+  check("an empty brief gets none", briefHealth({ instructions: "   ", servers: [], catalog, keepsMemory: true, asks: [] }).hints.length === 0);
+
+  const { MemoryPanel } = await import("./src/app/agents/[slug]/MemoryPanel.tsx");
+  const fake = (n, active) => Array.from({ length: n }, (_, i) => ({ id: `m${i}-${active}`, key: `key-${i}`, content: "a fact the agent keeps about a client ".repeat(12), active, scope: "agent", scopeRef: "", keptFor: "Shared", updatedAt: new Date().toISOString(), region: null, writtenBy: null, sourceRunId: null, createdAt: new Date().toISOString(), agentId: "x" }));
+  const panel = (memories) => text(renderToStaticMarkup(React.createElement(ViewProvider, { view: "standard", can: CAN_NOTHING }, React.createElement(MemoryPanel, { agentId: "x", name: "Agent", memories }))));
+  const light = panel([...fake(3, true), ...fake(2, false)]);
+  check("the Memory tab says how much is read before every answer, in words", /3 memories are read before every answer — about [\d,]+ words/.test(light) && !/a lot to carry/.test(light), light.slice(0, 120));
+  check("and warns when it is a lot", /a lot to carry/.test(panel(fake(25, true))));
+
   // ── 4. the navigation, rendered ────────────────────────────────────────────
   const { Sidebar } = await import("./src/components/Sidebar.tsx");
   const nav = async () => {

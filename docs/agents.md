@@ -77,6 +77,12 @@ filed automatically by the words in its key and content (shown as
 "auto-filed"), until someone confirms or moves it from that page. Filing is not
 an edit, so it leaves `updated_at` alone.
 
+**The Memory tab says what the loaded memories cost**: how many are read
+before every answer and about how many words that is, with a warning when it
+is a lot (docs/effective-agents-review.md, B3). Memory is read on every turn
+of every run; what is not in flight belongs set aside, where the agent can
+still search for it.
+
 **Every memory is visible and deletable** from the agent's Memory tab. An agent
 that silently accumulates beliefs about a client is a liability; being able to
 read and prune them is what makes it something to point at real work.

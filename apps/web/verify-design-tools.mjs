@@ -129,6 +129,12 @@ try {
   check("with the tool server it named, and whom it may ask", names.includes("microsoft365") && (row?.mcpServers ?? []).find((e) => e.name === "agents")?.agents?.join() === helper.slug);
   check("a tool server this hub does not have is left out, and the answer says so", !names.includes(`no-such-server-${stamp}`) && created.includes(`no-such-server-${stamp}`));
   check("the answer says how to run it now and where its page is", /hub_run_agent/.test(created) && created.includes(`https://hub.example/agents/contracts-${stamp}`));
+  check("a short brief with nothing to say about it gets no hints", !/About the brief/.test(created));
+  // Brief health (docs/effective-agents-review.md, B1): the design tools say what the form would show.
+  const hinted = await call(admin, "hub_agent_create", { name: `Hinted ${stamp}`, instructions: "Check microsoft365 for the mail first. Check your memory, then answer. ".repeat(3), tools: [], keepsMemory: false });
+  const hintedRow = await db.getAgent(`hinted-${stamp}`);
+  if (hintedRow) made.push(hintedRow.id);
+  check("a brief naming a tool it is not given, and memory it does not keep, is created with hints, not refused", Boolean(hintedRow) && /About the brief \(hints, not refusals\)/.test(hinted) && /not given it under What it may use/.test(hinted) && /keeps none/.test(hinted), hinted);
 
   const badModel = await call(admin, "hub_agent_create", { name: `Bad model ${stamp}`, model: "gpt-9" });
   check("an unknown model is refused, and nothing is created", /Not created: Unknown model "gpt-9"/.test(badModel) && !(await db.getAgent(`bad-model-${stamp}`)), badModel);

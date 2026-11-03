@@ -537,6 +537,30 @@ writeTool(
     }),
 );
 
+writeTool(
+  "knowledge_set_aside",
+  {
+    description:
+      "Propose setting one of an agent's shared memories aside: kept and searchable, no longer loaded into every run. Held for a person's approval. For a memory about work that is finished, paused or superseded — a closed engagement, a decision since replaced — which the agent reads before every answer for no gain. Not for deleting; that is a person's call on the agent's page. Not for your own memory — use memory_set_active.",
+    inputSchema: {
+      agentSlug: z.string().min(1).describe("The agent whose memory it is."),
+      key: z.string().min(1).max(120).describe("The memory's key, as knowledge_agent_memories lists it."),
+    },
+  },
+  async ({ agentSlug, key }) =>
+    attempt(async () => {
+      if (agentSlug === SELF) return failed("That is your own memory: use memory_set_active.");
+      const [a] = await sql`select id, name from agents where slug = ${agentSlug}`;
+      if (!a) return failed(`No agent "${agentSlug}".`);
+      // Shared memories only: the steward reads no one's personal memory, so it proposes nothing about one.
+      const [m] = await sql`select id, active from agent_memories where agent_id = ${a.id} and key = ${key.trim()} and scope = 'agent'`;
+      if (!m) return failed(`${a.name} has no shared memory "${key.trim()}".`);
+      if (!m.active) return text({ setAside: true, agent: a.name, key: key.trim(), already: true });
+      await sql`update agent_memories set active = false, updated_at = now() where id = ${m.id}`;
+      return text({ setAside: true, agent: a.name, key: key.trim(), already: false });
+    }),
+);
+
 destructiveTool(
   "knowledge_retire_document",
   {

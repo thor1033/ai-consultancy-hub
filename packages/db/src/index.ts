@@ -15,7 +15,8 @@ export {
 } from "./mcpServers";
 export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun, HubConnectionRow } from "./mcpServers";
 export { recordSession, listSessions, getSession, startRun, finishRun, failRun, appendRunOutput, getRunStatus, getRunTiming, listMyRuns } from "./sessions";
-export type { RunTiming } from "./sessions";
+export type { RunTiming, RunTranscript } from "./sessions";
+export { getRunTranscript } from "./sessions";
 export type {
   SessionSummary,
   SessionDetail,

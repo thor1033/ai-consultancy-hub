@@ -546,6 +546,14 @@ also spends model money by design, and says so before it does.
 | F1 | The scaffolding table in docs/agent-patterns.md: every number, what it protects against, when to revisit; and what is structural | a doc |
 | G2 | The skill form says a connected client reads only the name and description to decide whether to call it | — |
 
+**Phase 2 is done.** On the same branch, not deployed.
+
+| | What changed | Proven by |
+|---|---|---|
+| E2 | A run's page shows what was said — the request, each tool call and what it returned, the answer — to the run's own person and to admins, in the Expert view, while retention keeps it. Dropped or special-category runs say so. Below Expert, and to anyone else, the page is numbers and tool names as before | `verify:run-timing` (web), 36 checks |
+| B1 | Brief health beside the word count, in the form as a person types and in `hub_agent_create` / `hub_agent_update`'s answer: tokens read on every turn, no example, no headings, a tool named but not given, memory on an agent that keeps none, asking when it may ask nobody, a brief that is mostly always/never. Hints, never refusals | `verify:views` (web), 99 checks; `verify:design-tools`, 30 |
+| B3 | The Memory tab says how many memories are read before every answer and about how many words, and warns when it is a lot. The Steward's fourth proposal, `knowledge_set_aside`: keep a memory, stop loading it, held for a person like its others | `verify:views`; `verify:knowledge` (mcp), 57 |
+
 ## What this deliberately leaves out
 
 - **Agent teams that talk to each other** (Claude Code's peer-to-peer

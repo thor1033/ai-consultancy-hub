@@ -136,8 +136,12 @@ its time went, turn by turn (`@ai-hub/agent` `RunTimeline`, stored in
 - **What the first request carried:** the brief, retrieved knowledge, tool
   definitions, earlier chat turns and the request, approximately.
 
-It shows numbers and tool names only — never the answer or a tool's result —
-so it is visible to whoever can see the run in the agent's list. Runs from
+It shows numbers and tool names to whoever can see the run in the agent's
+list. **What was said** — the request, each tool call and its result, the
+answer — is shown only to the run's own person and to admins, in the Expert
+view, while retention keeps the transcript (7 days by default); a run that
+touched special-category material has none. "Read the transcripts" is the
+habit every Anthropic post on agents ends on, and this is where. Runs from
 before this change say so.
 
 **"Which part of this prompt makes it slow?" — the bench.** The run page

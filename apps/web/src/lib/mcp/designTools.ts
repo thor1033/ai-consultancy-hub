@@ -7,6 +7,8 @@ import { knownServers } from "@/lib/runSession";
 import { resolveLargeArgs } from "@/lib/mcp/largeArgs";
 import { text } from "@/lib/mcp/memoryTools";
 import { MODELS } from "@/app/agents/models";
+import { briefHealth } from "@/app/agents/briefHealth";
+import { toolCatalog } from "@/app/agents/catalog";
 
 /*
  * Designing agents and skills from an MCP client (docs/agent-design-tools.md).
@@ -169,11 +171,13 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         enabled: args.enabled ?? true,
       });
       if ("error" in out) return text(`Not created: ${out.error}`);
-      const dropped = droppedTools(args.tools, await getAgent(out.id));
+      const created = await getAgent(out.id);
+      const dropped = droppedTools(args.tools, created);
       return text(
         [
           `Created "${args.name}" (slug ${out.slug}).`,
           dropped.length ? `Left out, because this hub has no tool server by that name: ${dropped.join(", ")}.` : null,
+          await hintsFor(created),
           `Run it now with hub_run_agent (agent "${out.slug}"); its own hub_agent_* tool appears when your client reconnects.`,
           `Its page: ${pageOf(out.slug)}`,
         ]
@@ -218,11 +222,13 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         placement: a.placement,
       });
       if ("error" in out) return text(`Not changed: ${out.error}`);
+      const hints = await hintsFor(await getAgent(a.id));
       const dropped = droppedTools(args.tools, await getAgent(out.id));
       return text(
         [
           `Saved "${args.name ?? a.name}".`,
           dropped.length ? `Left out, because this hub has no tool server by that name: ${dropped.join(", ")}.` : null,
+          hints,
           `Its page: ${pageOf(out.slug)}`,
         ]
           .filter(Boolean)
@@ -304,6 +310,17 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
       return text(`Saved "${out.saved.name}"${out.saved.enabled ? "" : " (switched off)"}.`);
     },
   );
+}
+
+/** What Anthropic's advice would say about the saved brief (briefHealth.ts), as lines; null when nothing. */
+async function hintsFor(saved: Awaited<ReturnType<typeof getAgent>>): Promise<string | null> {
+  if (!saved) return null;
+  const catalog = (await toolCatalog().catch(() => [])).map((t) => ({ name: t.name, label: t.label }));
+  const entries = (saved.mcpServers ?? []) as McpEntry[];
+  const servers = entries.map((e) => String((e as { name?: unknown }).name ?? "")).filter(Boolean);
+  const asks = (entries.find((e) => (e as { name?: unknown }).name === ASK_SERVER) as { agents?: string[] } | undefined)?.agents ?? [];
+  const { hints } = briefHealth({ instructions: saved.instructions ?? "", servers, catalog, keepsMemory: saved.keepsMemory !== false, asks });
+  return hints.length ? `About the brief (hints, not refusals):\n${hints.map((h) => `- ${h}`).join("\n")}` : null;
 }
 
 /** Tool servers asked for that the save left out, so the caller is told rather than finding out at run time. */

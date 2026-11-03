@@ -245,6 +245,28 @@ export async function getRunTiming(id: string): Promise<RunTiming | null> {
   return row ?? null;
 }
 
+export interface RunTranscript {
+  principalId: string | null;
+  sensitivity: Sensitivity;
+  transcript: unknown[];
+  transcriptDroppedAt: string | null;
+}
+
+/**
+ * A run's transcript, as stored: masked (docs/sensitivity.md), empty once
+ * retention dropped it or when the run touched special material. Who may
+ * read it is the page's decision (its own person, or an admin) — this only
+ * says whose it is.
+ */
+export async function getRunTranscript(id: string): Promise<RunTranscript | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const sql = getSql();
+  const [row] = await sql<RunTranscript[]>`
+    select principal_id as "principalId", sensitivity, transcript, transcript_dropped_at as "transcriptDroppedAt"
+      from agent_sessions where id = ${id}`;
+  return row ?? null;
+}
+
 /**
  * Add to a finished run's answer. The hand-off to the Context Steward
  * (apps/web/src/lib/handoffs.ts) runs once the session is recorded, so

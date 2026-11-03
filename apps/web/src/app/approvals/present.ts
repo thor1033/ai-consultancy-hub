@@ -12,6 +12,7 @@ const VERBS: Record<string, string> = {
   teams_notes_save: "Save meeting note",
   knowledge_file_document: "File document",
   knowledge_remember_for: "Remember for agent",
+  knowledge_set_aside: "Set a memory aside",
   knowledge_retire_document: "Retire document",
 };
 

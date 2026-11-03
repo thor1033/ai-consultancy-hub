@@ -26,10 +26,17 @@ import { fileURLToPath } from "node:url";
 // to the person whose run it was, and to admins). Signed in as the run's own
 // person; the stubs are only what Next would supply.
 const RUN_EMAIL = `verify-timing-${Date.now()}@example.com`;
-process.env.ALLOWED_EMAILS = [process.env.ALLOWED_EMAILS, RUN_EMAIL].filter(Boolean).join(",");
+const OTHER_EMAIL = `verify-timing-other-${Date.now()}@example.com`;
+process.env.ALLOWED_EMAILS = [process.env.ALLOWED_EMAILS, RUN_EMAIL, OTHER_EMAIL].filter(Boolean).join(",");
+// Who is signed in and which view they chose, settable per check: the run's
+// own person by default, in the Standard view.
+globalThis.__timing = { email: RUN_EMAIL, view: null };
 const STUBS = {
   "server-only": "export default null;",
-  "@workos-inc/authkit-nextjs": `export async function withAuth() { return { user: { id: "user_verify", email: ${JSON.stringify(RUN_EMAIL)} } }; }`,
+  "@workos-inc/authkit-nextjs": `export async function withAuth() { return { user: { id: "user_" + globalThis.__timing.email, email: globalThis.__timing.email } }; }`,
+  "next/headers": `
+    export async function cookies() { const v = globalThis.__timing.view; return { get: (name) => (v && name === "hub-view" ? { name, value: v } : undefined), set() {}, delete() {} }; }
+    export async function headers() { return new Headers(); }`,
 };
 registerHooks({
   resolve(specifier, context, nextResolve) {
@@ -220,13 +227,37 @@ try {
       return /NEXT_HTTP_ERROR_FALLBACK;404|NEXT_NOT_FOUND/.test(String(err?.digest ?? err?.message)) ? "404" : `threw: ${err?.message}`;
     }
   };
+  const textOf = (html) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;|&apos;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ");
   const html = await render(agent.slug, out.runId);
-  const text = html.replace(/<[^>]+>/g, " ").replace(/&#x27;|&apos;/g, "'").replace(/\s+/g, " ");
+  const text = textOf(html);
   check("the page renders the verdict", /Where the time went/.test(text) && /Most of the time \(\d+%\)/.test(text), text.match(/Most of the time[^.]*\./)?.[0]);
   check("it shows both turns and the tool call", /Turn 1/.test(text) && /Turn 2/.test(text) && /memory_list/.test(text));
   check("it shows the prompt's first line only", /What do you remember\?/.test(text) && !/Second line/.test(text));
-  check("it never shows the answer", !text.includes(ANSWER));
+  check("below Expert it never shows the answer or the transcript, even to the run's own person", !text.includes(ANSWER) && !/What was said/.test(text));
   check("it shows what the first request carried", /What the first request carried/.test(text) && /The agent's brief/.test(text));
+
+  // What was said (docs/effective-agents-review.md, E2): the run's own person, in Expert, while it is kept.
+  console.log("\n— what was said —");
+  globalThis.__timing.view = "expert";
+  const mine = textOf(await render(agent.slug, out.runId));
+  check("in Expert the run's own person reads the transcript: the request, the tool call and the answer", /What was said/.test(mine) && /Second line that the page must not show/.test(mine) && /Called memory_list/.test(mine) && /Returned/.test(mine) && mine.includes(ANSWER), mine.slice(mine.indexOf("What was said"), mine.indexOf("What was said") + 160));
+  check("and is told who else can, and for how long", /Only you and admins can read this, for \d+ days/.test(mine));
+  await db.upsertPrincipal({ id: `verify-timing-other-${stamp}`, roles: ["analyst"], displayName: "Verify other", email: OTHER_EMAIL });
+  globalThis.__timing.email = OTHER_EMAIL;
+  const theirs = textOf(await render(agent.slug, out.runId));
+  check("another person in Expert sees the timing and nothing that was said", /Where the time went/.test(theirs) && !/What was said/.test(theirs) && !theirs.includes(ANSWER));
+  await db.upsertPrincipal({ id: `verify-timing-other-${stamp}`, roles: ["admin"], displayName: "Verify other", email: OTHER_EMAIL });
+  const adminView = textOf(await render(agent.slug, out.runId));
+  check("an admin reads it", /What was said/.test(adminView) && adminView.includes(ANSWER));
+  globalThis.__timing.email = RUN_EMAIL;
+  await sql`update agent_sessions set transcript = '[]'::jsonb, transcript_dropped_at = now() where id = ${out.runId}`;
+  const dropped = textOf(await render(agent.slug, out.runId));
+  check("once retention has dropped it, the page says so instead", /What was said/.test(dropped) && /removed after the hub's retention period/.test(dropped) && !dropped.includes(ANSWER));
+  await sql`update agent_sessions set sensitivity = 'special' where id = ${out.runId}`;
+  const special = textOf(await render(agent.slug, out.runId));
+  check("a run that touched special-category material says it was never kept", /Not kept: this run touched special-category material/.test(special) && !special.includes(ANSWER));
+  await sql`update agent_sessions set sensitivity = 'internal', transcript_dropped_at = null where id = ${out.runId}`;
+  globalThis.__timing.view = null;
   check("a run asked for under another agent's address is not found", (await render(other.slug, out.runId)) === "404");
   check("an unknown run is not found", (await render(agent.slug, "00000000-0000-0000-0000-000000000000")) === "404");
   await sql`update agent_sessions set timeline = null where id = ${out.runId}`;
@@ -236,7 +267,7 @@ try {
   await sql`delete from agent_sessions where principal_id = ${PERSON.id}`;
   if (agent) await db.deleteAgent(agent.id);
   if (other) await db.deleteAgent(other.id);
-  await sql`delete from principals where id = ${PERSON.id}`;
+  await sql`delete from principals where id = ${PERSON.id} or id = ${`verify-timing-other-${stamp}`}`;
   await sql.end({ timeout: 5 });
   http.close();
 }

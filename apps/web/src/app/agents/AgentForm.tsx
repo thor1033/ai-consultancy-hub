@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { BRIEF_TEMPLATE, wordCount } from "./briefTemplate";
+import { BRIEF_TEMPLATE } from "./briefTemplate";
+import { briefHealth } from "./briefHealth";
 import { useRouter } from "next/navigation";
 import type { Placement } from "@ai-hub/db";
 import { saveAgentAction, deleteAgentAction } from "./actions";
@@ -148,7 +149,9 @@ export function AgentForm({
   // the agent already names that is not (yet, or any more) among them.
   const knowledgeChoices = [...new Set([...collections, ...v.knowledgeCollections])];
   const picked = tools.filter((t) => v.servers.includes(t.name));
-  const words = wordCount(v.instructions);
+  // What Anthropic's advice would say about this brief, as hints (briefHealth.ts).
+  const health = briefHealth({ instructions: v.instructions, servers: v.servers, catalog: tools, keepsMemory: v.keepsMemory, asks: v.asks });
+  const words = health.words;
 
   function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -288,6 +291,16 @@ export function AgentForm({
               </button>
             )}
           </div>
+          {health.hints.length > 0 && (
+            <ul className="mt-2 flex max-w-3xl flex-col gap-1 text-xs text-[var(--text-soft)]">
+              {health.hints.map((h) => (
+                <li key={h} className="flex gap-2">
+                  <span aria-hidden className="mt-1.5 inline-block h-1.5 w-1.5 shrink-0 bg-[var(--warning)]" />
+                  {h}
+                </li>
+              ))}
+            </ul>
+          )}
         </Section>
 
         <Section n="03" title="What it may use" hint="Each tool is a live connection the agent can call while it works. Memory is on unless this is a worker meant to start clean.">

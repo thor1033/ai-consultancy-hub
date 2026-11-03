@@ -30,10 +30,13 @@ what it was, by whom and when.
 
 Two things are never touched: **a run still running and a pending proposal.**
 
-The transcript window is short on purpose. Nothing a person reads uses the
-transcript; it is there for debugging and for the Context Steward, which reads
-recent conversations. After 7 days the Steward reads the question and answer
-instead.
+The transcript window is short on purpose. It is there for debugging, for the
+Context Steward, which reads recent conversations, and for the run's own
+person: in the Expert view, a run's page shows what was said — the request,
+each tool call and what it returned, the answer — to the person whose run it
+is and to admins, while the window lasts (docs/effective-agents-review.md,
+E2). After 7 days the page says the record was removed, and the Steward
+reads the question and answer instead.
 
 ## The clean-up
 
