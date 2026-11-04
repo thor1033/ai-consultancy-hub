@@ -70,6 +70,7 @@ const agentFields = {
   function: z.string().optional().describe("Its column on the org chart, e.g. Delivery."),
   owner: z.string().optional().describe("The person it reports to, on the org chart."),
   maxIterations: z.number().int().optional().describe("Most tool rounds one run may take before it stops and says so."),
+  clearToolResultsAfter: z.number().int().optional().describe("For an agent working through a queue: clear tool results older than this many turns from the prompt, 1–50. Omit for never."),
   enabled: z.boolean().optional(),
 };
 
@@ -132,6 +133,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         function: a.functionName,
         owner: a.owner,
         maxIterations: a.maxIterations,
+        clearToolResultsAfter: a.clearToolResultsAfter,
         enabled: a.enabled,
         placement: a.placement,
         page: pageOf(a.slug),
@@ -176,6 +178,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         functionName: args.function ?? "",
         owner: args.owner ?? "",
         maxIterations: args.maxIterations ?? null,
+        clearToolResultsAfter: args.clearToolResultsAfter ?? null,
         enabled: args.enabled ?? true,
       });
       if ("error" in out) return text(`Not created: ${out.error}`);
@@ -226,6 +229,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         functionName: args.function ?? a.functionName,
         owner: args.owner ?? a.owner,
         maxIterations: args.maxIterations === undefined ? a.maxIterations : args.maxIterations,
+        clearToolResultsAfter: args.clearToolResultsAfter === undefined ? a.clearToolResultsAfter : args.clearToolResultsAfter,
         enabled: args.enabled ?? a.enabled,
         placement: a.placement,
       });

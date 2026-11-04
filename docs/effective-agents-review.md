@@ -573,6 +573,17 @@ Not done from C: the asked run's page does not yet show the four fields apart â€
 
 Beyond the review: comparing setups was not in E1, which proposed one setup and a regression over time. It is the question a champion asks ("which setup does this job best?"), and the same runner answers it.
 
+**Phase 5 is done.** On the same branch, not deployed.
+
+| | What changed | Proven by |
+|---|---|---|
+| B4 | Per agent, under Advanced: clear tool results older than N turns from the prompt, replaced by a line saying what was there and that the tool can be called again; ids kept, the stored transcript carries what was sent, the result counts what was cleared (docs/agents.md, "Long runs"). Also in `hub_agent_create` / `hub_agent_update` | `verify:loop` (agent), 53 checks |
+| G1 | Download SKILL.md on a skill: frontmatter, the prompt as the body, parameters and checks as sections, the agent as metadata; the hub's own parser reads it back | `verify:import` (web) |
+| H1 | The Checklist runner pattern: a runner keeps the checklist in memory, does one open item per run, a reviewer with no memory says when an item is done; *Plan the checklist* and *Do the next item* skills, the second for a schedule | `verify:patterns` (db) |
+| H2 | The Second opinion pattern: an asker puts one question to two or three readers of different stances in one turn, so they run at once, and reports agreement, differences and which it would follow | `verify:patterns` |
+
+With this, every proposal of the review is built except two that were never for this review to do: F2 (the model list follows the deployment) and the "cites" check kind.
+
 ## What this deliberately leaves out
 
 - **Agent teams that talk to each other** (Claude Code's peer-to-peer

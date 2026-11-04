@@ -34,6 +34,14 @@ export interface RunAgentInput {
   /** Arbitrary metadata attached to the Langfuse trace (e.g. skillId, tenantId). */
   metadata?: Record<string, unknown>;
   /**
+   * Clear tool results older than this many tool turns (docs/agents.md,
+   * "Long runs"): their text is replaced by a line saying what was there
+   * and that the tool can be called again. The lightest compaction in
+   * Anthropic's context-engineering advice: a run's N-th turn need not
+   * reread a 40 KB result from turn 2. Undefined ⇒ nothing is cleared.
+   */
+  clearToolResultsAfter?: number;
+  /**
    * False: send nothing to Langfuse for this run — not even its shape. For a
    * run that touched special-category material (docs/sensitivity.md), whose
    * tool names and timings can say what it was about. Default: traced when
@@ -49,6 +57,8 @@ export interface RunAgentResult {
   iterations: number;
   /** The cap this run actually ran under, after clamping. */
   maxIterations: number;
+  /** Old tool results cleared from the prompt during the run (clearToolResultsAfter), and how much text that was. */
+  cleared?: { results: number; chars: number };
   /**
    * True when the run stopped because it hit `maxIterations` with the model
    * still asking for tools — i.e. the task was not finished. `text` carries a

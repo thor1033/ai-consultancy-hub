@@ -146,6 +146,8 @@ export interface RunSessionInput {
   effort?: "low" | "medium" | "high" | "max";
   /** Rounds of tool use this run may take. Undefined ⇒ the runtime default. */
   maxIterations?: number;
+  /** Clear tool results older than this many turns from the prompt (docs/agents.md, "Long runs"). */
+  clearToolResultsAfter?: number;
   servers?: string[];
   /** Who asked, recorded on the session so a run has an owner. */
   principalId?: string;
@@ -333,6 +335,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       model: input.model,
       effort: input.effort,
       maxIterations: input.maxIterations,
+      clearToolResultsAfter: input.clearToolResultsAfter,
       // Writes are held for a person (lib/approvals.ts); reads pass through.
       // The tool list and the executor come from the same gate, so a tool
       // that will be held is the one that asks the model for its reason.

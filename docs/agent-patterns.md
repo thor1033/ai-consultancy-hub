@@ -127,6 +127,15 @@ page.
 | Stages, one after another | **Assembly line** | one agent per stage, none remembering | each stage hands to the next; the first has a *Start* skill | the work has clear steps that different briefs do best, and nothing goes back a step |
 | Writer and reviewer | **Critic loop** | Writer (remembers), Reviewer (no memory) | Writer asks Reviewer, up to three rounds | the output has a standard you can write down |
 | One door, many specialists | **Front desk** | Front desk, one Specialist per area | Front desk asks ONE Specialist per question | people should not have to know which agent to ask |
+| Checklist runner | **One item at a time** | Runner (remembers; keeps the checklist), Reviewer (no memory) | Runner does one open item per run and asks the Reviewer before marking it; *Do the next item* goes on a schedule | the work is too big for one run and can be written as a list |
+| Second opinion | **Three readings** | Asker (remembers), two or three Readers with different stances (no memory) | Asker asks every Reader in one turn, so they run at once | a decision worth more than one reading, with the disagreement shown |
+
+The last two come from the articles (docs/effective-agents-review.md, H1 and
+H2): the checklist runner is the shape of Anthropic's long-running harness —
+the work lives outside the run, each run does one item and leaves a progress
+line, a reviewer with no memory decides what "done" means; the second
+opinion is the one parallelisation the hub can use, since asks made in one
+turn run at once.
 
 **Which model.** The roles that do bounded work — a worker, a specialist, a
 stage, the reviewer — are created on the cheaper model (`CHEAPER_MODEL`,

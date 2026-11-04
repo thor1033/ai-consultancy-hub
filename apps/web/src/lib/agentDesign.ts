@@ -143,6 +143,10 @@ export async function saveAgentAs(
     raw === null || raw === undefined || !Number.isFinite(Number(raw))
       ? null
       : Math.min(Math.max(Math.trunc(Number(raw)), 1), MAX_ITERATIONS_CEILING);
+  // The same rule for clearing old tool results: a number of turns, 1–50, or null for never.
+  const rawClear = input.clearToolResultsAfter;
+  const clearToolResultsAfter =
+    rawClear === null || rawClear === undefined || !Number.isFinite(Number(rawClear)) ? null : Math.min(Math.max(Math.trunc(Number(rawClear)), 1), 50);
 
   // Where an agent runs decides where its instructions are copied to and who
   // reaches its tools from outside the hub, so changing it is admin-only even
@@ -209,6 +213,7 @@ export async function saveAgentAs(
         knowledgeCollections,
         knowledgeAll,
         maxIterations,
+        clearToolResultsAfter,
         placement,
         functionName,
         owner,
@@ -226,6 +231,7 @@ export async function saveAgentAs(
       knowledgeCollections,
       knowledgeAll,
       maxIterations,
+      clearToolResultsAfter,
       placement,
       functionName,
       owner,

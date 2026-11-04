@@ -182,3 +182,48 @@ export function skillTemplateFrom(body: string): string {
 }
 
 export const SKILL_REQUEST_PARAMETER = { name: "request", description: "What you want done with this skill, in plain words.", required: true };
+
+/**
+ * A skill as a SKILL.md (docs/skill-import.md, "Export"): the standard's
+ * frontmatter (name, description), then the prompt with its blanks, the
+ * parameters and the checks as sections a person or another hub can read.
+ * The hub imports the standard; this writes it back, so a skill built here
+ * can be given to another hub, another firm, or Claude Code directly.
+ */
+export function skillToSkillMd(skill: {
+  slug: string;
+  name: string;
+  description: string;
+  promptTemplate: string;
+  parameters: { name: string; description?: string; required?: boolean; type?: string; options?: string[] }[];
+  checks?: { kind: string; value: string; tool?: string }[];
+}, agent?: { name: string; slug: string } | null): string {
+  const quote = (v: string) => JSON.stringify(v.replace(/\s+/g, " ").trim());
+  const lines = [
+    "---",
+    `name: ${skill.slug}`,
+    `description: ${quote(skill.description || skill.name)}`,
+    ...(agent ? [`metadata:`, `  hub-agent: ${agent.slug}`] : []),
+    "---",
+    "",
+    `# ${skill.name}`,
+    "",
+    skill.promptTemplate.trim(),
+  ];
+  if (skill.parameters.length) {
+    lines.push("", "## Parameters", "", "Each `{{name}}` above is filled from these:", "");
+    for (const p of skill.parameters) {
+      const bits = [p.required === false ? "optional" : "required", p.type && p.type !== "string" ? p.type : null, p.options?.length ? `one of ${p.options.join(", ")}` : null].filter(Boolean);
+      lines.push(`- \`${p.name}\` (${bits.join(", ")})${p.description ? `: ${p.description}` : ""}`);
+    }
+  }
+  if (skill.checks?.length) {
+    lines.push("", "## Checks on every answer", "");
+    for (const c of skill.checks) {
+      const label = c.kind === "mentions" ? "Must mention" : c.kind === "avoids" ? "Must not mention" : c.kind === "maxWords" ? "At most this many words" : c.kind === "writes" ? `Proposes this many changes${c.tool ? ` of ${c.tool}` : ""}` : "Meets this standard";
+      lines.push(c.kind === "judge" ? `- ${label}:\n${c.value.split("\n").map((l) => `  ${l}`).join("\n")}` : `- ${label}: ${c.value}`);
+    }
+  }
+  if (agent) lines.push("", `_Exported from the AI Hub, where ${agent.name} carries it out._`);
+  return lines.join("\n") + "\n";
+}

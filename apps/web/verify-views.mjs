@@ -442,6 +442,13 @@ try {
   signIn(PEOPLE.admin, "standard");
   const adminStd = await render(agentPage, slugProps);
   check("someone who may manage sees a Tests button on the skill", /\bTests\b/.test(adminStd));
+  check("and a Download SKILL.md link", /Download SKILL\.md/.test(adminStd));
+  // The download itself (docs/skill-import.md, "Export"): the same door as the skill's page.
+  const { GET: downloadSkill } = await import("./src/app/agents/[slug]/skills/[skill]/SKILL.md/route.ts");
+  const dl = await downloadSkill(new Request("http://hub.test/x"), { params: Promise.resolve({ slug: agent.slug, skill: skill.slug }) });
+  check("the SKILL.md route serves the skill as a Markdown attachment", dl.status === 200 && /text\/markdown/.test(dl.headers.get("content-type")) && dl.headers.get("content-disposition") === 'attachment; filename="SKILL.md"' && (await dl.text()).includes(`name: ${skill.slug}`), String(dl.status));
+  check("and 404s for a skill that is not that agent's, and refuses someone signed out", (await downloadSkill(new Request("http://hub.test/x"), { params: Promise.resolve({ slug: agent.slug, skill: "nothing" }) })).status === 404 && (signIn(null), (await downloadSkill(new Request("http://hub.test/x"), { params: Promise.resolve({ slug: agent.slug, skill: skill.slug }) })).status === 401));
+  signIn(PEOPLE.admin, "standard");
   check("listMyRuns returns only the person's own runs", (await db.listMyRuns(agent.id, PEOPLE.analyst.id)).length === 1 && (await db.listMyRuns(agent.id, PEOPLE.admin.id)).length === 0);
   signIn(PEOPLE.admin, "expert");
   const adminHtml = await render(agentPage, slugProps);

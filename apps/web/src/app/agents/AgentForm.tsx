@@ -26,6 +26,8 @@ export interface AgentFormValues {
   knowledge: KnowledgeMode;
   knowledgeCollections: string[];
   maxIterations: string;
+  /** Clear tool results older than this many turns; blank = never (docs/agents.md, "Long runs"). */
+  clearToolResultsAfter: string;
   servers: string[];
   enabled: boolean;
   placement: Placement;
@@ -165,6 +167,7 @@ export function AgentForm({
         knowledgeAll: v.knowledge === "all",
         knowledgeCollections: v.knowledge === "selected" ? v.knowledgeCollections : [],
         maxIterations: v.maxIterations.trim() === "" ? null : Number(v.maxIterations),
+        clearToolResultsAfter: v.clearToolResultsAfter.trim() === "" ? null : Number(v.clearToolResultsAfter),
         mcpServers: v.servers.map((name) => {
           const mailbox = v.mailboxes[name]?.trim();
           return {
@@ -561,6 +564,22 @@ export function AgentForm({
               />
               <span className="mt-1 block text-xs text-[var(--muted)]">
                 Up to {maxIterationsCeiling}. Raise it for an agent that works through a queue.
+              </span>
+            </label>
+            <label className="block">
+              <span className="mb-1 block text-xs text-[var(--muted)]">Clear old tool results after this many turns</span>
+              <input
+                className="field mono"
+                type="number"
+                min={1}
+                max={50}
+                value={v.clearToolResultsAfter}
+                placeholder="never"
+                onChange={(e) => set("clearToolResultsAfter", e.target.value)}
+              />
+              <span className="mt-1 block text-xs text-[var(--muted)]">
+                For an agent that works through a queue: a result read in turn 2 is replaced by a line saying what was there, so later turns do not reread
+                it. The agent can call the tool again. Leave blank for an agent that looks a few things up and answers.
               </span>
             </label>
           </div>

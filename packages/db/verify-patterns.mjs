@@ -55,12 +55,14 @@ const EXAMPLES = {
   pipeline: { input: "A client's email", stages: "Extract: list every request\nCheck: say what the board has\nReply: draft the reply" },
   "writer-reviewer": { work: "Proposals, in Danish", standard: "1. Opens with the client's problem.\n2. Names a price." },
   "front-desk": { askers: "Colleagues in Teams", specialists: "IT: laptops and access\nHR: leave and expenses" },
+  "checklist-runner": { work: "Reviewing every supplier contract for the new terms.", done: "1. The clause is quoted.\n2. Marked compliant or not." },
+  "second-opinion": { job: "Whether to accept a contract change.", readers: "Cautious: worst case first\nCommercial: what it is worth\nClient's eyes: how they read it" },
 };
 
 // ── 1. the previews, pure ───────────────────────────────────────────────────
 console.log("— every pattern, previewed —");
-check("five patterns, each with a slug, a nickname, a diagram and decisions", patterns.PATTERNS.length === 5 && patterns.PATTERNS.every((p) => p.slug && p.nickname && p.diagram.includes("▶") && p.decisions.length >= 2 && p.when.length >= 2));
-check("their slugs are distinct", new Set(patterns.PATTERNS.map((p) => p.slug)).size === 5);
+check("seven patterns, each with a slug, a nickname, a diagram and decisions", patterns.PATTERNS.length === 7 && patterns.PATTERNS.every((p) => p.slug && p.nickname && p.diagram.includes("▶") && p.decisions.length >= 2 && p.when.length >= 2));
+check("their slugs are distinct", new Set(patterns.PATTERNS.map((p) => p.slug)).size === 7);
 const previews = {};
 for (const p of patterns.PATTERNS) {
   const pv = patterns.previewPattern(p, { instance: "Research & Insight", owner: "Thor Simonsen", functionName: "Delivery", ...EXAMPLES[p.slug] });
@@ -99,6 +101,13 @@ check("critic loop: the writer remembers and asks the reviewer; the reviewer rem
 check("both briefs carry the standard; the writer's caps the rounds at three", /Names a price/.test(wr.agents[0].instructions) && /Names a price/.test(wr.agents[1].instructions) && /At most three rounds/.test(wr.agents[0].instructions) && /never rewrite/.test(wr.agents[1].instructions));
 const fd = previews["front-desk"];
 check("front desk: routes to ONE specialist and keeps a 'nobody-covers' memory", patterns.askedAgents(fd.agents[0].mcpServers).length === 2 && /which ONE specialist/.test(fd.agents[0].instructions) && fd.memories.some((m) => m.key === "nobody-covers"));
+const cr = previews["checklist-runner"];
+check("checklist runner: the runner remembers and asks the reviewer; the reviewer remembers nothing, on the cheaper model", cr.agents[0].keepsMemory && patterns.askedAgents(cr.agents[0].mcpServers).join() === "research-insight-reviewer" && !cr.agents[1].keepsMemory && cr.agents[1].model === patterns.CHEAPER_MODEL && cr.agents[0].model === null);
+check("the runner has a Plan skill with the goal and a Next skill with no blanks, and an induction memory", cr.skills.map((s) => s.slug).join() === "research-insight-runner-plan,research-insight-runner-next" && cr.skills[1].parameters.length === 0 && /\{\{goal\}\}/.test(cr.skills[0].promptTemplate) && cr.memories.some((m) => m.key === "how-i-work"));
+check("its brief does one item per run, never marks an item done itself, and carries what done means", /One item per run/.test(cr.agents[0].instructions) && /Never mark an item done on your own say-so/.test(cr.agents[0].instructions) && /The clause is quoted/.test(cr.agents[0].instructions) && /The clause is quoted/.test(cr.agents[1].instructions));
+const so = previews["second-opinion"];
+check("second opinion: an asker plus one reader per line; the asker asks all of them, the readers nobody", so.agents.length === 4 && patterns.askedAgents(so.agents[0].mcpServers).length === 3 && so.agents.slice(1).every((a) => patterns.askedAgents(a.mcpServers).length === 0 && !a.keepsMemory && a.model === patterns.CHEAPER_MODEL));
+check("the asker is told to ask every reader in the same turn, and each reader carries its stance", /EVERY reader in the SAME turn/.test(so.agents[0].instructions) && /worst case first/.test(so.agents[1].instructions) && /how they read it/.test(so.agents[3].instructions) && so.agents[3].slug === "research-insight-client-s-eyes");
 
 console.log("\n— previews that must refuse —");
 const noName = patterns.previewPattern(patterns.PATTERNS[0], { instance: "", domain: "x" });

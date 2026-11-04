@@ -255,6 +255,7 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     model: (model as ModelId) ?? undefined,
     effort: effortOf(effort),
     maxIterations: agent.maxIterations ?? undefined,
+    clearToolResultsAfter: agent.clearToolResultsAfter ?? undefined,
     servers,
     agentId: agent.id,
     principalId: input.principal.id,

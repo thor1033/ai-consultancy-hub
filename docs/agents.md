@@ -155,6 +155,24 @@ result comes back with `exhausted: true` and a note appended to the output text
 saying it stopped early and the work is incomplete. Without that, the caller
 gets the model's last half-formed sentence as though it were the answer.
 
+### Long runs
+
+Every turn of a run rereads every tool result before it, so an agent working
+a queue carries a 40 KB result from turn 2 into turn 30. The run page names
+"the largest tool result and how many later turns reread it"; the remedy is
+per agent, under **Settings → Advanced → Clear old tool results after this
+many turns** (`agents.clear_tool_results_after`, null for never). With it
+set to N, a tool result older than N tool turns is replaced in the prompt by
+one line — how many characters were there, and that the tool can be called
+again — before the next model call. The lightest compaction in Anthropic's
+context-engineering advice (docs/effective-agents-review.md, B4): nothing is
+summarised, the model is told what it no longer has, and the `tool_use` ids
+stay, so the API still pairs each result with its call. The stored
+transcript carries what was sent. The result counts what was cleared
+(`cleared`). Leave it blank for an agent that looks a few things up and
+answers: clearing changes the prompt, which also drops the cache from that
+point, and buys nothing in a short run.
+
 ## Verification
 
 | Command | Covers |

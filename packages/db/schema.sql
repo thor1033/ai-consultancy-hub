@@ -786,3 +786,6 @@ create table if not exists skill_trials (
 create index if not exists skill_trials_skill_idx on skill_trials (skill_id, started_at desc);
 
 alter table agent_sessions add column if not exists trial_id uuid;
+
+-- Long runs: clear tool results older than this many turns (docs/agents.md, "Long runs"). Null ⇒ never.
+alter table agents add column if not exists clear_tool_results_after int;

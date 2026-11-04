@@ -196,6 +196,11 @@ export function SkillsPanel({
                     Run
                   </button>
                 )}
+                {editing && (
+                  <a className="btn min-h-9" href={`/agents/${agentSlug}/skills/${s.slug}/SKILL.md`} download="SKILL.md" title="The prompt, its blanks and its checks, as a SKILL.md another hub or Claude Code can read">
+                    Download SKILL.md
+                  </a>
+                )}
                 {editing && testing !== s.id && (
                   <button className="btn min-h-9" onClick={() => setTesting(s.id)}>
                     Tests{tests[s.id]?.cases.length ? ` (${tests[s.id].cases.length})` : ""}

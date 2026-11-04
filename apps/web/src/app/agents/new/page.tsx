@@ -84,6 +84,7 @@ export default async function NewAgentPage() {
             knowledge: "none",
             knowledgeCollections: [],
             maxIterations: "",
+            clearToolResultsAfter: "",
             servers: [],
             enabled: true,
             placement: "hub",

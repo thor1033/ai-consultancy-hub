@@ -178,6 +178,7 @@ async function run({
   tools = TOOLS,
   parallelSafe,
   fan = null,
+  clearToolResultsAfter,
   prompt = "What is on tomorrow?",
 } = {}) {
   plan.fan = fan;
@@ -202,6 +203,7 @@ async function run({
       return "two events";
     },
     ...(parallelSafe ? { parallelSafe } : {}),
+    ...(clearToolResultsAfter ? { clearToolResultsAfter } : {}),
     ...(maxIterations === undefined ? {} : { maxIterations }),
     ...(maxTokens === undefined ? {} : { maxTokens }),
   });
@@ -352,6 +354,23 @@ try {
   check("the results went back in the model's order, one per call", Array.isArray(answered) && answered.map((b) => b.tool_use_id).join() === "tu_1_0,tu_1_1,tu_1_2" && answered.every((b) => b.type === "tool_result"), JSON.stringify(answered?.map((b) => b.tool_use_id)));
   check("the timeline charges the turn the wall time, not the sum", parallelFan.timeline.toolMs < 850 && parallelFan.timeline.turns[0].tools.length === 3, `${parallelFan.timeline.toolMs}ms over ${parallelFan.timeline.turns[0].tools.length} calls`);
   check("the turn's tools each carry their own time", parallelFan.timeline.turns[0].tools.every((t) => t.ms >= 250 && t.ms < 600), JSON.stringify(parallelFan.timeline.turns[0].tools.map((t) => t.ms)));
+
+  // ── clearing old tool results ────────────────────────────────────────────
+  // Five turns of tools, clearing results older than two turns: by the fifth
+  // call the first two results are a line each, the last two are whole, and
+  // the model is told what was there. Nothing is cleared when the setting is
+  // off, and the stored transcript carries the cleared lines, as sent.
+  const { CLEARED_MARK } = await import("./src/runAgent.ts");
+  const kept = await run({ answerOn: 5 });
+  const keptLast = plan.requests[4].messages.filter((m) => m.role === "user" && Array.isArray(m.content));
+  check("with no setting, every tool result stays whole in every call", keptLast.length === 4 && keptLast.every((m) => m.content[0].content === "two events") && !kept.cleared);
+  const trimmed = await run({ answerOn: 5, clearToolResultsAfter: 2 });
+  const results = plan.requests[4].messages.filter((m) => m.role === "user" && Array.isArray(m.content)).map((m) => m.content[0].content);
+  check("clearing after two turns: by the fifth call the two oldest results are a line each, the two newest are whole", results.length === 4 && results.slice(0, 2).every((c) => c.startsWith(CLEARED_MARK)) && results.slice(2).every((c) => c === "two events"), JSON.stringify(results.map((c) => c.slice(0, 40))));
+  check("the line says how much was there and that the tool can be called again", /10 characters, cleared from the conversation.*Call the tool again/.test(results[0]), results[0]);
+  check("the third call, with two results so far, cleared nothing yet; the fourth cleared the first", plan.requests[2].messages.filter((m) => m.role === "user" && Array.isArray(m.content)).every((m) => m.content[0].content === "two events") && plan.requests[3].messages.filter((m) => m.role === "user" && Array.isArray(m.content))[0].content[0].content.startsWith(CLEARED_MARK));
+  check("the result counts what was cleared, once each", trimmed.cleared?.results === 2 && trimmed.cleared.chars === 20, JSON.stringify(trimmed.cleared));
+  check("the tool_use ids are untouched, so the API still pairs each result with its call", plan.requests[4].messages.filter((m) => m.role === "user" && Array.isArray(m.content)).every((m, i) => m.content[0].tool_use_id === `tu_${i + 1}`));
 
   // ── clamping ─────────────────────────────────────────────────────────────
   // The row is editable, so the runtime — not the form — has to hold the line.

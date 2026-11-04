@@ -376,6 +376,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           knowledgeCollections: agent.knowledgeCollections,
           // Kept as a string so the box can be emptied back to "use the default".
           maxIterations: agent.maxIterations === null ? "" : String(agent.maxIterations),
+          clearToolResultsAfter: agent.clearToolResultsAfter === null ? "" : String(agent.clearToolResultsAfter),
           servers: named,
           enabled: agent.enabled,
           placement: agent.placement,

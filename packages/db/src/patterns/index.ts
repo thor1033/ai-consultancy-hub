@@ -6,6 +6,8 @@ import { COORDINATOR_SPECIALISTS } from "./coordinator-specialists";
 import { PIPELINE } from "./pipeline";
 import { WRITER_REVIEWER } from "./writer-reviewer";
 import { FRONT_DESK } from "./front-desk";
+import { CHECKLIST_RUNNER } from "./checklist-runner";
+import { SECOND_OPINION } from "./second-opinion";
 
 /*
  * Patterns: premade sets of agents that work together (docs/agent-patterns.md).
@@ -141,7 +143,7 @@ export const COMMON_PARAMS: PatternParam[] = [
   { key: "functionName", label: "Function", help: "Where they are filed on the org chart.", kind: "text", placeholder: "Delivery" },
 ];
 
-export const PATTERNS: readonly Pattern[] = [LONG_MEMORY_SHORT_HANDS, COORDINATOR_SPECIALISTS, PIPELINE, WRITER_REVIEWER, FRONT_DESK];
+export const PATTERNS: readonly Pattern[] = [LONG_MEMORY_SHORT_HANDS, COORDINATOR_SPECIALISTS, PIPELINE, WRITER_REVIEWER, FRONT_DESK, CHECKLIST_RUNNER, SECOND_OPINION];
 
 export function getPattern(slug: string): Pattern | null {
   return PATTERNS.find((p) => p.slug === slug) ?? null;

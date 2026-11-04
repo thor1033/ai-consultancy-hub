@@ -266,6 +266,7 @@ export async function sendAgentMessageAction(
       model: (agent.model as ModelId) ?? undefined,
       effort: effortOf(agent.effort),
       maxIterations: agent.maxIterations ?? undefined,
+      clearToolResultsAfter: agent.clearToolResultsAfter ?? undefined,
       servers,
       serverEntries: agent.mcpServers,
       agentId: agent.id,
