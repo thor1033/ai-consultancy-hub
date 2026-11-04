@@ -21,12 +21,12 @@ export interface PatternView {
   params: { key: string; label: string; help: string; kind: "text" | "textarea" | "list"; required?: boolean; placeholder?: string; default?: string }[];
 }
 
-export function PatternPicker({ patterns, canManage }: { patterns: PatternView[]; canManage: boolean }) {
+export function PatternPicker({ patterns, canManage, initial }: { patterns: PatternView[]; canManage: boolean; initial?: string }) {
   const router = useRouter();
   // The diagram, slugs and server names are Expert reading (docs/views.md);
   // the words above and below them say the same thing.
   const expert = useView().view === "expert";
-  const [open, setOpen] = useState<string>(patterns[0]?.slug ?? "");
+  const [open, setOpen] = useState<string>(initial ?? patterns[0]?.slug ?? "");
   const [values, setValues] = useState<Record<string, Record<string, string>>>({});
   const [preview, setPreview] = useState<PatternPreviewView | null>(null);
   const [message, setMessage] = useState<{ text: string; error: boolean } | null>(null);

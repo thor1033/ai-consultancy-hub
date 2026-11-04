@@ -93,6 +93,9 @@ export const DEFAULT_MAX_TOKENS = 32000;
  * final text plus the ROI substrate (usage, cost, latency). Every model call
  * is traced to Langfuse when configured.
  */
+/** What a cleared tool result begins with, so one is never cleared twice. */
+export const CLEARED_MARK = "[An earlier tool result:";
+
 export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   const model: ModelId = input.model ?? DEFAULT_MODEL;
   const maxTokens = input.maxTokens ?? DEFAULT_MAX_TOKENS;
@@ -172,9 +175,31 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   let stopReason: string | null = null;
   let finalText = "";
   const toolsUsed: string[] = []; // distinct, in first-use order
+  // Where each turn's tool results sit in `messages`, oldest first, so the
+  // ones older than `clearToolResultsAfter` turns can be cleared before the
+  // next call. Cleared once, in place: the model is told what was there and
+  // that it can call the tool again, and the cache prefix up to that message
+  // is what it was.
+  const resultTurns: number[] = [];
+  const clearAfter = input.clearToolResultsAfter && input.clearToolResultsAfter >= 1 ? Math.trunc(input.clearToolResultsAfter) : null;
+  const cleared = { results: 0, chars: 0 };
+  const clearOldResults = () => {
+    if (clearAfter === null) return;
+    for (const at of resultTurns.slice(0, Math.max(0, resultTurns.length - clearAfter))) {
+      const msg = messages[at];
+      if (typeof msg.content === "string") continue;
+      msg.content = msg.content.map((block) => {
+        if (block.type !== "tool_result" || typeof block.content !== "string" || block.content.startsWith(CLEARED_MARK)) return block;
+        cleared.results++;
+        cleared.chars += block.content.length;
+        return { ...block, content: `${CLEARED_MARK} ${block.content.length.toLocaleString("en-GB")} characters, cleared from the conversation to keep it short. Call the tool again if you need it.` };
+      });
+    }
+  };
 
   while (iterations < maxIterations) {
     iterations++;
+    clearOldResults();
     const genStart = Date.now();
     const gen = trace?.generation({
       name: `claude.turn.${iterations}`,
@@ -284,9 +309,8 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     const toolUses = response.content.filter(
       (b): b is Anthropic.ToolUseBlock => b.type === "tool_use",
     );
-    const toolResults: Anthropic.ToolResultBlockParam[] = [];
-    for (const t of toolUses) {
-      if (!toolsUsed.includes(t.name)) toolsUsed.push(t.name);
+    for (const t of toolUses) if (!toolsUsed.includes(t.name)) toolsUsed.push(t.name);
+    const runOne = async (t: Anthropic.ToolUseBlock) => {
       const span = trace?.span({ name: `tool.${t.name}`, input: traceValue(t.input) });
       const toolStart = Date.now();
       let content: string;
@@ -303,16 +327,27 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
         isError = true;
       }
       span?.end({ output: traceValue(content) });
-      const toolMs = Date.now() - toolStart;
-      timeline.toolMs += toolMs;
-      turn.tools.push({ name: t.name, ms: toolMs, resultChars: content.length, error: isError });
-      toolResults.push({
-        type: "tool_result",
-        tool_use_id: t.id,
-        content,
-        is_error: isError,
-      });
+      return { t, content, isError, ms: Date.now() - toolStart };
+    };
+    // Reads and asks run together; anything that changes something runs
+    // after them, one at a time, in the model's order (docs/effective-agents-
+    // review.md, C2). The results go back in the model's order whatever ran
+    // when, in one user message, as the API expects of parallel calls.
+    const safe = input.parallelSafe ? toolUses.filter((t) => input.parallelSafe!(t.name)) : [];
+    const serial = toolUses.filter((t) => !safe.includes(t));
+    const toolsStart = Date.now();
+    const done = new Map<string, Awaited<ReturnType<typeof runOne>>>();
+    for (const r of await Promise.all(safe.map(runOne))) done.set(r.t.id, r);
+    for (const t of serial) done.set(t.id, await runOne(t));
+    timeline.toolMs += Date.now() - toolsStart;
+    turn.toolsWallMs = Date.now() - toolsStart;
+    const toolResults: Anthropic.ToolResultBlockParam[] = [];
+    for (const t of toolUses) {
+      const r = done.get(t.id)!;
+      turn.tools.push({ name: t.name, ms: r.ms, resultChars: r.content.length, error: r.isError });
+      toolResults.push({ type: "tool_result", tool_use_id: t.id, content: r.content, is_error: r.isError });
     }
+    resultTurns.push(messages.length);
     messages.push({ role: "user", content: toolResults });
   }
 
@@ -368,6 +403,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     iterations,
     maxIterations,
     exhausted,
+    ...(cleared.results ? { cleared } : {}),
     usage: { ...usage, totalTokens: totalTokens(usage) },
     costUsd: cost,
     latencyMs,

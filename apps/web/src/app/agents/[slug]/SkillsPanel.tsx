@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import { saveSkillAction, setSkillEnabledAction, deleteSkillAction } from "../actions";
-import type { Skill, SkillParameter } from "@ai-hub/db";
+import type { Skill, SkillParameter, SkillCase, TrialSet } from "@ai-hub/db";
+// The pure checks module, not the package root: this is a client component, and the root opens Postgres.
+import type { SkillCheck } from "@ai-hub/db/checks";
+import { ChecksEditor, Field, slugify } from "./ChecksEditor";
+import { TestsPanel } from "./TestsPanel";
 import { agentToolName, skillToolName } from "../models";
 import { SkillRunner } from "@/components/SkillRunner";
 import { useView } from "@/components/ViewProvider";
@@ -24,6 +28,7 @@ const EMPTY = {
   description: "",
   promptTemplate: "",
   parameters: [] as SkillParameter[],
+  checks: [] as SkillCheck[],
 };
 
 export function SkillsPanel({
@@ -32,6 +37,7 @@ export function SkillsPanel({
   agentName = "The agent",
   initial,
   canManage = true,
+  tests = {},
 }: {
   agentId: string;
   agentSlug: string;
@@ -39,6 +45,8 @@ export function SkillsPanel({
   initial: Skill[];
   /** Whether this person may add, change or delete skills (agent:manage). */
   canManage?: boolean;
+  /** Each skill's test cases and trial sets (docs/skill-tests.md), for those who may manage. */
+  tests?: Record<string, { cases: SkillCase[]; sets: TrialSet[] }>;
 }) {
   const { view, atLeast } = useView();
   // Simple is for using skills, not making them; Expert shows the tool names
@@ -46,6 +54,7 @@ export function SkillsPanel({
   const editing = canManage && atLeast("standard");
   const technical = atLeast("expert");
   const [running, setRunning] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
   const [skills, setSkills] = useState<Skill[]>(initial);
   const [draft, setDraft] = useState<typeof EMPTY | null>(null);
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
@@ -170,10 +179,31 @@ export function SkillsPanel({
                   <SkillRunner skill={s} agentName={agentName} onClose={() => setRunning(null)} />
                 </div>
               )}
+              {testing === s.id && (
+                <div className="mt-4 border-t border-[var(--border)] pt-4">
+                  <TestsPanel
+                    skill={s}
+                    agentSlug={agentSlug}
+                    initialCases={tests[s.id]?.cases ?? []}
+                    initialSets={tests[s.id]?.sets ?? []}
+                    onClose={() => setTesting(null)}
+                  />
+                </div>
+              )}
               <div className="mt-auto flex flex-wrap gap-2 pt-4">
                 {s.enabled && running !== s.id && (
                   <button className="btn-brand min-h-9" onClick={() => setRunning(s.id)}>
                     Run
+                  </button>
+                )}
+                {editing && (
+                  <a className="btn min-h-9" href={`/agents/${agentSlug}/skills/${s.slug}/SKILL.md`} download="SKILL.md" title="The prompt, its blanks and its checks, as a SKILL.md another hub or Claude Code can read">
+                    Download SKILL.md
+                  </a>
+                )}
+                {editing && testing !== s.id && (
+                  <button className="btn min-h-9" onClick={() => setTesting(s.id)}>
+                    Tests{tests[s.id]?.cases.length ? ` (${tests[s.id].cases.length})` : ""}
                   </button>
                 )}
                 {!editing ? null : confirmDelete === s.id ? (
@@ -205,6 +235,7 @@ export function SkillsPanel({
                           description: s.description,
                           promptTemplate: s.promptTemplate,
                           parameters: s.parameters ?? [],
+                          checks: s.checks ?? [],
                         })
                       }
                     >
@@ -279,7 +310,7 @@ function SkillEditor({
       </div>
       <div className="mt-4">
         <Field
-          label="What it does — the calling model reads this to decide when to use it"
+          label="What it does, and when to use it — a connected client reads only this and the name to decide whether to call it"
           value={draft.description}
           onChange={(description) => onChange({ ...draft, description })}
           placeholder="Draft the weekly delivery update for a client, from PM-tool and the knowledge base."
@@ -305,6 +336,8 @@ function SkillEditor({
         template={draft.promptTemplate}
         onChange={(parameters) => onChange({ ...draft, parameters })}
       />
+
+      <ChecksEditor checks={draft.checks} onChange={(checks) => onChange({ ...draft, checks })} />
 
 
       <div className="mt-5 flex flex-wrap gap-2">
@@ -444,38 +477,4 @@ function ParameterEditor({
       </div>
     </div>
   );
-}
-
-function Field({
-  label,
-  value,
-  onChange,
-  placeholder,
-  mono,
-}: {
-  label: string;
-  value: string;
-  onChange: (v: string) => void;
-  placeholder?: string;
-  mono?: boolean;
-}) {
-  return (
-    <label className="block">
-      <span className="mb-1 block text-xs text-[var(--muted)]">{label}</span>
-      <input
-        className={`field ${mono ? "mono" : ""}`}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-      />
-    </label>
-  );
-}
-
-function slugify(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 63);
 }

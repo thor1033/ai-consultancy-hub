@@ -3,6 +3,7 @@ import { getSql } from "./client";
 // bundle, and the file ships with the MCP servers (docs/sensitivity.md).
 import { maskDeep, maskIdentifiers } from "../../mcp/servers/detect.mjs";
 import type { Sensitivity } from "./sensitivity";
+import type { CheckResult } from "./checks";
 
 // What is stored about a run is masked at rest (docs/sensitivity.md): CPR,
 // card and account numbers in the question, the answer, the error and the
@@ -63,6 +64,8 @@ export interface RecordSessionInput {
   timeline?: unknown;
   /** The highest label the run touched (docs/sensitivity.md). */
   sensitivity?: Sensitivity;
+  /** The skill's checks, judged on the answer (docs/effective-agents-review.md, D1). */
+  checks?: CheckResult[] | null;
 }
 
 export async function recordSession(input: RecordSessionInput): Promise<string> {
@@ -72,7 +75,7 @@ export async function recordSession(input: RecordSessionInput): Promise<string> 
     insert into agent_sessions
       (prompt, system, model, effort, mcp_servers, transcript, tools_used,
        output, status, cost_usd, latency_ms, tokens, trace_id, timeline,
-       agent_id, principal_id, started_at, finished_at, sensitivity, transcript_dropped_at)
+       agent_id, principal_id, started_at, finished_at, sensitivity, transcript_dropped_at, checks)
     values
       (${mask(input.prompt) ?? ""}, ${input.system ?? null}, ${input.model ?? null},
        ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
@@ -83,7 +86,8 @@ export async function recordSession(input: RecordSessionInput): Promise<string> 
        ${sql.json((input.tokens ?? null) as never)}, ${input.traceId ?? null},
        ${sql.json((input.timeline ?? null) as never)},
        ${input.agentId ?? null}, ${input.principalId ?? null}, now(), now(),
-       ${input.sensitivity ?? "internal"}, ${transcript.dropped ? sql`now()` : null})
+       ${input.sensitivity ?? "internal"}, ${transcript.dropped ? sql`now()` : null},
+       ${sql.json((input.checks ?? null) as never)})
     returning id
   `;
   return row.id;
@@ -108,6 +112,8 @@ export interface StartRunInput {
   /** The run that started this one (a hand-off or an ask), and how deep the chain is. */
   parentSessionId?: string | null;
   depth?: number;
+  /** The trial set this run is one trial of (docs/skill-tests.md); absent for a real run. */
+  trialId?: string | null;
 }
 
 export async function startRun(input: StartRunInput): Promise<string> {
@@ -116,14 +122,14 @@ export async function startRun(input: StartRunInput): Promise<string> {
     insert into agent_sessions
       (prompt, system, model, effort, mcp_servers, transcript,
        status, agent_id, agent_skill_id, principal_id, started_at,
-       parent_session_id, depth)
+       parent_session_id, depth, trial_id)
     values
       (${mask(input.prompt) ?? ""}, ${input.system ?? null}, ${input.model ?? null},
        ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
        ${sql.json([] as never)},
        'running', ${input.agentId ?? null}, ${input.skillId ?? null},
        ${input.principalId ?? null}, now(),
-       ${input.parentSessionId ?? null}, ${Math.max(0, Math.trunc(input.depth ?? 0))})
+       ${input.parentSessionId ?? null}, ${Math.max(0, Math.trunc(input.depth ?? 0))}, ${input.trialId ?? null})
     returning id
   `;
   return row.id;
@@ -141,6 +147,8 @@ export interface FinishRunInput {
   timeline?: unknown;
   /** The highest label the run touched (docs/sensitivity.md). Only ever raises the row's. */
   sensitivity?: Sensitivity;
+  /** The skill's checks, judged on the answer (docs/effective-agents-review.md, D1). */
+  checks?: CheckResult[] | null;
 }
 
 export async function finishRun(id: string, result: FinishRunInput): Promise<void> {
@@ -166,6 +174,7 @@ export async function finishRun(id: string, result: FinishRunInput): Promise<voi
       tokens      = ${sql.json((result.tokens ?? null) as never)},
       trace_id    = ${result.traceId ?? null},
       timeline    = ${sql.json((result.timeline ?? null) as never)},
+      checks      = ${sql.json((result.checks ?? null) as never)},
       finished_at = now()
     where id = ${id}
   `;
@@ -182,6 +191,8 @@ export interface RunTiming {
   status: string;
   prompt: string;
   skill: string | null;
+  /** The skill it came from, for saving the run as a test case (docs/skill-tests.md). */
+  skillId: string | null;
   model: string | null;
   effort: string | null;
   latencyMs: number | null;
@@ -235,13 +246,35 @@ export async function getRunTiming(id: string): Promise<RunTiming | null> {
   const sql = getSql();
   const [row] = await sql<RunTiming[]>`
     select s.id, s.agent_id as "agentId", coalesce(s.started_at, s.created_at) as at, s.status, s.prompt,
-           k.name as skill, s.model, s.effort, s.latency_ms as "latencyMs", s.cost_usd::float8 as "costUsd",
+           k.name as skill, k.id as "skillId", s.model, s.effort, s.latency_ms as "latencyMs", s.cost_usd::float8 as "costUsd",
            s.tokens, s.tools_used as "toolsUsed", s.error, s.timeline,
            s.parent_session_id as "parentSessionId", s.depth, s.principal_id as "principalId", coalesce(nullif(pr.display_name, ''), pr.email, s.principal_id) as "askedBy"
       from agent_sessions s
       left join agent_skills k on k.id = s.agent_skill_id
       left join principals pr on pr.id = s.principal_id
      where s.id = ${id}`;
+  return row ?? null;
+}
+
+export interface RunTranscript {
+  principalId: string | null;
+  sensitivity: Sensitivity;
+  transcript: unknown[];
+  transcriptDroppedAt: string | null;
+}
+
+/**
+ * A run's transcript, as stored: masked (docs/sensitivity.md), empty once
+ * retention dropped it or when the run touched special material. Who may
+ * read it is the page's decision (its own person, or an admin) — this only
+ * says whose it is.
+ */
+export async function getRunTranscript(id: string): Promise<RunTranscript | null> {
+  if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
+  const sql = getSql();
+  const [row] = await sql<RunTranscript[]>`
+    select principal_id as "principalId", sensitivity, transcript, transcript_dropped_at as "transcriptDroppedAt"
+      from agent_sessions where id = ${id}`;
   return row ?? null;
 }
 
@@ -284,6 +317,8 @@ export interface RunStatus {
   finishedAt: string | null;
   /** The highest label it touched (docs/sensitivity.md). */
   sensitivity: Sensitivity;
+  /** The skill's checks on the answer, when the skill had any. */
+  checks: CheckResult[] | null;
 }
 
 /**
@@ -307,7 +342,7 @@ export async function getRunStatus(
            tools_used   as "toolsUsed",
            started_at   as "startedAt",
            finished_at  as "finishedAt",
-           sensitivity
+           sensitivity, checks
       from agent_sessions
      where id = ${id} and principal_id = ${principalId}
   `;
@@ -322,9 +357,13 @@ export interface MyRun {
   output: string | null;
   error: string | null;
   skill: string | null;
+  /** The skill it came from, for saving the run as a test case (docs/skill-tests.md). */
+  skillId: string | null;
   at: string;
   /** Its question and answer were removed by retention (docs/retention.md). */
   expired: boolean;
+  /** The skill's checks on the answer, when the skill had any. */
+  checks: CheckResult[] | null;
 }
 
 /**
@@ -337,13 +376,14 @@ export interface MyRun {
 export async function listMyRuns(agentId: string, principalId: string, limit = 20): Promise<MyRun[]> {
   const sql = getSql();
   return sql<MyRun[]>`
-    select s.id, s.status, s.prompt, s.output, s.error, k.name as skill,
+    select s.id, s.status, s.prompt, s.output, s.error, k.name as skill, k.id as "skillId", s.checks,
            coalesce(s.started_at, s.created_at) as at, (s.content_expired_at is not null) as expired
       from agent_sessions s
       left join agent_skills k on k.id = s.agent_skill_id
      where s.agent_id = ${agentId}
        and s.principal_id = ${principalId}
        and s.parent_session_id is null
+       and s.trial_id is null
      order by coalesce(s.started_at, s.created_at) desc
      limit ${Math.max(1, Math.min(Math.trunc(limit), 100))}
   `;

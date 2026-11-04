@@ -96,13 +96,17 @@ const http = createServer(async (req, res) => {
   let blocks;
   let stop = "end_turn";
   if (who === "coordinator") {
-    const wantsAsk = mode === "normal" ? asksSoFar === 0 : mode === "stranger" ? asksSoFar === 0 : !/times in this run, which is the limit/.test(lastResult ?? "");
+    const wantsAsk = mode === "normal" || mode === "stranger" || mode === "twin" ? asksSoFar === 0 : !/times in this run, which is the limit/.test(lastResult ?? "");
     if (wantsAsk && (body.tools ?? []).some((t) => t.name === "agents_ask")) {
       const target = mode === "stranger" ? STRANGER : WORKER;
-      blocks = [{ type: "tool_use", id: `tu_${calls.length}`, name: "agents_ask", input: { agent: target, task: `Count the beans in jar ${asksSoFar + 1}.` } }];
+      // The four fields of an ask (lib/askAgents.ts); the greedy run uses the old single field, which still works.
+      const ask = (n, id) => ({ type: "tool_use", id, name: "agents_ask", input: mode === "greedy" ? { agent: target, task: `Count the beans in jar ${n}.` } : { agent: target, objective: `Count the beans in jar ${n}.`, context: "The jars are on the shelf.", format: "A number.", boundaries: "Do not open other jars." } });
+      // "twin": two asks in one turn, which run at once.
+      blocks = mode === "twin" ? [ask(1, `tu_${calls.length}a`), ask(2, `tu_${calls.length}b`)] : [ask(asksSoFar + 1, `tu_${calls.length}`)];
       stop = "tool_use";
     } else blocks = [{ type: "text", text: `Coordinator's answer. ${lastResult ?? "(asked nobody)"}` }];
   } else if (who === "worker") {
+    if (mode === "twin") await new Promise((r) => setTimeout(r, 400));
     if (!lastResult && (body.tools ?? []).some((t) => t.name === "pm_create_task")) {
       blocks = [{ type: "tool_use", id: `tu_${calls.length}`, name: "pm_create_task", input: { projectId: "p1", title: "Beans counted", reason: "The brief asked for a record." } }];
       stop = "tool_use";
@@ -141,12 +145,18 @@ try {
   // ── 0. the tool, pure ──────────────────────────────────────────────────────
   console.log("— the tool —");
   const tool = askTool([{ slug: "a", name: "A", description: "does a" }, { slug: "b", name: "B", description: "" }]);
-  check("the tool lists whom it may ask, in the description and as the only values the schema allows", /- a: A — does a/.test(tool.description) && JSON.stringify(tool.input_schema.properties.agent.enum) === '["a","b"]' && tool.input_schema.required.join() === "agent,task");
+  check("the tool lists whom it may ask, in the description and as the only values the schema allows", /- a: A — does a/.test(tool.description) && JSON.stringify(tool.input_schema.properties.agent.enum) === '["a","b"]' && tool.input_schema.required.join() === "agent,objective,context,format");
   const seen = [];
   const exec = askExecutor({ allowed: [{ slug: "a", name: "A", description: "" }], start: async (slug, task) => { seen.push({ slug, task }); return { kind: "done", runId: "r1", output: "yes" }; } });
-  check("an ask of an allowed agent runs it with the task and returns its answer, naming the run", /^A answered \(run r1\):\n\nyes$/.test(await exec({ agent: "a", task: "do" })) && seen[0].task === "do");
-  check("an ask of an agent not on the list is refused, naming the list", /You may not ask "z"\. You may ask: a\./.test(await exec({ agent: "z", task: "do" })) && seen.length === 1);
-  check("an empty task is refused", /Say what you want A to do/.test(await exec({ agent: "a", task: " " })));
+  const four = await exec({ agent: "a", objective: "Count the beans.", context: "Jar 1 is on the shelf.", format: "A number.", boundaries: "Only jar 1." });
+  check("an ask of an allowed agent runs it and returns its answer, naming the run", /^A answered \(run r1\):\n\nyes$/.test(four) && seen[0].slug === "a");
+  check("the asked agent's prompt starts with the objective and carries the other three under headings", seen[0].task === "Count the beans.\n\n## What you need to know\nJar 1 is on the shelf.\n\n## The answer\nA number.\n\n## Boundaries\nOnly jar 1.", JSON.stringify(seen[0].task));
+  await exec({ agent: "a", objective: "Count.", context: "", format: "" });
+  check("empty fields add no headings", seen[1].task === "Count.", JSON.stringify(seen[1].task));
+  await exec({ agent: "a", task: "do" });
+  check("the old single field still works, as the objective", seen[2].task === "do");
+  check("an ask of an agent not on the list is refused, naming the list", /You may not ask "z"\. You may ask: a\./.test(await exec({ agent: "z", task: "do" })) && seen.length === 3);
+  check("an ask with no objective is refused, naming the fields", /Say what you want A to do: its objective, what it needs to know/.test(await exec({ agent: "a", objective: " ", context: "x", format: "y" })));
   const slow = askExecutor({ allowed: [{ slug: "a", name: "A", description: "" }], start: async () => ({ kind: "running", runId: "r2" }) });
   check("an agent that outlives the wait is reported, with where its answer lands", /A is still working after 10 minutes \(run r2\)/.test(await slow({ agent: "a", task: "do" })));
   check("the depth limit is one: an asked agent asks nobody", ASK_MAX_DEPTH === 1);
@@ -171,7 +181,7 @@ try {
   check("the worker's answer came back into the coordinator's run and its final answer", /Worker answered \(run [0-9a-f-]{36}\):\n\nforty-two beans/.test(out.output ?? ""), (out.output ?? "").slice(0, 120));
   const workerCalls = calls.filter((c) => c.who === "worker");
   check("the worker ran with its own tools (the fixture's), no ask tool (it is one deep), and no memory tools (it keeps none)", workerCalls.length >= 1 && workerCalls[0].tools.includes("pm_create_task") && !workerCalls[0].tools.includes("agents_ask") && !workerCalls[0].tools.some((t) => /^memory_/.test(t)), workerCalls[0]?.tools.join(", "));
-  check("the worker saw only the task it was sent", workerCalls[0]?.prompt === "Count the beans in jar 1.", workerCalls[0]?.prompt);
+  check("the worker saw only what it was sent: the objective first, then the context, the answer's shape and the boundaries under headings", workerCalls[0]?.prompt === "Count the beans in jar 1.\n\n## What you need to know\nThe jars are on the shelf.\n\n## The answer\nA number.\n\n## Boundaries\nDo not open other jars.", JSON.stringify(workerCalls[0]?.prompt));
   const [child] = await sql`select id, status, depth, parent_session_id as parent, principal_id as principal, agent_id as agent from agent_sessions where agent_id = ${worker.id} order by created_at desc limit 1`;
   check("the worker's run hangs off the coordinator's, one deep, as the same person", child?.parent === out.runId && child.depth === 1 && child.principal === PERSON.id && child.status === "succeeded", JSON.stringify(child && { depth: child.depth, parentOk: child.parent === out.runId }));
   const [held] = await sql`select tool, principal_id as principal, run_id as run, status from proposals where run_id = ${child?.id}`;
@@ -193,6 +203,18 @@ try {
   const workerAlone = await runAgentForPrincipal({ agentRef: WORKER, prompt: "Count.", principal: PERSON, deadlineMs: 120_000 });
   const alone = calls.filter((c) => c.who === "worker").at(-1);
   check("a person's run of the worker (depth 0) IS offered the ask tool, since its entry allows it", workerAlone.kind === "done" && alone?.tools.includes("agents_ask") && JSON.stringify(alone.askEnum) === JSON.stringify([COORD]), alone?.tools.join(", "));
+
+  // ── 3b. two asks in one turn ───────────────────────────────────────────────
+  console.log("\n— two asks at once —");
+  mode = "twin";
+  calls.length = 0;
+  const twin = await runAgentForPrincipal({ agentRef: COORD, prompt: "Count jars 1 and 2.", principal: PERSON, deadlineMs: 120_000 });
+  const twinTiming = await db.getRunTiming(twin.runId);
+  const twinTurn = twinTiming?.timeline?.turns?.[0];
+  const twinRuns = await db.listChildRuns(twin.runId);
+  check("both asks ran, each as its own worker run under the coordinator's", twin.kind === "done" && twinRuns.length === 2 && twinRuns.every((r) => r.status === "succeeded"), `${twinRuns.length} runs`);
+  check("and ran at once: the turn's tools took about one worker's time, not two", twinTurn?.tools?.length === 2 && twinTurn.toolsWallMs < Math.min(...twinTurn.tools.map((t) => t.ms)) * 1.6, JSON.stringify(twinTurn && { wall: twinTurn.toolsWallMs, each: twinTurn.tools.map((t) => t.ms) }));
+  check("both answers came back into the coordinator's run", (twin.output?.match(/Worker answered/g) ?? []).length === 2, (twin.output ?? "").slice(0, 160));
 
   // ── 4. the budget ──────────────────────────────────────────────────────────
   console.log("\n— the budget —");

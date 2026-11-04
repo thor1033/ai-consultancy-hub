@@ -16,12 +16,13 @@ A standing agent, **Context Steward**, in the Office of the founders,
 reporting to Ditlev, that **proposes and never files**.
 
 It is a librarian, not a scraper. Its output is proposals in the approvals
-queue (`docs/approvals.md`), of three kinds in step 1:
+queue (`docs/approvals.md`), of four kinds:
 
 | Proposal | Tool | Example |
 |---|---|---|
 | **File** a document | `knowledge_file_document` | "The liability-cap answer the Legal agent gave on 21 Oct, as *Standard contract terms* in `legal`." |
 | **Remember** something for an agent | `knowledge_remember_for` | "The Project Manager was told twice that standups moved to Thursday. Add it to its memory." |
+| **Set aside** a memory | `knowledge_set_aside` | "The Project Manager still loads *atlas-launch-deadline* into every run; the launch was in September." It stays searchable and stops being read before every answer |
 | **Retire** a document | `knowledge_retire_document` | "*Roadmap Q3* is superseded by the notes of 21 Oct." |
 
 "Write a missing document" is the first kind with a reason that says how many

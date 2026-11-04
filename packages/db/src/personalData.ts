@@ -229,6 +229,9 @@ export async function erasePerson(principalId: string, actor: string): Promise<E
   const sql = getSql();
   const out = await sql.begin(async (tx) => {
     const runs = await tx`delete from agent_sessions where principal_id = ${principalId}`;
+    // Test sets they started go; the cases they wrote stay (they are the skill's) without their name.
+    await tx`delete from skill_trials where principal_id = ${principalId}`;
+    await tx`update skill_cases set created_by = null where created_by = ${principalId}`;
     const memories = await tx`delete from agent_memories where scope = 'personal' and scope_ref = ${principalId}`;
     const unattributed = await tx`update agent_memories set written_by = null where written_by = ${principalId}`;
     const localCalls = await tx`delete from agent_local_calls where principal_id = ${principalId}`;

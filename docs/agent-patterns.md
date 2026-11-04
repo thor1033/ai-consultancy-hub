@@ -78,6 +78,22 @@ and at one deep it is offered no `agents_ask`, whatever its own entry says.
 So a coordinator asks workers and workers ask nobody: no fan-out of
 fan-outs, no loops.
 
+**An ask has four fields** (docs/effective-agents-review.md, C1): the
+`objective`, the `context` the asked agent cannot see, the `format` the
+answer should take, and optional `boundaries`. The hub joins them into the
+asked run's prompt — the objective first, the rest under `## What you need
+to know`, `## The answer`, `## Boundaries` — so the asked run's page shows
+a weak delegation at a glance. The schema asks for them one by one, which
+is the point: a single free-text task is where a model forgets the context.
+The old single `task` field still works, as the objective.
+
+**Asks that do not depend on each other run at once** (C2). When the model
+makes several tool calls in one turn, the loop runs the parallel-safe ones
+together: an ask, a tool the server marks read-only, the memory server's
+reads. A write — held or allowed — runs after them, one at a time, in the
+model's order, and the results go back in the model's order whatever
+finished first. A cluster of four specialists takes one wait, not four.
+
 **Decided, and why:**
 
 - **An ask is not held for approval.** It starts a run; the run's own
@@ -111,6 +127,26 @@ page.
 | Stages, one after another | **Assembly line** | one agent per stage, none remembering | each stage hands to the next; the first has a *Start* skill | the work has clear steps that different briefs do best, and nothing goes back a step |
 | Writer and reviewer | **Critic loop** | Writer (remembers), Reviewer (no memory) | Writer asks Reviewer, up to three rounds | the output has a standard you can write down |
 | One door, many specialists | **Front desk** | Front desk, one Specialist per area | Front desk asks ONE Specialist per question | people should not have to know which agent to ask |
+| Checklist runner | **One item at a time** | Runner (remembers; keeps the checklist), Reviewer (no memory) | Runner does one open item per run and asks the Reviewer before marking it; *Do the next item* goes on a schedule | the work is too big for one run and can be written as a list |
+| Second opinion | **Three readings** | Asker (remembers), two or three Readers with different stances (no memory) | Asker asks every Reader in one turn, so they run at once | a decision worth more than one reading, with the disagreement shown |
+
+The last two come from the articles (docs/effective-agents-review.md, H1 and
+H2): the checklist runner is the shape of Anthropic's long-running harness —
+the work lives outside the run, each run does one item and leaves a progress
+line, a reviewer with no memory decides what "done" means; the second
+opinion is the one parallelisation the hub can use, since asks made in one
+turn run at once.
+
+**Which model.** The roles that do bounded work — a worker, a specialist, a
+stage, the reviewer — are created on the cheaper model (`CHEAPER_MODEL`,
+Sonnet); the roles that plan, delegate or reconcile — the archivist, the
+coordinator, the writer, the front desk — stay on the deployment's default.
+Anthropic's research system ran this way, lead on the largest model and
+subagents one down. Any role's model is changed on its page.
+
+**Which shape.** `/agents/choose` asks one question per pattern, the
+`question` each carries in code, with "one agent" as the first row and the
+answer for most jobs (docs/effective-agents-review.md, A1).
 
 Every pattern takes a name for the set, an owner and a function (the org
 chart's columns), then its own parameters. A `list` parameter is one line
@@ -167,6 +203,39 @@ to any run carries the finished run's answer.
 well, or a real reviewer judges well. That is the model's doing, read on the
 run pages, and the reason every pattern's page lists what to decide after
 creating it.
+
+## The scaffolding, and what is not
+
+Every number below was chosen for a model the hub no longer runs, to
+protect against something. Anthropic's advice is to question such
+scaffolding on each model change and remove what is no longer load-bearing
+(docs/effective-agents-review.md, F1). Revisit this table when the default
+model changes.
+
+| Number | Where | Protects against | Revisit when |
+|---|---|---|---|
+| 10 tool rounds per run, ceiling 100 | `DEFAULT_MAX_ITERATIONS`, `MAX_ITERATIONS_CEILING` (@ai-hub/agent) | a run that loops; a misconfigured agent's cost | the model needs fewer calls for the same work |
+| 12 asks per run | `ASK_BUDGET` (lib/askAgents.ts) | a coordinator that asks in a loop | a client needs more specialists (asks in one turn already run at once) |
+| 1 ask deep | `ASK_MAX_DEPTH` | fan-out of fan-outs, loops | a pattern wants a second level — none does |
+| 2 hand-offs deep | `HANDOFF_MAX_DEPTH` (lib/handoffs.ts) | two agents handing to each other forever | a pipeline needs a fourth stage from one run |
+| 10 minutes per ask | `ASK_TIMEOUT_MS` | an asker that waits on a hung run | runs get faster |
+| 5 passages retrieved | `retrieveChunks(…, 5, …)` in agentRuns and the chat | context rot from retrieval | the window or the chunking changes |
+| 3 rounds in the critic loop | the Writer's brief | a draft that never passes | the reviewer's verdicts say otherwise on the run pages |
+| 400 words for a brief to the worker | the Archivist's brief | the archivist doing the worker's job | the worker's model reads more for the same money |
+| 7 days of transcript | `HUB_RETAIN_TRANSCRIPTS_DAYS` | holding evidence longer than it is read | never for a longer default; shorter if nobody reads them |
+
+What is **not** scaffolding, and never moves with the model: who a run runs
+as (docs/schedules.md); memory scopes (docs/memory-scopes.md); sensitivity
+labels and what leaves the hub (docs/sensitivity.md); every write held for
+a person (docs/approvals.md); and that an agent's reach is the caller's
+(docs/knowledge-access.md).
+
+## Against Anthropic's own patterns
+
+[effective-agents-review.md](effective-agents-review.md) sets these patterns
+against everything Anthropic has published on building agents, and proposes
+what the hub should add so a champion can choose a shape, write a brief,
+delegate, verify and test without us.
 
 ## Known limits
 

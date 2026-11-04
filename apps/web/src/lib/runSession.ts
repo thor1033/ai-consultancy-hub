@@ -14,7 +14,7 @@ import {
   type McpServerConfig,
   type MemoryServerReach,
 } from "@ai-hub/mcp";
-import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames, ASK_SERVER, setRunSensitivity, runSensitivity, highestSensitivity, type Sensitivity } from "@ai-hub/db";
+import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames, ASK_SERVER, setRunSensitivity, runSensitivity, highestSensitivity, type Sensitivity, type CheckResult } from "@ai-hub/db";
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { gate } from "@/lib/approvals";
 import { askExecutor, askTool, ASK_TOOL, type Asks } from "@/lib/askAgents";
@@ -146,6 +146,8 @@ export interface RunSessionInput {
   effort?: "low" | "medium" | "high" | "max";
   /** Rounds of tool use this run may take. Undefined ⇒ the runtime default. */
   maxIterations?: number;
+  /** Clear tool results older than this many turns from the prompt (docs/agents.md, "Long runs"). */
+  clearToolResultsAfter?: number;
   servers?: string[];
   /** Who asked, recorded on the session so a run has an owner. */
   principalId?: string;
@@ -175,6 +177,14 @@ export interface RunSessionInput {
    */
   afterRun?: (result: RunAgentResult) => Promise<string | null>;
   /**
+   * The checks on the skill this run came from (docs/effective-agents-review.md,
+   * D1), judged against the answer once the model has finished and stored
+   * with the run. Runs before the record, so a reader who polls the run sees
+   * the verdict with the answer. Its failure is not the run's: the answer
+   * stands, and the checks say they could not be judged.
+   */
+  check?: (result: RunAgentResult) => Promise<CheckResult[] | null>;
+  /**
    * Memory scopes (docs/memory-scopes.md). The run's person with their roles,
    * when the caller has them (else looked up by principalId); the collection of
    * every passage retrieval gave this run; and how deep it is (an ask or a
@@ -189,6 +199,8 @@ export interface RunSessionInput {
    * ask, a hand-off): its prompt carries what that run read (docs/sensitivity.md).
    */
   sensitivity?: Sensitivity;
+  /** A trial of a test case: every write held, memory writes refused (lib/approvals.ts). */
+  trial?: boolean;
 }
 
 export interface RunSessionOutput {
@@ -197,6 +209,8 @@ export interface RunSessionOutput {
   result: RunAgentResult;
   /** The highest label the run touched. What may leave the hub depends on it. */
   sensitivity: Sensitivity;
+  /** The skill's checks, judged; null when it had none. */
+  checks: CheckResult[] | null;
 }
 
 async function fileMeetingNotes(): Promise<string> {
@@ -280,6 +294,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
           held,
           outside,
           memory,
+          trial: input.trial,
         })
       : undefined;
 
@@ -320,11 +335,16 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       model: input.model,
       effort: input.effort,
       maxIterations: input.maxIterations,
+      clearToolResultsAfter: input.clearToolResultsAfter,
       // Writes are held for a person (lib/approvals.ts); reads pass through.
       // The tool list and the executor come from the same gate, so a tool
       // that will be held is the one that asks the model for its reason.
       tools: tools.length ? tools : undefined,
       toolExecutor,
+      // Reads the model asks for in one turn run at once; an ask is one too,
+      // so a coordinator's three asks take as long as the slowest. Writes,
+      // held or not, stay one at a time, in the model's order.
+      parallelSafe: (name) => (ask && name === ASK_TOOL) || Boolean(gated?.parallelSafe(name)),
       // Special material is not traced at all, not even its shape.
       trace: !special(),
       metadata: input.agentId
@@ -343,6 +363,13 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
     }
     if (missing.length) result.text += unavailabilityFootnote(missing);
 
+    // Judged before the record, so the verdict lands with the answer.
+    const checks = input.check
+      ? await input.check(result).catch((err): CheckResult[] => [
+          { kind: "judge", value: "", ok: null, detail: `Could not be checked: ${err instanceof Error ? err.message : String(err)}` },
+        ])
+      : null;
+
     let sessionId: string;
     if (input.runId) {
       await finishRun(input.runId, {
@@ -356,6 +383,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         traceId: result.traceId,
         timeline: result.timeline,
         sensitivity: touched.label,
+        checks,
       });
       sessionId = input.runId;
     } else {
@@ -377,6 +405,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         agentId: input.agentId ?? null,
         principalId: input.principalId ?? null,
         sensitivity: touched.label,
+        checks,
       });
     }
 
@@ -390,7 +419,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       }
     }
 
-    return { sessionId, servers, result, sensitivity: touched.label };
+    return { sessionId, servers, result, sensitivity: touched.label, checks };
   } finally {
     await mcp?.close();
   }

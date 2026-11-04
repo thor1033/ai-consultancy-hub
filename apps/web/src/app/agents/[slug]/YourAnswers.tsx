@@ -1,5 +1,7 @@
 import type { MyRun } from "@ai-hub/db";
 import { Markdown } from "@/components/Markdown";
+import { CheckVerdict } from "@/components/CheckVerdict";
+import { SaveCaseButton } from "./SaveCaseButton";
 import { rel } from "@/lib/format";
 
 // "Your answers" on an agent's page (docs/views.md): what you asked this agent
@@ -16,7 +18,23 @@ const firstLine = (s: string) => {
 // "succeeded" today; anything that is neither running nor failed has ended, as runStatusAction reads it.
 const finished = (r: MyRun) => r.status !== "running" && r.status !== "failed";
 
-export function YourAnswers({ runs, agentName, now }: { runs: MyRun[]; agentName: string; now: number }) {
+export function YourAnswers({
+  runs,
+  agentName,
+  agentSlug,
+  now,
+  canKeepCases = false,
+  seeRuns = false,
+}: {
+  runs: MyRun[];
+  agentName: string;
+  agentSlug: string;
+  now: number;
+  /** Whether "Save as a test case" is offered (agent:manage, Standard or above; docs/skill-tests.md). */
+  canKeepCases?: boolean;
+  /** Whether the link to the run's page is shown: Standard and above (docs/views.md); the page is timings and tool names. */
+  seeRuns?: boolean;
+}) {
   if (runs.length === 0) {
     return (
       <div className="panel p-5 md:p-6">
@@ -52,6 +70,18 @@ export function YourAnswers({ runs, agentName, now }: { runs: MyRun[]; agentName
                 ) : finished(r) && r.output ? (
                   <div className="inset p-4">
                     <Markdown>{r.output}</Markdown>
+                    <CheckVerdict checks={r.checks} />
+                    {/* The loop on one line (docs/effective-agents-review.md, E3): a bad answer leads to the run and to a case. */}
+                    {(seeRuns || (canKeepCases && r.skillId)) && (
+                      <p className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-[var(--muted)]">
+                        {seeRuns && (
+                          <a href={`/agents/${agentSlug}/runs/${r.id}`} className="underline underline-offset-2 hover:text-[var(--brand-ink)]">
+                            What went wrong? See the run
+                          </a>
+                        )}
+                        {canKeepCases && r.skillId && <SaveCaseButton runId={r.id} />}
+                      </p>
+                    )}
                   </div>
                 ) : r.status === "failed" ? (
                   <p className="text-sm text-[var(--danger)]">{r.error || "It stopped without an answer."}</p>

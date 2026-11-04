@@ -17,8 +17,10 @@ admins. A token that could not save is never shown a tool that would refuse.
 | `hub_agent_get` | Returns one agent whole: brief, model, tools, whom it may ask, knowledge, memory, org chart labels, and its skills with their prompts. |
 | `hub_agent_create` | Creates an agent, like **New agent**. The slug is made from the name. |
 | `hub_agent_update` | Changes an agent. Only the fields you send change. A list you send (`tools`, `asks`, `knowledgeCollections`) replaces the agent's list. |
-| `hub_skill_create` | Gives an agent a skill: a prompt with `{{parameter}}` blanks and the parameters. |
-| `hub_skill_update` | Changes a skill. Only the fields you send change. `enabled: false` switches it off without deleting it. |
+| `hub_skill_create` | Gives an agent a skill: a prompt with `{{parameter}}` blanks, the parameters, and its checks (below). |
+| `hub_skill_update` | Changes a skill. Only the fields you send change; `parameters` and `checks` replace their list. `enabled: false` switches it off without deleting it. |
+| `hub_skill_cases` | A skill's test cases ([skill-tests.md](skill-tests.md)): list, add one (arguments or an exact request, checks, a reference), remove one. |
+| `hub_skill_test` | Run the cases k times under one setup or several and compare. Without `confirm: true` it only says how many runs it would make; with `set` it reads a set's result. |
 
 A long brief or prompt goes through `hub_put_text` first, as for any hub tool,
 and the handle is passed in its place.
@@ -35,6 +37,11 @@ The agent form and these tools both save through `lib/agentDesign.ts`
 - **Asking.** The agents it may ask must exist, and an agent may not ask itself.
 - **Skill prompts.** A prompt may only use parameters it declares. A skill slug
   is unique across the hub.
+- **Checks.** A skill's checks (`mentions`, `avoids`, `maxWords`, `writes`,
+  `judge`) are judged on every answer and shown with it (docs/views.md, "Skills
+  as forms"; `hub_run_status` carries the verdict as `checked`). A check that
+  could never be judged — a word limit that is not a number, an empty phrase —
+  is refused at save.
 - **Settings that stay.** An entry that stays on an agent keeps its own settings:
   a mailbox, and writes an admin allowed without approval. The tools cannot set
   either one.

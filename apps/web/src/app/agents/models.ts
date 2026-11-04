@@ -1,9 +1,9 @@
 // The models an agent can be pinned to. Empty id means the runtime default.
 export const MODELS = [
   { id: "", label: "Default", note: "Whatever the hub runs by default" },
-  { id: "claude-opus-4-8", label: "Opus", note: "Most capable; slower and costlier" },
-  { id: "claude-sonnet-4-6", label: "Sonnet", note: "Balanced" },
-  { id: "claude-haiku-4-5", label: "Haiku", note: "Fast and cheap" },
+  { id: "claude-opus-4-8", label: "Opus", note: "Most capable; slower and costlier. For an agent that plans, delegates or reconciles" },
+  { id: "claude-sonnet-4-6", label: "Sonnet", note: "Balanced. Right for a worker, a specialist, a stage or a reviewer — a ready-made team puts those here" },
+  { id: "claude-haiku-4-5", label: "Haiku", note: "Fast and cheap. For a bounded job with a short answer" },
 ];
 
 // Bundled servers that take a per-agent mailbox. Mirrors MAILBOX_SERVER_NAMES

@@ -15,7 +15,8 @@ export {
 } from "./mcpServers";
 export type { McpServerRow, ServerUsage, ToolCallCount, ServerRun, HubConnectionRow } from "./mcpServers";
 export { recordSession, listSessions, getSession, startRun, finishRun, failRun, appendRunOutput, getRunStatus, getRunTiming, listMyRuns } from "./sessions";
-export type { RunTiming } from "./sessions";
+export type { RunTiming, RunTranscript } from "./sessions";
+export { getRunTranscript } from "./sessions";
 export type {
   SessionSummary,
   SessionDetail,
@@ -184,10 +185,10 @@ export {
   HANDOFF_PLACEHOLDERS,
 } from "./handoffs";
 export type { Handoff, HandoffInput, HandoffVars } from "./handoffs";
-export { PATTERNS, COMMON_PARAMS, getPattern, previewPattern, instantiatePattern, patternSlug, ASK_SERVER, askedAgents } from "./patterns";
+export { PATTERNS, COMMON_PARAMS, CHEAPER_MODEL, getPattern, previewPattern, instantiatePattern, patternSlug, ASK_SERVER, askedAgents } from "./patterns";
 export type { Pattern, PatternParam, PatternRole, PatternPreview, PatternInstance, PatternValues } from "./patterns";
 export { listChildRuns } from "./sessions";
-export { parseAgentFile, githubTarget, rawUrl, licenseFromText, skillTemplateFrom, HUB_RULES_ADDENDUM, SKILL_REQUEST_PARAMETER } from "./skillmd";
+export { parseAgentFile, githubTarget, rawUrl, licenseFromText, skillTemplateFrom, HUB_RULES_ADDENDUM, SKILL_REQUEST_PARAMETER, skillToSkillMd } from "./skillmd";
 export type { ParsedAgentFile, ImportSource, GithubTarget } from "./skillmd";
 export type { ChildRun } from "./sessions";
 export {
@@ -220,3 +221,25 @@ export {
 export type { Sensitivity, ReadDoor, KnowledgeRead, KnowledgeReadRow } from "./sensitivity";
 export { grantTemporaryAccess, endTemporaryAccess, listTemporaryAccess } from "./temporaryAccess";
 export type { TemporaryAccessRow } from "./temporaryAccess";
+export { CHECK_KINDS, CHECK_WORDS, checkProblem, cleanChecks, evaluateCheck, summarizeChecks } from "./checks";
+export type { CheckKind, SkillCheck, CheckResult } from "./checks";
+
+export {
+  listCases,
+  getCase,
+  createCase,
+  updateCase,
+  deleteCase,
+  setupHash,
+  createTrialSet,
+  finishTrialSet,
+  progressTrialSet,
+  failTrialSet,
+  getTrialSet,
+  listTrialSets,
+  trialRunFacts,
+  trialPassed,
+  scoreTrials,
+  summarizeTrials,
+} from "./skillTests";
+export type { SkillCase, SkillCaseInput, TrialVariant, TrialRun, TrialResult, TrialSet, TrialSummary, VariantSummary } from "./skillTests";

@@ -52,6 +52,7 @@ check(
 );
 check("the brief says every write is a proposal a founder approves", /proposal that waits in\nthe approvals queue/.test(AGENT.instructions) && /do\nnot write any of it yourself/.test(AGENT.instructions));
 check("the brief names the five kinds and nothing broader", /Only these five/.test(AGENT.instructions) && /recurring question/.test(AGENT.instructions));
+check("it names its four proposals, setting a memory aside among them", /knowledge_file_document/.test(AGENT.instructions) && /knowledge_remember_for/.test(AGENT.instructions) && /knowledge_set_aside/.test(AGENT.instructions) && /knowledge_retire_document/.test(AGENT.instructions));
 check("it refuses restricted → open and chat → unreadable, in the brief as well as the tool", /restricted collection goes into an open one/.test(AGENT.instructions) && /only where that person may read/.test(AGENT.instructions));
 check("it is told to check knowledge_find before every proposal", /knowledge_find, before every proposal/.test(AGENT.instructions));
 check("its ledger keys are in the brief", AGENT.instructions.includes(SWEEP_KEY) && AGENT.instructions.includes(PROPOSED_KEY));

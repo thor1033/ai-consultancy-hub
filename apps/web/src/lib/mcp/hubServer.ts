@@ -2,7 +2,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import { authorize, knowledgeAccessFor, type Principal } from "@ai-hub/authz";
 import { runAgentForPrincipal, runSkillForPrincipal, runnableAgent } from "@/lib/agentRuns";
-import type { SkillParameter } from "@ai-hub/db";
+import { summarizeChecks, type SkillParameter, type CheckResult } from "@ai-hub/db";
 import {
   putTextPart,
   resolveLargeArgs,
@@ -539,6 +539,7 @@ export async function buildHubMcpServer(
           output: inside ? withheldAnswer(run.sensitivity, run.id, opts.baseUrl) : run.output,
           ...(inside ? { withheld: run.sensitivity } : {}),
           toolsUsed: run.toolsUsed,
+          ...checkedNote(run.checks),
           finishedAt: run.finishedAt,
           ...heldNote,
         });
@@ -729,7 +730,20 @@ function renderOutcome(
     ...(leaves ? {} : { withheld: outcome.sensitivity }),
     ...(outcome.toolsUsed.length ? { toolsUsed: outcome.toolsUsed } : {}),
     ...(outcome.sources ? { knowledgeSources: outcome.sources } : {}),
+    ...checkedNote(outcome.checks),
   };
+}
+
+/**
+ * The skill's checks on the answer (lib/checks.ts), for the client: one line,
+ * and each check that failed or could not be judged, so the calling model
+ * can say so rather than present the answer as checked.
+ */
+function checkedNote(checks: CheckResult[] | null | undefined) {
+  const line = summarizeChecks(checks);
+  if (!line) return {};
+  const open = (checks ?? []).filter((c) => c.ok !== true).map((c) => ({ check: c.kind, value: c.value, ok: c.ok, detail: c.detail }));
+  return { checked: line, ...(open.length ? { checksNotPassed: open } : {}) };
 }
 
 /**

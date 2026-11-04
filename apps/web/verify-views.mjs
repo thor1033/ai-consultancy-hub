@@ -341,6 +341,62 @@ try {
   const exAdmin = await render(admin);
   check("Admin in Expert is the control plane, with the registry", /Control plane/.test(exAdmin) && /MCP servers/.test(exAdmin));
 
+  // ── 3b. one agent or a team: the chooser (docs/effective-agents-review.md, A1) ──
+  console.log("\n— one agent or a team —");
+  const choose = () => import("./src/app/agents/choose/page.tsx");
+  const patternsPage = () => import("./src/app/agents/patterns/page.tsx");
+  const newAgent = () => import("./src/app/agents/new/page.tsx");
+  const { PATTERNS, CHEAPER_MODEL } = await import("../../packages/db/src/index.ts");
+  signIn(PEOPLE.analyst, "simple");
+  const sChoose = await render(choose);
+  const firstRow = sChoose.indexOf("One agent.");
+  check("the chooser puts one agent first, before any team", firstRow > 0 && PATTERNS.every((p) => sChoose.indexOf(p.question) > firstRow), sChoose.slice(0, 160));
+  check("every pattern's question is on it, in the pattern's own words", PATTERNS.every((p) => sChoose.includes(p.question) && sChoose.includes(p.summary)));
+  check("in Simple it names no nicknames and shows no internals", !/Cluster|Elephant|Critic loop|Assembly line/.test(sChoose) && leaks(sChoose).length === 0, leaks(sChoose).join(" "));
+  signIn(PEOPLE.admin, "expert");
+  const exChoose = await render(choose);
+  check("in Expert the nicknames are there", PATTERNS.every((p) => exChoose.includes(p.nickname)));
+  const deep = await render(patternsPage, { searchParams: Promise.resolve({ pattern: "front-desk" }) });
+  // The open pattern's section reads name, nickname, summary; the nav reads nickname, name — so the order tells them apart.
+  check("the chooser's link opens that pattern on the patterns page", /One door, many specialists Front desk One agent people ask/.test(deep), deep.slice(deep.indexOf("Front desk One agent") - 60, deep.indexOf("Front desk One agent") + 40));
+  const bogus = await render(patternsPage, { searchParams: Promise.resolve({ pattern: "no-such-pattern" }) });
+  check("an unknown pattern in the link opens the first, not an error", !bogus.startsWith("threw") && /Long memory, short hands Elephant & goldfish An archivist/.test(bogus));
+  check("the patterns page says one agent is enough for most jobs, and links the chooser", /Most jobs need one agent/.test(bogus) && /Not sure which shape/.test(bogus) && !/Hire a team, not an agent/.test(bogus));
+  signIn(PEOPLE.analyst, "simple");
+  const sNew = await render(newAgent);
+  check("New agent below Expert points at the chooser, not straight at a team", /Not sure one agent is enough/.test(sNew) && !/ready-made team/.test(sNew.slice(0, sNew.indexOf("Not sure one agent"))));
+  const { BRIEF_TEMPLATE } = await import("./src/app/agents/briefTemplate.ts");
+  check("the brief template is headed sections that end with a self-check", /^## Who you are/m.test(BRIEF_TEMPLATE) && /## What a good answer looks like/.test(BRIEF_TEMPLATE) && /ONE example/.test(BRIEF_TEMPLATE) && /## Before you answer/.test(BRIEF_TEMPLATE) && /what you did not do/.test(BRIEF_TEMPLATE));
+  const { MODELS } = await import("./src/app/agents/models.ts");
+  check("the model list names the cheaper model as the one a team's bounded roles get", MODELS.some((m) => m.id === CHEAPER_MODEL && /worker|specialist|reviewer/.test(m.note)));
+
+  // ── 3c. brief health and the memory budget (docs/effective-agents-review.md, B1, B3) ──
+  console.log("\n— brief health —");
+  const { briefHealth } = await import("./src/app/agents/briefHealth.ts");
+  const catalog = [{ name: "pm-tool", label: "PM-tool" }, { name: "microsoft365", label: "Microsoft 365" }];
+  const clean = briefHealth({ instructions: "## Who you are\nYou answer contract questions.\n\n## What a good answer looks like\nShort, with the clause. For example: \"Clause 4.2 lets either side end it with 30 days' notice.\"", servers: ["pm-tool"], catalog, keepsMemory: true, asks: [] });
+  check("a short, headed brief with an example gets no hints", clean.hints.length === 0 && clean.words > 0 && clean.tokens > 0, clean.hints.join(" | "));
+  const long = briefHealth({ instructions: "word ".repeat(14000), servers: [], catalog, keepsMemory: true, asks: [] });
+  check("a very long brief is told what it costs on every turn", long.hints.some((h) => /read again on every turn/.test(h) && /reference material/.test(h)), long.hints.join(" | "));
+  const bare = briefHealth({ instructions: "You are the delivery lead. ".repeat(40), servers: [], catalog, keepsMemory: true, asks: [] });
+  check("a brief with no example and no headings is told so", bare.hints.some((h) => /No example of a good answer/.test(h)) && bare.hints.some((h) => /No headed sections/.test(h)), bare.hints.join(" | "));
+  const unticked = briefHealth({ instructions: "Check PM-tool for the live status before answering.", servers: [], catalog, keepsMemory: false, asks: [] });
+  check("a tool named in the brief but not given is pointed out", unticked.hints.some((h) => /Mentions PM-tool, but is not given it/.test(h)), unticked.hints.join(" | "));
+  const noMem = briefHealth({ instructions: "Check your memory first, then answer.", servers: [], catalog, keepsMemory: false, asks: [] });
+  check("talk of memory on an agent that keeps none is pointed out", noMem.hints.some((h) => /keeps none/.test(h)));
+  const askNobody = briefHealth({ instructions: "Use agents_ask to get the Legal agent's view.", servers: [], catalog, keepsMemory: true, asks: [] });
+  check("so is asking when it may ask nobody", askNobody.hints.some((h) => /may ask nobody/.test(h)));
+  const rules = briefHealth({ instructions: "Always cite. Never guess. Always check. Never write. Always ask. Never assume. Always list. ".repeat(3), servers: [], catalog, keepsMemory: true, asks: [] });
+  check("a brief that is mostly always and never is told it is brittle", rules.hints.some((h) => /absolute rules/.test(h)), rules.hints.join(" | "));
+  check("an empty brief gets none", briefHealth({ instructions: "   ", servers: [], catalog, keepsMemory: true, asks: [] }).hints.length === 0);
+
+  const { MemoryPanel } = await import("./src/app/agents/[slug]/MemoryPanel.tsx");
+  const fake = (n, active) => Array.from({ length: n }, (_, i) => ({ id: `m${i}-${active}`, key: `key-${i}`, content: "a fact the agent keeps about a client ".repeat(12), active, scope: "agent", scopeRef: "", keptFor: "Shared", updatedAt: new Date().toISOString(), region: null, writtenBy: null, sourceRunId: null, createdAt: new Date().toISOString(), agentId: "x" }));
+  const panel = (memories) => text(renderToStaticMarkup(React.createElement(ViewProvider, { view: "standard", can: CAN_NOTHING }, React.createElement(MemoryPanel, { agentId: "x", name: "Agent", memories }))));
+  const light = panel([...fake(3, true), ...fake(2, false)]);
+  check("the Memory tab says how much is read before every answer, in words", /3 memories are read before every answer — about [\d,]+ words/.test(light) && !/a lot to carry/.test(light), light.slice(0, 120));
+  check("and warns when it is a lot", /a lot to carry/.test(panel(fake(25, true))));
+
   // ── 4. the navigation, rendered ────────────────────────────────────────────
   const { Sidebar } = await import("./src/components/Sidebar.tsx");
   const nav = async () => {
@@ -377,7 +433,22 @@ try {
   // "Your answers": the person's own runs, with what came back, and nobody else's.
   signIn(PEOPLE.analyst, "simple");
   const mineHtml = await render(agentPage, slugProps);
-  check("the analyst's agent page lists the run under Your answers, with the answer", /Your answers/.test(mineHtml) && mineHtml.includes(ANSWER) && /Review a contract/.test(mineHtml));
+  check("the analyst's agent page lists the run under Your answers, with the answer", /Your answers/.test(mineHtml) && mineHtml.includes(ANSWER) && /Review a contract/.test(mineHtml), mineHtml.slice(0, 400));
+  // The loop on one line (docs/skill-tests.md): Simple has no link to the run's numbers and no Tests; Standard has the link; managing has the case and the Tests button.
+  check("in Simple there is no 'what went wrong' link and no Tests button", !/What went wrong/.test(mineHtml) && !/\bTests\b/.test(mineHtml));
+  signIn(PEOPLE.analyst, "standard");
+  const mineStd = await render(agentPage, slugProps);
+  check("in Standard the answer links to its run, but an analyst who may not manage sees no Save as a test case and no Tests", /What went wrong\? See the run/.test(mineStd) && !/Save as a test case/.test(mineStd) && !/\bTests\b/.test(mineStd));
+  signIn(PEOPLE.admin, "standard");
+  const adminStd = await render(agentPage, slugProps);
+  check("someone who may manage sees a Tests button on the skill", /\bTests\b/.test(adminStd));
+  check("and a Download SKILL.md link", /Download SKILL\.md/.test(adminStd));
+  // The download itself (docs/skill-import.md, "Export"): the same door as the skill's page.
+  const { GET: downloadSkill } = await import("./src/app/agents/[slug]/skills/[skill]/SKILL.md/route.ts");
+  const dl = await downloadSkill(new Request("http://hub.test/x"), { params: Promise.resolve({ slug: agent.slug, skill: skill.slug }) });
+  check("the SKILL.md route serves the skill as a Markdown attachment", dl.status === 200 && /text\/markdown/.test(dl.headers.get("content-type")) && dl.headers.get("content-disposition") === 'attachment; filename="SKILL.md"' && (await dl.text()).includes(`name: ${skill.slug}`), String(dl.status));
+  check("and 404s for a skill that is not that agent's, and refuses someone signed out", (await downloadSkill(new Request("http://hub.test/x"), { params: Promise.resolve({ slug: agent.slug, skill: "nothing" }) })).status === 404 && (signIn(null), (await downloadSkill(new Request("http://hub.test/x"), { params: Promise.resolve({ slug: agent.slug, skill: skill.slug }) })).status === 401));
+  signIn(PEOPLE.admin, "standard");
   check("listMyRuns returns only the person's own runs", (await db.listMyRuns(agent.id, PEOPLE.analyst.id)).length === 1 && (await db.listMyRuns(agent.id, PEOPLE.admin.id)).length === 0);
   signIn(PEOPLE.admin, "expert");
   const adminHtml = await render(agentPage, slugProps);
