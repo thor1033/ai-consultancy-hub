@@ -197,6 +197,8 @@ export interface RunSessionInput {
    * ask, a hand-off): its prompt carries what that run read (docs/sensitivity.md).
    */
   sensitivity?: Sensitivity;
+  /** A trial of a test case: every write held, memory writes refused (lib/approvals.ts). */
+  trial?: boolean;
 }
 
 export interface RunSessionOutput {
@@ -290,6 +292,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
           held,
           outside,
           memory,
+          trial: input.trial,
         })
       : undefined;
 

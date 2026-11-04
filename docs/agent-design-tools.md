@@ -19,6 +19,8 @@ admins. A token that could not save is never shown a tool that would refuse.
 | `hub_agent_update` | Changes an agent. Only the fields you send change. A list you send (`tools`, `asks`, `knowledgeCollections`) replaces the agent's list. |
 | `hub_skill_create` | Gives an agent a skill: a prompt with `{{parameter}}` blanks, the parameters, and its checks (below). |
 | `hub_skill_update` | Changes a skill. Only the fields you send change; `parameters` and `checks` replace their list. `enabled: false` switches it off without deleting it. |
+| `hub_skill_cases` | A skill's test cases ([skill-tests.md](skill-tests.md)): list, add one (arguments or an exact request, checks, a reference), remove one. |
+| `hub_skill_test` | Run the cases k times under one setup or several and compare. Without `confirm: true` it only says how many runs it would make; with `set` it reads a set's result. |
 
 A long brief or prompt goes through `hub_put_text` first, as for any hub tool,
 and the handle is passed in its place.

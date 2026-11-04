@@ -15,6 +15,8 @@ import {
   type Sensitivity,
   type SkillCheck,
   type CheckResult,
+  listProposals,
+  rejectProposal,
 } from "@ai-hub/db";
 import { runChecks } from "@/lib/checks";
 import { runHandoffs } from "@/lib/handoffs";
@@ -96,6 +98,21 @@ export interface AgentRunInput {
    * clock's run (depth 0).
    */
   parent?: { sessionId: string; depth: number } | null;
+  /**
+   * A trial of a test case (docs/skill-tests.md): recorded under the trial
+   * set; run with these overrides in place of the agent's own model, effort
+   * or brief; every write held and rejected when it ends; memory writes
+   * refused; no hand-offs. The run's checks are the skill's plus the case's.
+   */
+  trial?: TrialOverrides | null;
+}
+
+export interface TrialOverrides {
+  id: string;
+  model?: string;
+  effort?: string;
+  instructions?: string;
+  checks?: SkillCheck[];
 }
 
 /**
@@ -104,7 +121,7 @@ export interface AgentRunInput {
  * it finishes. One place, so the chat on the agent's page, a client's tool
  * call, a schedule and a hand-off all cooperate the same way.
  */
-export async function cooperation(agent: Agent, principal: Principal, runId: string, depth: number) {
+export async function cooperation(agent: Agent, principal: Principal, runId: string, depth: number, trial?: TrialOverrides | null) {
   const askable = askedAgents(agent.mcpServers).filter((slug) => slug !== agent.slug);
   let asks: Asks | undefined;
   if (askable.length && depth < ASK_MAX_DEPTH) {
@@ -118,7 +135,8 @@ export async function cooperation(agent: Agent, principal: Principal, runId: str
       asks = {
         allowed,
         start: async (slug, task) => {
-          const out = await runAgentForPrincipal({ agentRef: slug, prompt: task, principal, deadlineMs: ASK_TIMEOUT_MS, parent: { sessionId: runId, depth: depth + 1 } });
+          // An ask from a trial is a trial too: the asked agent keeps nothing either.
+          const out = await runAgentForPrincipal({ agentRef: slug, prompt: task, principal, deadlineMs: ASK_TIMEOUT_MS, parent: { sessionId: runId, depth: depth + 1 }, trial: trial ? { id: trial.id } : null });
           // Its answer comes back into this run, and so does its label
           // (docs/sensitivity.md). Set on its row as it started, so it is
           // there even while it is still going.
@@ -201,19 +219,26 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     .filter((n) => n && isKnownServer(n));
 
   const depth = input.parent?.depth ?? 0;
+  // A trial's overrides stand in for the agent's own; absent, the agent as it is.
+  const trial = input.trial ?? null;
+  const instructions = trial?.instructions ?? agent.instructions;
+  const model = trial?.model ?? agent.model;
+  const effort = trial?.effort ?? agent.effort;
+  const checks = [...(input.skill?.checks ?? []), ...(trial?.checks ?? [])];
   const runId = await startRun({
     prompt,
     agentId: agent.id,
     skillId: input.skillId ?? null,
     principalId: input.principal.id,
-    system: agent.instructions || undefined,
-    model: agent.model ?? undefined,
-    effort: agent.effort ?? undefined,
+    system: instructions || undefined,
+    model: model ?? undefined,
+    effort: effort ?? undefined,
     mcpServers: servers,
     parentSessionId: input.parent?.sessionId ?? null,
     depth,
+    trialId: trial?.id ?? null,
   });
-  const together = await cooperation(agent, input.principal, runId, depth);
+  const together = await cooperation(agent, input.principal, runId, depth, trial);
   // The read log (docs/sensitivity.md): which confidential or special
   // documents this run was given, for whom.
   if (reads.length) await recordKnowledgeReads({ principalId: input.principal.id, door: "run", reads, runId });
@@ -226,9 +251,9 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     prompt,
     history: input.history,
     context,
-    system: agent.instructions || undefined,
-    model: (agent.model as ModelId) ?? undefined,
-    effort: effortOf(agent.effort),
+    system: instructions || undefined,
+    model: (model as ModelId) ?? undefined,
+    effort: effortOf(effort),
     maxIterations: agent.maxIterations ?? undefined,
     servers,
     agentId: agent.id,
@@ -242,20 +267,33 @@ export async function runAgentForPrincipal(input: AgentRunInput): Promise<AgentR
     runId,
     keepsMemory: together.keepsMemory,
     asks: together.asks,
-    // The skill's checks are judged on the answer and stored with the run.
-    check: input.skill?.checks?.length ? (result) => runChecks({ checks: input.skill!.checks!, answer: result.text, runId }) : undefined,
-    afterRun: handoffsAfter({
-      sessionId: runId,
-      agentId: agent.id,
-      agentName: agent.name,
-      skillId: input.skillId ?? null,
-      skillName: input.skill?.name ?? null,
-      prompt,
-      principal: input.principal,
-      depth,
-    }),
+    trial: Boolean(trial),
+    // The skill's checks (and a case's) are judged on the answer and stored with the run.
+    check: checks.length ? (result) => runChecks({ checks, answer: result.text, runId }) : undefined,
+    // A trial hands off to nobody: a hand-off would start a real run of the next agent.
+    afterRun: trial
+      ? undefined
+      : handoffsAfter({
+          sessionId: runId,
+          agentId: agent.id,
+          agentName: agent.name,
+          skillId: input.skillId ?? null,
+          skillName: input.skill?.name ?? null,
+          prompt,
+          principal: input.principal,
+          depth,
+        }),
   })
-    .then((out) => ({ ok: true as const, out }))
+    .then(async (out) => {
+      // What a trial proposed is counted (the `writes` check) and then
+      // rejected: a person never has to clear up after a test.
+      if (trial) {
+        for (const p of await listProposals({ runId, status: "pending" })) {
+          await rejectProposal(p.id, input.principal.id, "A test run: nothing it proposes is done.").catch(() => {});
+        }
+      }
+      return { ok: true as const, out };
+    })
     .catch(async (err) => {
       const message = err instanceof Error ? err.message : "The run failed.";
       await failRun(runId, message).catch(() => {});
@@ -308,6 +346,12 @@ export async function runSkillForPrincipal(input: {
   args: Record<string, unknown>;
   principal: Principal;
   deadlineMs?: number;
+  /** A trial of a test case (docs/skill-tests.md). */
+  trial?: TrialOverrides | null;
+  /** The exact prompt instead of the filled template: a case saved from a run. */
+  prompt?: string | null;
+  /** Another agent given the skill's prompt: one setup against another. */
+  agentRef?: string | null;
 }): Promise<AgentRunOutcome> {
   const skill = await getSkill(input.skillRef);
   if (!skill) return { kind: "error", message: `No skill named "${input.skillRef}".` };
@@ -316,16 +360,21 @@ export async function runSkillForPrincipal(input: {
     return { kind: "error", message: `"${skill.agentName}" is disabled, so its skills cannot run.` };
   }
 
-  const filled = fillTemplate(skill.promptTemplate, skill.parameters ?? [], input.args ?? {});
-  if ("error" in filled) return { kind: "error", message: filled.error };
+  let prompt = input.prompt?.trim() ?? "";
+  if (!prompt) {
+    const filled = fillTemplate(skill.promptTemplate, skill.parameters ?? [], input.args ?? {});
+    if ("error" in filled) return { kind: "error", message: filled.error };
+    prompt = filled.prompt;
+  }
 
   return runAgentForPrincipal({
-    agentRef: skill.agentId,
-    prompt: filled.prompt,
+    agentRef: input.agentRef?.trim() || skill.agentId,
+    prompt,
     principal: input.principal,
     deadlineMs: input.deadlineMs,
     skillId: skill.id,
     skill: { slug: skill.slug, name: skill.name, checks: skill.checks },
+    trial: input.trial ?? null,
   });
 }
 

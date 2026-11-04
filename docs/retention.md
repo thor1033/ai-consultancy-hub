@@ -57,6 +57,12 @@ A sweep applies to the whole database, as it should. **Backups** are a
 separate matter: Neon's point-in-time restore keeps old states for the
 project's restore window, so set that window to match what you promise.
 
+Test cases on a skill (`skill_cases`, [skill-tests.md](skill-tests.md)) are
+kept on purpose: a case saved from a run is that run's request, chosen as a
+test fixture, the skill's and not the person's. Trial sets (`skill_trials`)
+hold check details, costs and run ids, never an answer. Erasing a person
+removes the sets they started and their name from the cases they wrote.
+
 ## A person's rights
 
 | | Who | Where |

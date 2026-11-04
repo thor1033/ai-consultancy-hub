@@ -7,6 +7,7 @@ import { sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
 import { viewContext } from "@/lib/viewServer";
 import { PART_STYLE, count, duration, isTimeline, readTimeline, type Part } from "@/lib/runTiming";
 import { hiddenPromptLabel, privateRun } from "@/lib/runPrivacy";
+import { SaveCaseButton } from "../../SaveCaseButton";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +35,11 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
   // The transcript: the run's own person or an admin, in Expert, never a guess.
   const mayRead = ctx.view === "expert" && Boolean(me) && (Boolean(admin) || (found.principalId !== null && found.principalId === me?.id));
   const said = mayRead ? await getRunTranscript(run.id) : null;
+  // "What went wrong" ends here (docs/effective-agents-review.md, E3): the
+  // run's own person, with a skill run, can keep it as a test case and go
+  // straight to the brief. Managing is checked again by the action.
+  const own = Boolean(me) && found.principalId !== null && found.principalId === me?.id;
+  const mayKeep = own && Boolean(found.skillId) && Boolean(await sessionCan("agent:manage"));
 
   const timeline = isTimeline(run.timeline) ? run.timeline : null;
   const reading = timeline ? readTimeline(timeline, run.latencyMs) : null;
@@ -70,6 +76,17 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
           <Fact label="Model · effort" value={[run.model, run.effort].filter(Boolean).join(" · ") || "default"} />
           <Fact label="Started" value={new Date(run.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} />
         </dl>
+        {own && (mayKeep || !mayRead) && (
+          <p className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            {mayKeep && <SaveCaseButton runId={run.id} />}
+            {mayKeep && (
+              <Link href={`/agents/${agent.slug}#settings`} className="underline underline-offset-2 hover:text-[var(--brand-ink)]">
+                Edit the brief
+              </Link>
+            )}
+            {!mayRead && <span className="text-[var(--muted)]">The transcript is shown in the Expert view.</span>}
+          </p>
+        )}
         {run.status === "failed" && run.error && <p className="mt-3 max-w-3xl text-sm text-[var(--danger)]">{run.error}</p>}
         {(parent || children.length > 0) && (
           <ul className="mt-4 flex flex-col gap-1 text-sm">

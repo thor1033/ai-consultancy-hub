@@ -42,7 +42,8 @@ import { type ModelId } from "@ai-hub/agent";
 import { sessionKnowledgeAccess, sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
 import { saveAgentAs, saveSkillAs, type SkillDraft } from "@/lib/agentDesign";
 import { memoryReachFor } from "@/lib/memoryScope";
-import { listSkills, updateSkill, deleteSkill } from "@ai-hub/db";
+import { cleanChecks, checkProblem, listSkills, updateSkill, deleteSkill, listCases, createCase, updateCase, deleteCase, getCase, getTrialSet, getRunTiming, listTrialSets, type SkillCase, type TrialVariant, type TrialSet } from "@ai-hub/db";
+import { planTrials, startTrials, cleanVariants, currentSetupHash } from "@/lib/skillTests";
 import { fillTemplate } from "@/lib/skillPrompt";
 import { runAgentForPrincipal, runSkillForPrincipal, cooperation, handoffsAfter } from "@/lib/agentRuns";
 import { loadHubConnections } from "@/lib/connections";
@@ -570,4 +571,115 @@ export async function runStatusAction(runId: string): Promise<SkillRunResult> {
   if (run.status === "running") return { status: "running", runId };
   if (run.status === "failed") return { status: "failed", runId, error: run.error ?? "The run failed." };
   return { status: "done", runId, output: run.output ?? "", checks: run.checks };
+}
+
+// --- Test cases and trial sets on a skill (docs/skill-tests.md) -------------
+//
+// Cases are the skill's: anyone who may manage agents writes and runs them.
+// Saving a case from an answer is the one thing a person who may only run
+// agents can do, and only from their own run: it is their failure to report.
+
+export interface CaseDraft {
+  id?: string;
+  skillId: string;
+  name: string;
+  args: Record<string, string>;
+  prompt?: string | null;
+  checks: SkillCase["checks"];
+  reference?: string | null;
+}
+
+export async function saveCaseAction(input: CaseDraft): Promise<{ cases: SkillCase[] } | { error: string }> {
+  const principal = await sessionCan("agent:manage");
+  if (!principal) return { error: NOT_ALLOWED };
+  if (typeof input?.skillId !== "string" || !(await getSkill(input.skillId))) return { error: "No such skill." };
+  const name = String(input.name ?? "").trim().slice(0, 200);
+  if (!name) return { error: "Give the case a name: what it is about, or what went wrong." };
+  const args: Record<string, string> = {};
+  for (const [k, v] of Object.entries(input.args ?? {})) if (typeof k === "string" && k.length <= 64 && typeof v === "string") args[k] = v.slice(0, 200_000);
+  const prompt = typeof input.prompt === "string" ? input.prompt.slice(0, 200_000) : null;
+  if (!prompt?.trim() && Object.keys(args).length === 0) return { error: "A case needs the skill's arguments, or the exact prompt." };
+  const bad = cleanChecks(input.checks ?? []).map(checkProblem).find(Boolean);
+  if (bad) return { error: bad };
+  try {
+    if (input.id) {
+      const existing = await getCase(input.id);
+      if (!existing || existing.skillId !== input.skillId) return { error: "That case belongs to another skill, or no longer exists." };
+      await updateCase(input.id, { name, args, prompt, checks: input.checks, reference: input.reference ?? null });
+    } else {
+      await createCase({ skillId: input.skillId, name, args, prompt, checks: input.checks, reference: input.reference ?? null, createdBy: principal.id });
+    }
+    revalidatePath("/agents");
+    return { cases: await listCases(input.skillId) };
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : "Could not save the case." };
+  }
+}
+
+export async function deleteCaseAction(id: string, skillId: string): Promise<{ cases: SkillCase[] } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  const existing = await getCase(id);
+  if (!existing || existing.skillId !== skillId) return { error: "That case belongs to another skill, or no longer exists." };
+  await deleteCase(id);
+  revalidatePath("/agents");
+  return { cases: await listCases(skillId) };
+}
+
+/**
+ * "Save as a test case" on one of your own answers: the exact prompt the
+ * run had, under its skill, with no checks yet — the person writes what
+ * should have happened. Scoped to the run's own person: a run id is not a
+ * bearer token, and another person's prompt is not yours to keep.
+ */
+export async function saveCaseFromRunAction(runId: string): Promise<{ caseId: string; skillId: string } | { error: string }> {
+  const principal = await sessionCan("agent:run");
+  if (!principal) return { error: NOT_ALLOWED };
+  const run = await getRunStatus(runId, principal.id).catch(() => null);
+  if (!run) return { error: "That run is not one of yours." };
+  const timing = await getRunTiming(runId);
+  if (!timing?.skillId) return { error: "Only a run of a skill can become a test case." };
+  if (!run.prompt?.trim()) return { error: "The run's question is no longer kept, so there is nothing to save." };
+  const name = (run.prompt.trim().split("\n").find((l) => l.trim()) ?? "A case").slice(0, 120);
+  const made = await createCase({ skillId: timing.skillId, name, prompt: run.prompt, fromRunId: runId, createdBy: principal.id });
+  revalidatePath("/agents");
+  return { caseId: made.id, skillId: timing.skillId };
+}
+
+export interface TrialRequest {
+  skillId: string;
+  k: number;
+  variants: TrialVariant[];
+  caseIds?: string[];
+  label?: string;
+}
+
+/** What a set would do, in a sentence, without running anything. */
+export async function planTrialsAction(input: TrialRequest): Promise<{ runs: number; sentence: string } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  const plan = await planTrials({ skillRef: input.skillId, caseIds: input.caseIds, k: input.k, variants: cleanVariants(input.variants) });
+  if ("error" in plan) return plan;
+  return { runs: plan.runs, sentence: plan.sentence };
+}
+
+/** Start it. The page polls trialStatusAction until it is done. */
+export async function startTrialsAction(input: TrialRequest): Promise<{ set: TrialSet } | { error: string }> {
+  const principal = await sessionCan("agent:manage");
+  if (!principal) return { error: NOT_ALLOWED };
+  const plan = await planTrials({ skillRef: input.skillId, caseIds: input.caseIds, k: input.k, variants: cleanVariants(input.variants) });
+  if ("error" in plan) return plan;
+  const set = await startTrials(plan, principal, String(input.label ?? "").slice(0, 120));
+  return { set };
+}
+
+export async function trialStatusAction(id: string): Promise<{ set: TrialSet; setupChanged: boolean } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  const set = await getTrialSet(id).catch(() => null);
+  if (!set) return { error: "No such set." };
+  const skill = await getSkill(set.skillId);
+  return { set, setupChanged: Boolean(skill && set.setupHash && (await currentSetupHash(skill)) !== set.setupHash) };
+}
+
+export async function listTrialSetsAction(skillId: string): Promise<{ sets: TrialSet[] } | { error: string }> {
+  if (!(await sessionCan("agent:manage"))) return { error: NOT_ALLOWED };
+  return { sets: await listTrialSets(skillId) };
 }

@@ -21,6 +21,10 @@ import {
   listAgents,
   askedAgents,
   listMyRuns,
+  listCases,
+  listTrialSets,
+  type SkillCase,
+  type TrialSet,
   type MyRun,
 } from "@ai-hub/db";
 import { DEFAULT_MAX_ITERATIONS, MAX_ITERATIONS_CEILING } from "@ai-hub/agent";
@@ -99,6 +103,15 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
   const runs = runRows.map((r) => privateRun(r, { id: viewer?.id ?? null, admin: Boolean(admin) }));
   // The signed-in person's own runs, with their answers: "Your answers".
   const mine: MyRun[] = viewer ? await listMyRuns(agent.id, viewer.id).catch(() => []) : [];
+  // Each skill's test cases and trial sets (docs/skill-tests.md), for those who may manage.
+  const tests: Record<string, { cases: SkillCase[]; sets: TrialSet[] }> = {};
+  if (canManage) {
+    await Promise.all(
+      skills.map(async (s) => {
+        tests[s.id] = { cases: await listCases(s.id).catch(() => []), sets: await listTrialSets(s.id, 10).catch(() => []) };
+      }),
+    );
+  }
   // How much of the agent this person is shown (docs/views.md). Simple is a
   // conversation and its skills; Expert is every dial and the tool names.
   const { view, can } = await viewContext();
@@ -483,12 +496,12 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           ...(standard && can.run
             ? [{ id: "memory", label: "Memory", count: memories.length, content: <MemoryPanel agentId={agent.id} name={agent.name} memories={await withKeptFor(memories, viewer?.id ?? null)} canShare={Boolean(admin)} /> }]
             : []),
-          ...(viewer ? [{ id: "answers", label: "Your answers", count: mine.length, content: <YourAnswers runs={mine} agentName={agent.name} now={now} /> }] : []),
+          ...(viewer ? [{ id: "answers", label: "Your answers", count: mine.length, content: <YourAnswers runs={mine} agentName={agent.name} agentSlug={agent.slug} now={now} canKeepCases={Boolean(canManage) && standard} seeRuns={standard} /> }] : []),
           {
             id: "skills",
             label: "Skills",
             count: standard ? skills.length : liveSkills.length,
-            content: <SkillsPanel agentId={agent.id} agentSlug={agent.slug} agentName={agent.name} initial={skills} canManage={Boolean(canManage)} />,
+            content: <SkillsPanel agentId={agent.id} agentSlug={agent.slug} agentName={agent.name} initial={skills} canManage={Boolean(canManage)} tests={tests} />,
           },
           ...(expert
             ? [

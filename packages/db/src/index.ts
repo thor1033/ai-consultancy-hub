@@ -223,3 +223,23 @@ export { grantTemporaryAccess, endTemporaryAccess, listTemporaryAccess } from ".
 export type { TemporaryAccessRow } from "./temporaryAccess";
 export { CHECK_KINDS, CHECK_WORDS, checkProblem, cleanChecks, evaluateCheck, summarizeChecks } from "./checks";
 export type { CheckKind, SkillCheck, CheckResult } from "./checks";
+
+export {
+  listCases,
+  getCase,
+  createCase,
+  updateCase,
+  deleteCase,
+  setupHash,
+  createTrialSet,
+  finishTrialSet,
+  progressTrialSet,
+  failTrialSet,
+  getTrialSet,
+  listTrialSets,
+  trialRunFacts,
+  trialPassed,
+  scoreTrials,
+  summarizeTrials,
+} from "./skillTests";
+export type { SkillCase, SkillCaseInput, TrialVariant, TrialRun, TrialResult, TrialSet, TrialSummary, VariantSummary } from "./skillTests";

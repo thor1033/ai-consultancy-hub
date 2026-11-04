@@ -84,7 +84,7 @@ const toolNames = async (client) => (await client.listTools()).tools.map((t) => 
 const stamp = Date.now();
 const ADMIN = { id: `verify-design-admin-${stamp}`, roles: ["admin"], source: "credential" };
 const ANALYST = { id: `verify-design-analyst-${stamp}`, roles: ["analyst"], source: "credential" };
-const DESIGN = ["hub_list_design_options", "hub_agent_get", "hub_agent_create", "hub_agent_update", "hub_skill_create", "hub_skill_update"];
+const DESIGN = ["hub_list_design_options", "hub_agent_get", "hub_agent_create", "hub_agent_update", "hub_skill_create", "hub_skill_update", "hub_skill_cases", "hub_skill_test"];
 const made = [];
 
 try {
@@ -94,7 +94,7 @@ try {
   check("someone who may run but not manage agents is offered none of them", DESIGN.every((t) => !aTools.includes(t)) && aTools.includes("hub_run_agent"));
   const admin = await connect(ADMIN);
   const xTools = await toolNames(admin);
-  check("someone who may manage agents is offered all six", DESIGN.every((t) => xTools.includes(t)), DESIGN.filter((t) => !xTools.includes(t)).join(", "));
+  check("someone who may manage agents is offered all eight", DESIGN.every((t) => xTools.includes(t)), DESIGN.filter((t) => !xTools.includes(t)).join(", "));
 
   const options = await call(admin, "hub_list_design_options");
   check("the design options list this hub's tool servers, without memory or the ask entry",
@@ -213,6 +213,24 @@ try {
   check("hub_agent_get shows a skill's checks", got2.skills?.[0]?.checks?.length === 3);
   const noChecks = await call(admin, "hub_skill_update", { agent: row.slug, skill: `review-contract-${stamp}`, checks: [] });
   check("checks: [] removes them", /Saved/.test(noChecks) && (await db.listSkills(row.id))[0].checks.length === 0);
+  // ── test cases, and a comparison planned but not run (docs/skill-tests.md) ──
+  const noCases = await call(admin, "hub_skill_cases", { agent: row.slug, skill: `review-contract-${stamp}` });
+  check("hub_skill_cases lists none, and says to add one from a run", noCases.cases?.length === 0 && /No cases yet/.test(noCases.hint), JSON.stringify(noCases));
+  const added = await call(admin, "hub_skill_cases", { agent: row.slug, skill: `review-contract-${stamp}`, add: { name: "Missed the clause", args: { contract: "The supplier may raise prices at will." }, checks: [{ kind: "mentions", value: "price" }], reference: "Names the price clause first." } });
+  check("a case is added with its arguments, checks and reference", /Added the case "Missed the clause"/.test(added), added);
+  const fromRun = await call(admin, "hub_skill_cases", { agent: row.slug, skill: `review-contract-${stamp}`, add: { name: "From a run", prompt: "Review this contract: the exact text." } });
+  const listed = await call(admin, "hub_skill_cases", { agent: row.slug, skill: `review-contract-${stamp}` });
+  check("and one with the exact request; the list has both, a case with a prompt showing it instead of args", /Added/.test(fromRun) && listed.cases?.length === 2 && listed.cases[0].args?.contract && listed.cases[1].prompt === "Review this contract: the exact text." && listed.cases[0].checks[0].kind === "mentions", JSON.stringify(listed));
+  const empty = await call(admin, "hub_skill_cases", { agent: row.slug, skill: `review-contract-${stamp}`, add: { name: "Nothing" } });
+  check("a case with neither arguments nor a request is refused", /needs the skill's arguments/.test(empty) && (await db.listCases(s3.id)).length === 2, empty);
+  const dry = await call(admin, "hub_skill_test", { agent: row.slug, skill: `review-contract-${stamp}`, k: 2, variants: [{ label: "As it is" }, { label: "Cheaper", model: "claude-haiku-4-5" }] });
+  check("hub_skill_test without confirm says what it would run and runs nothing", dry.wouldRun === 8 && /8 runs of the real model: 2 cases × 2 times × 2 setups \(As it is, Cheaper\)/.test(dry.sentence) && (await db.listTrialSets(s3.id)).length === 0, JSON.stringify(dry));
+  const tooMany = await call(admin, "hub_skill_test", { agent: row.slug, skill: `review-contract-${stamp}`, k: 10, variants: Array.from({ length: 6 }, (_, i) => ({ label: `S${i}` })), confirm: true });
+  check("more runs than the ceiling is refused before anything runs", /Not run: That is 120 runs/.test(tooMany) && (await db.listTrialSets(s3.id)).length === 0, tooMany);
+  const badSetup = await call(admin, "hub_skill_test", { agent: row.slug, skill: `review-contract-${stamp}`, variants: [{ label: "x", model: "gpt-9" }] });
+  check("an unknown model in a setup is refused", /Unknown model "gpt-9"/.test(badSetup), badSetup);
+  const removed = await call(admin, "hub_skill_cases", { agent: row.slug, skill: `review-contract-${stamp}`, remove: listed.cases[1].id });
+  check("a case is removed by id, and only under its own skill", /Removed the case "From a run"/.test(removed) && (await db.listCases(s3.id)).length === 1 && /has no skill|No case/.test(await call(admin, "hub_skill_cases", { agent: helper.slug, skill: `review-contract-${stamp}`, remove: listed.cases[0].id })));
   const elsewhere = await call(admin, "hub_skill_update", { agent: helper.slug, skill: `review-contract-${stamp}`, description: "Hijack" });
   check("a skill is found only under its own agent", /has no skill/.test(elsewhere) && (await db.listSkills(row.id))[0].description === "Changed.");
 

@@ -564,6 +564,15 @@ also spends model money by design, and says so before it does.
 
 Not done from C: the asked run's page does not yet show the four fields apart — it shows the prompt they were joined into, which carries the headings. Not done from D: "cites" as its own kind; a standard ("every number names its source") does the same through the judge.
 
+**Phase 4 is done.** On the same branch, not deployed. [docs/skill-tests.md](skill-tests.md).
+
+| | What changed | Proven by |
+|---|---|---|
+| E1 | Test cases on a skill: the arguments or a run's exact request, checks on top of the skill's, a reference answer. Trial sets run every case k times under one setup or several — another brief, model, effort, or another agent given the same request — as the person, with every write held and rejected, memory writes refused, no hand-offs. Scored per case and setup (pass rate, passed every time), the best setup named, cost and time at Expert; kept with the setup's hash so a later set shows what a change did. A set says how many runs before it makes one and refuses more than `HUB_TRIAL_MAX_RUNS`. In the Tests panel and `hub_skill_cases` / `hub_skill_test` | `verify:skill-tests` (web), 37 checks; `verify:design-tools`, 42 |
+| E3 | Under every answer: *What went wrong? See the run* (Standard) and *Save as a test case* (managing); on the run's page, the same and *Edit the brief* | `verify:views`, 102 |
+
+Beyond the review: comparing setups was not in E1, which proposed one setup and a regression over time. It is the question a champion asks ("which setup does this job best?"), and the same runner answers it.
+
 ## What this deliberately leaves out
 
 - **Agent teams that talk to each other** (Claude Code's peer-to-peer

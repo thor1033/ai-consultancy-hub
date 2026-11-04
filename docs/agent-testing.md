@@ -95,7 +95,16 @@ machine, a Neon branch, model spend); whether a test PM-tool org is safe to
 create (the PM-tool can reset `orgId` on login); and who owns keeping the
 synthetic material realistic.
 
-## Layer 3 — scenario checks on the test hub (proposal)
+## Layer 3 — cases on a skill (built, as a product)
+
+What this section proposed is built, on any hub, for any skill, by the
+people who use it: **test cases** on a skill, run k times under one setup or
+several with the real model, scored on the outcome, kept with the setup's
+hash — [skill-tests.md](skill-tests.md). The scenarios below are what the
+first cases for the seeded agents should be. A test hub (layer 2) remains the
+place to run them against material that is not the firm's own.
+
+### The scenarios, as first proposed
 
 Scripted scenarios run against layer 2 with the real model, each with an
 expected outcome a person wrote in advance, read from the hub's own records

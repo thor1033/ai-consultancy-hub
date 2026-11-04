@@ -433,7 +433,15 @@ try {
   // "Your answers": the person's own runs, with what came back, and nobody else's.
   signIn(PEOPLE.analyst, "simple");
   const mineHtml = await render(agentPage, slugProps);
-  check("the analyst's agent page lists the run under Your answers, with the answer", /Your answers/.test(mineHtml) && mineHtml.includes(ANSWER) && /Review a contract/.test(mineHtml));
+  check("the analyst's agent page lists the run under Your answers, with the answer", /Your answers/.test(mineHtml) && mineHtml.includes(ANSWER) && /Review a contract/.test(mineHtml), mineHtml.slice(0, 400));
+  // The loop on one line (docs/skill-tests.md): Simple has no link to the run's numbers and no Tests; Standard has the link; managing has the case and the Tests button.
+  check("in Simple there is no 'what went wrong' link and no Tests button", !/What went wrong/.test(mineHtml) && !/\bTests\b/.test(mineHtml));
+  signIn(PEOPLE.analyst, "standard");
+  const mineStd = await render(agentPage, slugProps);
+  check("in Standard the answer links to its run, but an analyst who may not manage sees no Save as a test case and no Tests", /What went wrong\? See the run/.test(mineStd) && !/Save as a test case/.test(mineStd) && !/\bTests\b/.test(mineStd));
+  signIn(PEOPLE.admin, "standard");
+  const adminStd = await render(agentPage, slugProps);
+  check("someone who may manage sees a Tests button on the skill", /\bTests\b/.test(adminStd));
   check("listMyRuns returns only the person's own runs", (await db.listMyRuns(agent.id, PEOPLE.analyst.id)).length === 1 && (await db.listMyRuns(agent.id, PEOPLE.admin.id)).length === 0);
   signIn(PEOPLE.admin, "expert");
   const adminHtml = await render(agentPage, slugProps);

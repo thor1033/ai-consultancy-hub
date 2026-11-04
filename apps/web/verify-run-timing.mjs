@@ -17,10 +17,14 @@
 //
 // What it cannot prove: how the page looks. That is a screenshot after
 // `npm run build` (docs/agent-testing.md, "Prompt speed").
-import { registerHooks } from "node:module";
+import { registerHooks, createRequire } from "node:module";
 import { createServer } from "node:http";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+
+// TSX the page imports (the save-as-a-case button) is transpiled on load by TypeScript itself, as verify-views does.
+const require = createRequire(import.meta.url);
+const ts = require("typescript");
 
 // The run's page asks who is signed in (lib/runPrivacy.ts: a prompt is shown
 // to the person whose run it was, and to admins). Signed in as the run's own
@@ -59,6 +63,16 @@ registerHooks({
       }
       throw err;
     }
+  },
+  load(url, context, nextLoad) {
+    if (url.startsWith("file:") && url.endsWith(".tsx")) {
+      const source = ts.transpileModule(readFileSync(fileURLToPath(url), "utf8"), {
+        compilerOptions: { jsx: ts.JsxEmit.ReactJSX, module: ts.ModuleKind.ESNext, target: ts.ScriptTarget.ES2022 },
+        fileName: fileURLToPath(url),
+      }).outputText;
+      return { format: "module", source, shortCircuit: true };
+    }
+    return nextLoad(url, context);
   },
 });
 

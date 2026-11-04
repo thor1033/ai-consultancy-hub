@@ -112,6 +112,8 @@ export interface StartRunInput {
   /** The run that started this one (a hand-off or an ask), and how deep the chain is. */
   parentSessionId?: string | null;
   depth?: number;
+  /** The trial set this run is one trial of (docs/skill-tests.md); absent for a real run. */
+  trialId?: string | null;
 }
 
 export async function startRun(input: StartRunInput): Promise<string> {
@@ -120,14 +122,14 @@ export async function startRun(input: StartRunInput): Promise<string> {
     insert into agent_sessions
       (prompt, system, model, effort, mcp_servers, transcript,
        status, agent_id, agent_skill_id, principal_id, started_at,
-       parent_session_id, depth)
+       parent_session_id, depth, trial_id)
     values
       (${mask(input.prompt) ?? ""}, ${input.system ?? null}, ${input.model ?? null},
        ${input.effort ?? null}, ${sql.json((input.mcpServers ?? []) as never)},
        ${sql.json([] as never)},
        'running', ${input.agentId ?? null}, ${input.skillId ?? null},
        ${input.principalId ?? null}, now(),
-       ${input.parentSessionId ?? null}, ${Math.max(0, Math.trunc(input.depth ?? 0))})
+       ${input.parentSessionId ?? null}, ${Math.max(0, Math.trunc(input.depth ?? 0))}, ${input.trialId ?? null})
     returning id
   `;
   return row.id;
@@ -189,6 +191,8 @@ export interface RunTiming {
   status: string;
   prompt: string;
   skill: string | null;
+  /** The skill it came from, for saving the run as a test case (docs/skill-tests.md). */
+  skillId: string | null;
   model: string | null;
   effort: string | null;
   latencyMs: number | null;
@@ -242,7 +246,7 @@ export async function getRunTiming(id: string): Promise<RunTiming | null> {
   const sql = getSql();
   const [row] = await sql<RunTiming[]>`
     select s.id, s.agent_id as "agentId", coalesce(s.started_at, s.created_at) as at, s.status, s.prompt,
-           k.name as skill, s.model, s.effort, s.latency_ms as "latencyMs", s.cost_usd::float8 as "costUsd",
+           k.name as skill, k.id as "skillId", s.model, s.effort, s.latency_ms as "latencyMs", s.cost_usd::float8 as "costUsd",
            s.tokens, s.tools_used as "toolsUsed", s.error, s.timeline,
            s.parent_session_id as "parentSessionId", s.depth, s.principal_id as "principalId", coalesce(nullif(pr.display_name, ''), pr.email, s.principal_id) as "askedBy"
       from agent_sessions s
@@ -353,6 +357,8 @@ export interface MyRun {
   output: string | null;
   error: string | null;
   skill: string | null;
+  /** The skill it came from, for saving the run as a test case (docs/skill-tests.md). */
+  skillId: string | null;
   at: string;
   /** Its question and answer were removed by retention (docs/retention.md). */
   expired: boolean;
@@ -370,13 +376,14 @@ export interface MyRun {
 export async function listMyRuns(agentId: string, principalId: string, limit = 20): Promise<MyRun[]> {
   const sql = getSql();
   return sql<MyRun[]>`
-    select s.id, s.status, s.prompt, s.output, s.error, k.name as skill, s.checks,
+    select s.id, s.status, s.prompt, s.output, s.error, k.name as skill, k.id as "skillId", s.checks,
            coalesce(s.started_at, s.created_at) as at, (s.content_expired_at is not null) as expired
       from agent_sessions s
       left join agent_skills k on k.id = s.agent_skill_id
      where s.agent_id = ${agentId}
        and s.principal_id = ${principalId}
        and s.parent_session_id is null
+       and s.trial_id is null
      order by coalesce(s.started_at, s.created_at) desc
      limit ${Math.max(1, Math.min(Math.trunc(limit), 100))}
   `;

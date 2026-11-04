@@ -62,7 +62,7 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds`, `verify:patterns` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access`, `verify:sharepoint` (rag), `verify:credentials` (authz),
   `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing`,
-  `verify:import`, `verify:views`, `verify:design-tools`, `verify:checks`, `verify:connections`, `verify:data-protection`, `verify:memory-scopes`, `verify:retention`, `verify:sensitivity`, `verify:deployment` (web). verify:retention sweeps the whole
+  `verify:import`, `verify:views`, `verify:design-tools`, `verify:checks`, `verify:skill-tests`, `verify:connections`, `verify:data-protection`, `verify:memory-scopes`, `verify:retention`, `verify:sensitivity`, `verify:deployment` (web). verify:retention sweeps the whole
   database by the default policy, as production does, and verify:sensitivity sweeps audit and read-log entries over a year old — run
   them on a development database.
 - `bench:prompt` (agent) calls the real model and spends money; it says how many calls first. See
