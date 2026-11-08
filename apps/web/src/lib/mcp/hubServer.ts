@@ -19,7 +19,7 @@ import {
   disabledMcpServerNames,
   listProposals,
 } from "@ai-hub/db";
-import { approve, peopleToSendTo, reject, sendOn } from "@/lib/approvals";
+import { approve, reject, resolvePeople, sendOn } from "@/lib/approvals";
 import { registerDeckTools } from "@/lib/mcp/deckTools";
 import { registerDesignTools } from "@/lib/mcp/designTools";
 import { remoteServerConfig, remoteServerInfo } from "@ai-hub/mcp";
@@ -583,8 +583,12 @@ export async function buildHubMcpServer(
             description: p.description,
             status: p.status,
             createdAt: p.createdAt,
-            ...(p.assignedTo
-              ? { sentTo: p.assignedTo === principal.id ? "you" : p.assignedToName || p.assignedTo, sentBy: p.assignedByName || p.assignedBy, ...(p.assignNote ? { sentNote: p.assignNote } : {}) }
+            ...(p.sentTo.length
+              ? {
+                  sentTo: p.sentTo.map((x) => (x.id === principal.id ? "you" : x.name)),
+                  sentBy: p.assignedBy ? p.assignedByName || p.assignedBy : `${p.agentName ?? "the agent"}'s own setting`,
+                  ...(p.assignNote ? { sentNote: p.assignNote } : {}),
+                }
               : {}),
             ...(p.result && mayLeave(p.runSensitivity) ? { result: p.result.slice(0, 2000) } : {}),
             ...(p.error ? { error: p.error } : {}),
@@ -597,41 +601,31 @@ export async function buildHubMcpServer(
       "hub_send_proposal",
       {
         description:
-          "Send a held write to a colleague to decide, with a note — e.g. 'send these to Ditlev'. " +
-          "They see it as sent to them on the Approvals page and may approve or reject it; you still may too. " +
-          "Pass several proposal ids to send a batch. Omit `to` to take proposals back.",
+          "Send a held write to one or more colleagues to decide, with a note — e.g. 'send these to Ditlev', or to Thor and Ditlev. " +
+          "They see it as sent to them on the Approvals page and any one of them may approve or reject it; you still may too. " +
+          "Sending again replaces who it is with. Pass several proposal ids to send a batch. Omit `to` to take proposals back.",
         inputSchema: {
           proposals: z.array(z.string().min(1)).min(1).max(100).describe("Proposal ids, from hub_list_proposals."),
           to: z
-            .string()
+            .union([z.string(), z.array(z.string().min(1)).max(20)])
             .optional()
-            .describe("Who: their email, their name as the hub knows it, or their id. Omit to take the proposals back."),
+            .describe("Who: an email, a name as the hub knows it, or an id — or a list of them to send to several people. Omit to take the proposals back."),
           note: z.string().max(1000).optional().describe("What you want from them, shown with each proposal."),
         },
       },
       async ({ proposals, to, note }) => {
-        let target: string | null = null;
-        if (to?.trim()) {
-          const want = to.trim().toLowerCase();
-          const people = await peopleToSendTo(principal);
-          const match = people.filter((p) => p.id.toLowerCase() === want || p.email.toLowerCase() === want || p.name.toLowerCase() === want);
-          const loose = match.length ? match : people.filter((p) => p.name.toLowerCase().includes(want) || p.email.toLowerCase().startsWith(want));
-          if (loose.length !== 1) {
-            return {
-              ...text(
-                loose.length
-                  ? `"${to}" matches ${loose.length} people: ${loose.map((p) => `${p.name} <${p.email}>`).join(", ")}. Use an email.`
-                  : `No one who can decide writes matches "${to}". People you can send to: ${people.map((p) => `${p.name} <${p.email}>`).join(", ") || "none"}.`,
-              ),
-              isError: true,
-            };
-          }
-          target = loose[0].id;
-        }
+        const wanted = Array.isArray(to) ? to : to ? [to] : [];
+        const resolved = await resolvePeople(wanted, principal);
+        if ("error" in resolved) return { ...text(`${resolved.error} Nothing was sent.`), isError: true };
+        const targets = resolved.ids;
         const results = [];
         for (const id of proposals) {
-          const res = await sendOn(id, principal, target, note);
-          results.push("error" in res ? { proposal: id, error: res.error } : { proposal: id, sentTo: res.proposal.assignedToName ?? res.proposal.assignedTo ?? "back to whoever the run acted as" });
+          const res = await sendOn(id, principal, targets, note);
+          results.push(
+            "error" in res
+              ? { proposal: id, error: res.error }
+              : { proposal: id, sentTo: res.proposal.sentTo.length ? res.proposal.sentTo.map((x) => x.name) : "back to whoever the run acted as" },
+          );
         }
         const failed = results.filter((r) => "error" in r).length;
         return { ...text(results), ...(failed === results.length ? { isError: true } : {}) };

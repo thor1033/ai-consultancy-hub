@@ -1,8 +1,9 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Principal } from "@ai-hub/authz";
-import { ASK_SERVER, getAgent, listSkills, type McpEntry, type SkillParameter } from "@ai-hub/db";
+import { ASK_SERVER, getAgent, getPrincipal, listSkills, type McpEntry, type SkillParameter } from "@ai-hub/db";
 import { saveAgentAs, saveSkillAs } from "@/lib/agentDesign";
+import { resolvePeople } from "@/lib/approvals";
 import { knownServers } from "@/lib/runSession";
 import { resolveLargeArgs } from "@/lib/mcp/largeArgs";
 import { text } from "@/lib/mcp/memoryTools";
@@ -62,6 +63,10 @@ const agentFields = {
   owner: z.string().optional().describe("The person it reports to, on the org chart."),
   maxIterations: z.number().int().optional().describe("Most tool rounds one run may take before it stops and says so."),
   enabled: z.boolean().optional(),
+  sendApprovalsTo: z
+    .array(z.string())
+    .optional()
+    .describe("People its held writes go to as they are made, by email or name; any one of them may decide. Replaces the list; [] sends them to whoever the run acted as."),
 };
 
 /** The fields a tool call sends, in the form's shape, laid over an existing agent's entries. */
@@ -122,6 +127,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         keepsMemory: a.keepsMemory,
         function: a.functionName,
         owner: a.owner,
+        sendApprovalsTo: (await Promise.all(a.sendApprovalsTo.map((id) => getPrincipal(id)))).map((p, i) => p?.email ?? a.sendApprovalsTo[i]),
         maxIterations: a.maxIterations,
         enabled: a.enabled,
         placement: a.placement,
@@ -153,7 +159,10 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
     async (args) => {
       const big = resolveLargeArgs(principal.id, { instructions: args.instructions ?? "" });
       if ("error" in big) return text(big.error);
+      const approvers = args.sendApprovalsTo ? await resolvePeople(args.sendApprovalsTo) : { ids: [] };
+      if ("error" in approvers) return text(`Not created: ${approvers.error}`);
       const out = await saveAgentAs(principal, null, {
+        sendApprovalsTo: approvers.ids,
         slug: args.name,
         name: args.name,
         description: args.description ?? "",
@@ -200,7 +209,10 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
       if (!a) return text(`There is no agent "${args.agent}". hub_list_agents lists them.`);
       const big = resolveLargeArgs(principal.id, args.instructions === undefined ? {} : { instructions: args.instructions });
       if ("error" in big) return text(big.error);
+      const approvers = args.sendApprovalsTo ? await resolvePeople(args.sendApprovalsTo) : null;
+      if (approvers && "error" in approvers) return text(`Not changed: ${approvers.error}`);
       const out = await saveAgentAs(principal, a.id, {
+        ...(approvers ? { sendApprovalsTo: approvers.ids } : {}),
         slug: a.slug,
         name: args.name ?? a.name,
         description: args.description ?? a.description,

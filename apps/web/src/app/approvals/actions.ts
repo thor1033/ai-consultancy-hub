@@ -41,10 +41,13 @@ export async function rejectProposalsAction(ids: string[], note: string): Promis
   return each(ids, (id) => reject(id, principal, note));
 }
 
-/** Send to a colleague to decide, or take back (`to` null). */
-export async function sendProposalsAction(ids: string[], to: string | null, note: string): Promise<Outcome[] | { error: string }> {
+/** Send to one or more colleagues to decide, or take back (an empty list). */
+export async function sendProposalsAction(ids: string[], to: string[], note: string): Promise<Outcome[] | { error: string }> {
   const principal = await sessionPrincipal();
   if (!principal) return { error: "You are not signed in." };
+  // A server action is a public endpoint: the list is checked for shape here,
+  // and each person in it by sendOn.
+  if (!Array.isArray(to) || !to.every((x) => typeof x === "string")) return { error: "Say who to send it to." };
   return each(ids, (id) => sendOn(id, principal, to, note));
 }
 

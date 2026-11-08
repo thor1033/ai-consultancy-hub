@@ -4,6 +4,7 @@ import { agentOrgLabels, listAgents } from "@ai-hub/db";
 import { listCollections } from "@ai-hub/rag";
 import { sessionCan, sessionKnowledgeAccess } from "@/lib/sessionPrincipal";
 import { viewContext } from "@/lib/viewServer";
+import { peopleToSendTo } from "@/lib/approvals";
 import { AgentForm } from "../AgentForm";
 import { toolCatalog } from "../catalog";
 
@@ -93,7 +94,9 @@ export default async function NewAgentPage() {
             writesAllowed: [],
             keepsMemory: true,
             asks: [],
+            sendApprovalsTo: [],
           }}
+          approvers={await peopleToSendTo(null).catch(() => [])}
           agents={agents.map((a) => ({ slug: a.slug, name: a.name, description: a.description }))}
           functions={orgLabels.functions}
           owners={orgLabels.owners}
