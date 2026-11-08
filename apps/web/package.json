@@ -24,6 +24,7 @@
     "verify:design-tools": "node --experimental-transform-types --env-file=.env.local verify-design-tools.mjs",
     "verify:checks": "node --experimental-transform-types --env-file=.env.local verify-checks.mjs",
     "verify:skill-tests": "node --experimental-transform-types --env-file=.env.local verify-skill-tests.mjs",
+    "verify:web": "node --experimental-transform-types --env-file=.env.local verify-web.mjs",
     "verify:connections": "node --experimental-transform-types --env-file=.env.local verify-connections.mjs",
     "verify:data-protection": "node --experimental-transform-types --env-file=.env.local verify-data-protection.mjs",
     "verify:memory-scopes": "node --experimental-transform-types --env-file=.env.local verify-memory-scopes.mjs",

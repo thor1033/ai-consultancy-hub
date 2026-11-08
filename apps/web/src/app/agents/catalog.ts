@@ -13,11 +13,12 @@ export interface ToolOption {
   available: boolean;
 }
 
-const LOCAL_LABELS: Record<string, string> = { agents: "Other agents" };
+const LOCAL_LABELS: Record<string, string> = { agents: "Other agents", web: "The web" };
 
 const LOCAL_DESCRIPTIONS: Record<string, string> = {
   agents:
     "Lets this agent ask the agents ticked below while it runs, as the same person. The asked agent sees only the task it is sent; its writes wait for approval like any run's. An asked agent cannot ask further.",
+  web: "Search the web and read pages, through the model provider's own tools. Every search is billed; an agent with the web has its memory writes held for a person, since a page can carry instructions.",
   microsoft365: "Read-only Outlook mail and calendar through Microsoft Graph.",
   teams: "Read-only Teams meeting transcripts and the team's SharePoint files.",
   "teams-notes": "Saves meeting notes as new Markdown files in one Teams folder. Create-only: cannot change or delete anything.",

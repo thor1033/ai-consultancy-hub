@@ -22,6 +22,17 @@ export const serverMailboxes = (entries: unknown): Record<string, string> => {
   return out;
 };
 
+/** The web entry's bounds, as the form holds them (docs/web.md): sites one per line, searches per run as text. */
+export const webEntryValues = (entries: unknown): { webOnly: string; webSearches: string } => {
+  const out = { webOnly: "", webSearches: "" };
+  if (!Array.isArray(entries)) return out;
+  const e = entries.find((x) => (x as { name?: unknown })?.name === "web") as { only?: unknown; searches?: unknown } | undefined;
+  if (!e) return out;
+  if (Array.isArray(e.only)) out.webOnly = e.only.filter((s) => typeof s === "string").join("\n");
+  if (typeof e.searches === "number") out.webSearches = String(e.searches);
+  return out;
+};
+
 export const serverNames = (entries: unknown): string[] =>
   Array.isArray(entries)
     ? entries

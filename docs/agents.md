@@ -110,6 +110,16 @@ server instructions. Dropping was always deliberate (it is how the kill switch
 works); for a while it was also silent, and the symptom was an agent saying "I
 have no such tool" while the reason sat in the hub's log.
 
+### The web
+
+An entry `web` gives an agent web search and fetch through the model
+provider's own tools, bounded per agent: how many searches and fetches a run
+may make, and which sites it may or may not read. Every search is billed; an
+agent with the web has its memory writes held for a person, since a page can
+carry instructions. On a provider other than the Claude API the web is
+dropped and said, like any server this deployment has not got. See
+[web.md](web.md).
+
 ### What it reads
 
 An agent's knowledge scope is one of three things, set under **What it may

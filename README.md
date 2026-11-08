@@ -47,7 +47,10 @@ hub/
   read-only; `teams-notes` saves meeting notes as new files in one folder, and
   nothing else ([docs/teams.md](docs/teams.md)). `knowledge` is the Context
   Steward's: it reads chats, notes and memory and proposes what to file, through
-  the approvals queue ([docs/context-steward.md](docs/context-steward.md)).
+  the approvals queue ([docs/context-steward.md](docs/context-steward.md)). `web` is
+  the model provider's own web search and fetch, bounded per agent
+  ([docs/web.md](docs/web.md)); the Market Scout is built on it
+  ([docs/market-scout.md](docs/market-scout.md)).
 - **Agents anywhere** — every agent registers as `hub_agent_<slug>` in any MCP client,
   and its Skills as `hub_skill_<slug>` with real arguments, so work built in the hub runs
   from Claude Code, VS Code or Cursor ([docs/agents-anywhere.md](docs/agents-anywhere.md)).

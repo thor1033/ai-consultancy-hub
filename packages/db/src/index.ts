@@ -185,6 +185,8 @@ export {
   HANDOFF_PLACEHOLDERS,
 } from "./handoffs";
 export type { Handoff, HandoffInput, HandoffVars } from "./handoffs";
+export { WEB_SERVER, webOptionsFrom } from "./agents";
+export type { WebEntryOptions } from "./agents";
 export { PATTERNS, COMMON_PARAMS, CHEAPER_MODEL, getPattern, previewPattern, instantiatePattern, patternSlug, ASK_SERVER, askedAgents } from "./patterns";
 export type { Pattern, PatternParam, PatternRole, PatternPreview, PatternInstance, PatternValues } from "./patterns";
 export { listChildRuns } from "./sessions";

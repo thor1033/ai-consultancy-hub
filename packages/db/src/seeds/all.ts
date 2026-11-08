@@ -11,6 +11,7 @@ import { SECRETARY_AGENT, SECRETARY_MEMORIES, SECRETARY_SKILLS } from "./secreta
 import { PROJECT_MANAGER_AGENT, PROJECT_MANAGER_MEMORIES, PROJECT_MANAGER_SKILLS } from "./project-manager";
 import { PRODUCTS, productOwnerAgent, productOwnerMemories, productOwnerSkills } from "./product-owner";
 import { CONTEXT_STEWARD_AGENT, CONTEXT_STEWARD_HANDOFFS, CONTEXT_STEWARD_MEMORIES } from "./context-steward";
+import { MARKET_SCOUT_AGENT, MARKET_SCOUT_SKILLS, MARKET_SCOUT_MEMORIES, MARKET_REVIEWER_AGENT, MARKET_REVIEWER_MEMORIES } from "./market-scout";
 
 export const SEEDS: Seed[] = [
   { agent: SECRETARY_AGENT, skills: SECRETARY_SKILLS, memories: SECRETARY_MEMORIES },
@@ -23,6 +24,11 @@ export const SEEDS: Seed[] = [
   // listed after the Secretary: a hand-off whose other side is not there yet
   // is skipped, and said.
   { agent: CONTEXT_STEWARD_AGENT, skills: [], memories: CONTEXT_STEWARD_MEMORIES, handoffs: CONTEXT_STEWARD_HANDOFFS },
+  // The Market Reviewer before the Scout that asks it: the ask list is read
+  // at run time, so order is not required, but a seed that names an agent
+  // reads better when that agent is already there.
+  { agent: MARKET_REVIEWER_AGENT, skills: [], memories: MARKET_REVIEWER_MEMORIES },
+  { agent: MARKET_SCOUT_AGENT, skills: MARKET_SCOUT_SKILLS, memories: MARKET_SCOUT_MEMORIES },
 ];
 
 /**

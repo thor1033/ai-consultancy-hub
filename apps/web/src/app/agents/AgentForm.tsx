@@ -43,6 +43,9 @@ export interface AgentFormValues {
   keepsMemory: boolean;
   /** Slugs of the agents it may ask while it runs (the "agents" entry). */
   asks: string[];
+  /** The web entry's bounds (docs/web.md): only these sites, one per line; searches per run. Blank = the defaults. */
+  webOnly: string;
+  webSearches: string;
 }
 
 /** Another agent on the hub, offered as one this agent may ask. */
@@ -53,6 +56,7 @@ export interface AskableAgent {
 }
 
 const ASK_SERVER = "agents";
+const WEB_SERVER = "web";
 
 export type KnowledgeMode = "none" | "all" | "selected";
 
@@ -175,6 +179,12 @@ export function AgentForm({
             ...(mailbox && MAILBOX_SERVERS.has(name) ? { mailbox } : {}),
             ...(v.writesAllowed.includes(name) ? { writes: "allow" } : {}),
             ...(name === ASK_SERVER ? { agents: v.asks } : {}),
+            ...(name === WEB_SERVER
+              ? {
+                  ...(v.webOnly.trim() ? { only: v.webOnly.split("\n").map((s) => s.trim()).filter(Boolean) } : {}),
+                  ...(v.webSearches.trim() ? { searches: Number(v.webSearches) } : {}),
+                }
+              : {}),
           };
         }),
         keepsMemory: v.keepsMemory,
@@ -383,6 +393,19 @@ export function AgentForm({
                         straight through.{!canAllowWrites && " Only an admin can switch this off."}
                       </span>
                     </label>
+                  )}
+                  {on && t.name === WEB_SERVER && (
+                    <div className="mt-2 grid gap-2 border border-[var(--border-strong)] p-3 sm:grid-cols-[1fr_8rem]">
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-[var(--muted)]">Only these sites (optional, one per line; subdomains included)</span>
+                        <textarea className="field mono min-h-16 text-xs" value={v.webOnly} onChange={(e) => set("webOnly", e.target.value)} placeholder={"competitor.com\ng2.com"} />
+                      </label>
+                      <label className="block">
+                        <span className="mb-1 block text-xs text-[var(--muted)]">Searches per run</span>
+                        <input className="field mono" type="number" min={1} max={50} value={v.webSearches} placeholder="8" onChange={(e) => set("webSearches", e.target.value)} />
+                        <span className="mt-1 block text-xs text-[var(--muted)]">Each is billed.</span>
+                      </label>
+                    </div>
                   )}
                   {on && t.name === ASK_SERVER && (
                     <div className="mt-2 border border-[var(--border-strong)] p-3">

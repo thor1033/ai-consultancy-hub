@@ -94,6 +94,8 @@ export default async function NewAgentPage() {
             writesAllowed: [],
             keepsMemory: true,
             asks: [],
+            webOnly: "",
+            webSearches: "",
           }}
           agents={agents.map((a) => ({ slug: a.slug, name: a.name, description: a.description }))}
           functions={orgLabels.functions}

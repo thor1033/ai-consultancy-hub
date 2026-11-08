@@ -14,6 +14,40 @@ import type { ImportSource } from "./skillmd";
 export type McpEntry = Record<string, unknown>;
 
 /**
+ * The web, as an entry on an agent (docs/web.md): no process, the Claude
+ * API's own search and fetch tools, built in runSession from the entry.
+ *   {"name":"web"}                                    search and read, the defaults
+ *   {"name":"web","only":["acme.com"],"searches":12}  only these sites, up to 12 searches
+ *   {"name":"web","never":["example.org"],"fetch":false}
+ */
+export const WEB_SERVER = "web";
+
+export interface WebEntryOptions {
+  search?: boolean;
+  fetch?: boolean;
+  maxSearches?: number;
+  maxFetches?: number;
+  allowedDomains?: string[];
+  blockedDomains?: string[];
+}
+
+/** What a web entry asks for; junk is ignored, so a mistake on the row narrows nothing and widens nothing. */
+export function webOptionsFrom(entry: unknown): WebEntryOptions {
+  if (!entry || typeof entry !== "object") return {};
+  const e = entry as Record<string, unknown>;
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((d): d is string => typeof d === "string" && d.trim() !== "").map((d) => d.trim()) : undefined);
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 1 ? Math.trunc(v) : undefined);
+  return {
+    ...(e.search === false ? { search: false } : {}),
+    ...(e.fetch === false ? { fetch: false } : {}),
+    ...(num(e.searches) !== undefined ? { maxSearches: num(e.searches) } : {}),
+    ...(num(e.fetches) !== undefined ? { maxFetches: num(e.fetches) } : {}),
+    ...(list(e.only)?.length ? { allowedDomains: list(e.only) } : {}),
+    ...(list(e.never)?.length ? { blockedDomains: list(e.never) } : {}),
+  };
+}
+
+/**
  * Where an agent runs: on the hub's runtime, in a Claude Code session as a
  * synced sub-agent, or both. See docs/local-agents.md.
  */

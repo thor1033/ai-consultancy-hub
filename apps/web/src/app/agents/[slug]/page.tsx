@@ -33,7 +33,7 @@ import { sessionCan, sessionKnowledgeAccess, sessionPrincipal } from "@/lib/sess
 import { DAYS, money, rel } from "@/lib/format";
 import { AgentForm } from "../AgentForm";
 import { toolCatalog } from "../catalog";
-import { MODELS, agentToolName, serverMailboxes, serverNames, serverWritesAllowed, skillToolName } from "../models";
+import { MODELS, agentToolName, serverMailboxes, serverNames, serverWritesAllowed, skillToolName, webEntryValues } from "../models";
 import { AgentTabs } from "./AgentTabs";
 import { AgentChat } from "./AgentChat";
 import { MemoryPanel } from "./MemoryPanel";
@@ -386,6 +386,7 @@ export default async function AgentPage({ params }: { params: Promise<{ slug: st
           writesAllowed,
           keepsMemory: agent.keepsMemory,
           asks: askedAgents(agent.mcpServers),
+          ...webEntryValues(agent.mcpServers),
         }}
         agents={allAgents.map((a) => ({ slug: a.slug, name: a.name, description: a.description }))}
         functions={orgLabels.functions}

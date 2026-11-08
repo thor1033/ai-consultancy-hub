@@ -62,7 +62,7 @@ const CODE_OWNED = ["name", "description", "instructions", "mcpServers", "maxIte
 const PAGE_OWNED = ["model", "effort", "knowledgeCollections", "knowledgeAll", "placement"] as const;
 type AgentField = (typeof CODE_OWNED)[number] | (typeof PAGE_OWNED)[number];
 /** The skill fields a seed sets. `enabled` is the page's switch. */
-const SKILL_FIELDS = ["name", "description", "promptTemplate", "parameters"] as const;
+const SKILL_FIELDS = ["name", "description", "promptTemplate", "parameters", "checks"] as const;
 
 // ── comparing ────────────────────────────────────────────────────────────────
 
@@ -180,7 +180,7 @@ export async function applySeed(seed: Seed, opts: ApplyOptions = {}): Promise<Ap
 
   // ── the skills
   for (const s of seed.skills) {
-    const codeSkill = Object.fromEntries(SKILL_FIELDS.map((f) => [f, s[f] ?? (f === "parameters" ? [] : "")]));
+    const codeSkill = Object.fromEntries(SKILL_FIELDS.map((f) => [f, s[f] ?? (f === "parameters" || f === "checks" ? [] : "")]));
     const found = await getSkill(s.slug);
     if (found && found.agentId !== agent.id) {
       // Slugs are global because they become tool names. Not fatal to the

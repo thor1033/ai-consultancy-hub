@@ -13,6 +13,7 @@ import {
   type SkillParameter,
   cleanChecks,
   checkProblem,
+  WEB_SERVER,
   type SkillCheck,
 } from "@ai-hub/db";
 import { authorize, type Action, type Principal } from "@ai-hub/authz";
@@ -106,6 +107,39 @@ export async function saveAgentAs(
         return { error: `Only an admin can let an agent write through "${name}" without approval.` };
       }
       entry.writes = "allow";
+    }
+    // The web's bounds (docs/web.md): sites, as hostnames; counts, 1–50.
+    // Anything else on the entry is dropped, so the row never carries a
+    // setting the run would not read.
+    if (name === WEB_SERVER) {
+      const w = e as { only?: unknown; never?: unknown; searches?: unknown; fetches?: unknown; search?: unknown; fetch?: unknown };
+      const sites = (raw: unknown, what: string): string[] | { error: string } => {
+        if (raw === undefined) return [];
+        if (!Array.isArray(raw)) return { error: `"${name}": ${what} must be a list of sites.` };
+        const out: string[] = [];
+        for (const s of raw as unknown[]) {
+          if (typeof s !== "string" || !s.trim()) continue;
+          const host = s.trim().toLowerCase().replace(/^https?:\/\//, "").replace(/\/.*$/, "");
+          if (!/^[a-z0-9.-]+\.[a-z]{2,}$/.test(host)) return { error: `"${s.trim()}" is not a site name (e.g. example.com).` };
+          if (!out.includes(host)) out.push(host);
+        }
+        return out.slice(0, 64);
+      };
+      const only = sites(w.only, "the sites it may read");
+      if ("error" in only) return only;
+      const never = sites(w.never, "the sites it may never read");
+      if ("error" in never) return never;
+      if (only.length && never.length) return { error: `"${name}": give the sites it may read, or the sites it may never read, not both.` };
+      if (only.length) entry.only = only;
+      if (never.length) entry.never = never;
+      for (const k of ["searches", "fetches"] as const) {
+        const n = w[k];
+        if (n === undefined || n === null || n === "") continue;
+        if (!Number.isFinite(Number(n)) || Number(n) < 1 || Number(n) > 50) return { error: `"${name}": ${k} per run must be a number from 1 to 50.` };
+        entry[k] = Math.trunc(Number(n));
+      }
+      if (w.search === false) entry.search = false;
+      if (w.fetch === false) entry.fetch = false;
     }
     // Whom it may ask: slugs of agents that exist, never itself. Checked here
     // because the list is read at run time to build the ask tool; a slug that

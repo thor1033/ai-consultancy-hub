@@ -442,6 +442,7 @@ try {
   signIn(PEOPLE.admin, "standard");
   const adminStd = await render(agentPage, slugProps);
   check("someone who may manage sees a Tests button on the skill", /\bTests\b/.test(adminStd));
+  check("the Settings tab offers The web among the tool servers, with its cost in words", /The web/.test(adminStd) && /Every search is billed/.test(adminStd));
   check("and a Download SKILL.md link", /Download SKILL\.md/.test(adminStd));
   // The download itself (docs/skill-import.md, "Export"): the same door as the skill's page.
   const { GET: downloadSkill } = await import("./src/app/agents/[slug]/skills/[skill]/SKILL.md/route.ts");

@@ -11,6 +11,7 @@ import {
   totalTokens,
 } from "./models";
 import type { RunAgentInput, RunAgentResult, RunTimeline, TurnTiming } from "./types";
+import { webTools, webUseIn, WEB_SEARCH_TOOL, WEB_FETCH_TOOL, WEB_SEARCH_USD } from "./web";
 
 /**
  * "Today is Thursday 22 October 2026, 21:40 (Europe/Copenhagen)." in the
@@ -143,7 +144,11 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   ];
 
   // Client-side tools + executor supplied by the caller (e.g. the MCP layer).
-  const tools: Anthropic.Tool[] = input.tools ?? [];
+  // The caller's tools, then the web as the API's own server tools when the
+  // run is allowed it (web.ts): the model searches and reads inside the
+  // request, and the results come back in the same response.
+  const tools: Anthropic.ToolUnion[] = [...(input.tools ?? []), ...(input.web ? webTools(model, input.web) : [])];
+  const webUsed = { searches: 0, fetches: 0 };
   const toolExecutor = input.toolExecutor;
 
   const trace = langfuse?.trace({
@@ -282,6 +287,16 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
       .map((b) => b.text)
       .join("");
     if (turnText) finalText = turnText;
+    // Server tool calls are inside the response, not asked of us: counted,
+    // so the run page and the cost say the web was read, and how much.
+    const web = webUseIn(response.content);
+    if (web.searches || web.fetches) {
+      turn.web = web;
+      webUsed.searches += web.searches;
+      webUsed.fetches += web.fetches;
+      if (web.searches && !toolsUsed.includes(WEB_SEARCH_TOOL)) toolsUsed.push(WEB_SEARCH_TOOL);
+      if (web.fetches && !toolsUsed.includes(WEB_FETCH_TOOL)) toolsUsed.push(WEB_FETCH_TOOL);
+    }
 
     gen?.end({
       output: traceValue(turnText),
@@ -304,6 +319,11 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     // follow-up request can continue the conversation correctly.
     messages.push({ role: "assistant", content: response.content });
 
+    // The API's own loop over server tools stops after so many steps and asks
+    // to be resumed: the same messages again, nothing added (the trailing
+    // server_tool_use says where it was). It counts as a round here, so a
+    // run that searches without end still hits the cap.
+    if (response.stop_reason === "pause_turn") continue;
     if (response.stop_reason !== "tool_use") break;
 
     const toolUses = response.content.filter(
@@ -388,7 +408,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
   }
 
   const latencyMs = Date.now() - started;
-  const cost = costUsd(model, usage);
+  const cost = costUsd(model, usage) + webUsed.searches * WEB_SEARCH_USD;
 
   trace?.update({
     output: traceValue(finalText),
@@ -404,6 +424,7 @@ export async function runAgent(input: RunAgentInput): Promise<RunAgentResult> {
     maxIterations,
     exhausted,
     ...(cleared.results ? { cleared } : {}),
+    ...(webUsed.searches || webUsed.fetches ? { web: webUsed } : {}),
     usage: { ...usage, totalTokens: totalTokens(usage) },
     costUsd: cost,
     latencyMs,

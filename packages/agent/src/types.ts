@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ModelId } from "./models";
+import type { WebAccess } from "./web";
 
 export interface RunAgentInput {
   /** The user's request for this turn (MVP: a single text message). */
@@ -41,6 +42,8 @@ export interface RunAgentInput {
    * reread a 40 KB result from turn 2. Undefined ⇒ nothing is cleared.
    */
   clearToolResultsAfter?: number;
+  /** Let the run search the web and read pages, through the Claude API's own tools (docs/web.md). */
+  web?: WebAccess;
   /**
    * False: send nothing to Langfuse for this run — not even its shape. For a
    * run that touched special-category material (docs/sensitivity.md), whose
@@ -59,6 +62,8 @@ export interface RunAgentResult {
   maxIterations: number;
   /** Old tool results cleared from the prompt during the run (clearToolResultsAfter), and how much text that was. */
   cleared?: { results: number; chars: number };
+  /** The web reading the run did, when it was allowed any (docs/web.md). Searches are billed beyond tokens. */
+  web?: { searches: number; fetches: number };
   /**
    * True when the run stopped because it hit `maxIterations` with the model
    * still asking for tools — i.e. the task was not finished. `text` carries a
@@ -141,6 +146,8 @@ export interface TurnTiming {
    * before that.
    */
   toolsWallMs?: number;
+  /** Searches and page fetches the model made inside this call, when the run had the web. */
+  web?: { searches: number; fetches: number };
   /** Time writing tool calls' arguments. */
   toolInputMs: number;
   /** The whole model call. */

@@ -1,4 +1,4 @@
-import { runAgent, type ModelId, type RunAgentResult } from "@ai-hub/agent";
+import { runAgent, modelProvider, type ModelId, type RunAgentResult } from "@ai-hub/agent";
 import type { McpEntry } from "@ai-hub/db";
 import {
   connectMcpServers,
@@ -14,7 +14,7 @@ import {
   type McpServerConfig,
   type MemoryServerReach,
 } from "@ai-hub/mcp";
-import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames, ASK_SERVER, setRunSensitivity, runSensitivity, highestSensitivity, type Sensitivity, type CheckResult } from "@ai-hub/db";
+import { recordSession, finishRun, appendRunOutput, disabledMcpServerNames, ASK_SERVER, WEB_SERVER, webOptionsFrom, setRunSensitivity, runSensitivity, highestSensitivity, type Sensitivity, type CheckResult } from "@ai-hub/db";
 import { syncSource, TEAMS_NOTES_COLLECTION } from "@ai-hub/rag";
 import { gate } from "@/lib/approvals";
 import { askExecutor, askTool, ASK_TOOL, type Asks } from "@/lib/askAgents";
@@ -34,7 +34,20 @@ const LOCAL_SERVERS = BUILTIN_SERVER_NAMES;
  * a constant.
  */
 export function knownServers(): string[] {
-  return [...LOCAL_SERVERS, ASK_SERVER, ...remoteServerNames()];
+  return [...LOCAL_SERVERS, ASK_SERVER, WEB_SERVER, ...remoteServerNames()];
+}
+
+/**
+ * Why the web is not available on this deployment, or null (docs/web.md).
+ * Web search and fetch are the Claude API's own tools: on Bedrock or Vertex
+ * the hub says so rather than let an agent answer from training data as if
+ * it had looked.
+ */
+export function webProblem(env: NodeJS.ProcessEnv = process.env): string | null {
+  const p = modelProvider(env);
+  if ("error" in p) return p.error;
+  if (p.provider !== "anthropic") return `web search and fetch are the Claude API's own tools, and this deployment's model provider is ${p.provider}`;
+  return null;
 }
 
 export function isKnownServer(name: string): boolean {
@@ -61,6 +74,12 @@ export function unavailableServers(names: readonly string[], disabled: Set<strin
   const out: UnavailableServer[] = [];
   for (const name of names) {
     if (!name || name === "memory" || name === ASK_SERVER) continue;
+    if (name === WEB_SERVER) {
+      const problem = webProblem();
+      if (problem) out.push({ name, reason: problem });
+      else if (disabled.has(name)) out.push({ name, reason: "switched off on /mcp" });
+      continue;
+    }
     if (!isKnownServer(name)) {
       // A connection added on the page that exists but cannot be opened says
       // so, rather than reading as a name nobody declared.
@@ -114,8 +133,8 @@ export function resolveServer(
   memory?: MemoryServerReach,
 ): McpServerConfig | null {
   if (name === "memory") return agentId ? memoryServerConfig(agentId, memory) : null;
-  // Not a process: the ask tool is built in runSession from the entry's list.
-  if (name === ASK_SERVER) return null;
+  // Not processes: the ask tool and the web are built in runSession from the entry.
+  if (name === ASK_SERVER || name === WEB_SERVER) return null;
   return builtinServerConfig(name, builtinOptionsFrom(entry)) ?? remoteServerConfig(name, { bearer: remoteBearer });
 }
 
@@ -263,6 +282,13 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
   const held = new Set<string>();
   // Set by the gate (or below, for an ask) once the run reads outside content.
   const outside: { from: string | null } = { from: null };
+  // The web (docs/web.md): the entry, and whether this deployment has it. A
+  // run that may read the web has read outside content from its first turn
+  // for the gate's purposes — a page can carry instructions, and the hub
+  // cannot see the reads happen (they are inside the API) — so its memory
+  // writes are held for a person throughout.
+  const webEntry = servers.includes(WEB_SERVER) && !webProblem() ? (input.serverEntries?.find((e) => entryName(e) === WEB_SERVER) ?? { name: WEB_SERVER }) : null;
+  if (webEntry) outside.from = "the web";
   // Whose memory this run may load, and where what it remembers goes.
   const memoryReach = servers.includes("memory")
     ? input.principal
@@ -277,6 +303,7 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
         continues: Boolean(input.history?.length),
       })
     : undefined;
+  if (webEntry && memory) narrowToPersonal(memory, "it may read the web");
   try {
     const entryFor = (name: string) => input.serverEntries?.find((e) => entryName(e) === name);
     const configs = servers
@@ -345,6 +372,8 @@ export async function runSession(input: RunSessionInput): Promise<RunSessionOutp
       // so a coordinator's three asks take as long as the slowest. Writes,
       // held or not, stay one at a time, in the model's order.
       parallelSafe: (name) => (ask && name === ASK_TOOL) || Boolean(gated?.parallelSafe(name)),
+      // The Claude API's own search and fetch, when the agent has the web.
+      ...(webEntry ? { web: webOptionsFrom(webEntry) } : {}),
       // Special material is not traced at all, not even its shape.
       trace: !special(),
       metadata: input.agentId
