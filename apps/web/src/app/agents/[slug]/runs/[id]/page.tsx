@@ -1,18 +1,26 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { getAgent, getRunTiming, listChildRuns } from "@ai-hub/db";
+import { getAgent, getRunTiming, getRunTranscript, listChildRuns, retentionPolicy, type RunTranscript } from "@ai-hub/db";
 import type { RunTimeline, TurnTiming } from "@ai-hub/agent";
 import { money } from "@/lib/format";
 import { sessionCan, sessionPrincipal } from "@/lib/sessionPrincipal";
+import { viewContext } from "@/lib/viewServer";
 import { PART_STYLE, count, duration, isTimeline, readTimeline, type Part } from "@/lib/runTiming";
 import { hiddenPromptLabel, privateRun } from "@/lib/runPrivacy";
+import { SaveCaseButton } from "../../SaveCaseButton";
 
 export const dynamic = "force-dynamic";
 
 // One run: where its time went. Visible to whoever can see the run in the
 // agent's list, because it shows no more than that list does — the prompt's
-// first line, numbers, and tool names. The answer and the transcript are not
-// here on purpose.
+// first line, numbers, and tool names.
+//
+// What was said — the transcript — is the exception, and a narrow one
+// (docs/effective-agents-review.md, E2): every Anthropic post on agents ends
+// with "read the transcripts", and the hub stored them and let nobody look.
+// It is shown to the run's own person and to admins, in the Expert view,
+// while retention keeps it (docs/retention.md), as stored — masked, and empty
+// for a run that touched special-category material (docs/sensitivity.md).
 
 export default async function RunPage({ params }: { params: Promise<{ slug: string; id: string }> }) {
   const { slug, id } = await params;
@@ -22,8 +30,16 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
   if (!found || found.agentId !== agent.id) notFound();
   // Other people's prompts are not shown (lib/runPrivacy.ts): the timing is,
   // since it says how the run went and nothing of what it was about.
-  const [me, admin] = await Promise.all([sessionPrincipal(), sessionCan("admin:manage")]);
+  const [me, admin, ctx] = await Promise.all([sessionPrincipal(), sessionCan("admin:manage"), viewContext()]);
   const run = privateRun(found, { id: me?.id ?? null, admin: Boolean(admin) });
+  // The transcript: the run's own person or an admin, in Expert, never a guess.
+  const mayRead = ctx.view === "expert" && Boolean(me) && (Boolean(admin) || (found.principalId !== null && found.principalId === me?.id));
+  const said = mayRead ? await getRunTranscript(run.id) : null;
+  // "What went wrong" ends here (docs/effective-agents-review.md, E3): the
+  // run's own person, with a skill run, can keep it as a test case and go
+  // straight to the brief. Managing is checked again by the action.
+  const own = Boolean(me) && found.principalId !== null && found.principalId === me?.id;
+  const mayKeep = own && Boolean(found.skillId) && Boolean(await sessionCan("agent:manage"));
 
   const timeline = isTimeline(run.timeline) ? run.timeline : null;
   const reading = timeline ? readTimeline(timeline, run.latencyMs) : null;
@@ -60,6 +76,17 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
           <Fact label="Model · effort" value={[run.model, run.effort].filter(Boolean).join(" · ") || "default"} />
           <Fact label="Started" value={new Date(run.at).toLocaleString("en-GB", { dateStyle: "medium", timeStyle: "short" })} />
         </dl>
+        {own && (mayKeep || !mayRead) && (
+          <p className="mt-4 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+            {mayKeep && <SaveCaseButton runId={run.id} />}
+            {mayKeep && (
+              <Link href={`/agents/${agent.slug}#settings`} className="underline underline-offset-2 hover:text-[var(--brand-ink)]">
+                Edit the brief
+              </Link>
+            )}
+            {!mayRead && <span className="text-[var(--muted)]">The transcript is shown in the Expert view.</span>}
+          </p>
+        )}
         {run.status === "failed" && run.error && <p className="mt-3 max-w-3xl text-sm text-[var(--danger)]">{run.error}</p>}
         {(parent || children.length > 0) && (
           <ul className="mt-4 flex flex-col gap-1 text-sm">
@@ -142,6 +169,8 @@ export default async function RunPage({ params }: { params: Promise<{ slug: stri
               ))}
             </ol>
           </section>
+
+          {said && <Said run={said} days={retentionPolicy().transcriptsDays} />}
 
           <section className="panel mt-6 p-5 md:p-6">
             <div className="eyebrow">What the first request carried</div>
@@ -263,4 +292,82 @@ function firstLine(prompt: string): string {
 
 function inTokens(t: NonNullable<Awaited<ReturnType<typeof getRunTiming>>>["tokens"]): number {
   return (t?.inputTokens ?? 0) + (t?.cacheReadTokens ?? 0) + (t?.cacheCreationTokens ?? 0);
+}
+
+// The transcript, turn by turn, as stored (docs/effective-agents-review.md,
+// E2). Plain text throughout: what the model wrote, what it asked each tool,
+// what came back. Long tool results are cut to a first page with the size
+// said, since "read the transcript" means reading the decisions, not every
+// byte of a document a tool returned. Thinking is not stored with content
+// and is not shown.
+
+const PAGE = 2000;
+
+type Block = { type?: string; text?: string; name?: string; input?: unknown; content?: unknown; tool_use_id?: string };
+type Message = { role?: string; content?: string | Block[] };
+
+function Said({ run, days }: { run: RunTranscript; days: number }) {
+  const messages = Array.isArray(run.transcript) ? (run.transcript as Message[]) : [];
+  return (
+    <section className="panel mt-6 p-5 md:p-6">
+      <div className="flex flex-wrap items-baseline justify-between gap-2">
+        <div className="eyebrow">What was said</div>
+        <span className="text-xs text-[var(--muted)]">Only you and admins can read this, for {days} days after the run.</span>
+      </div>
+      {run.sensitivity === "special" ? (
+        <p className="mt-3 max-w-2xl text-sm text-[var(--muted)]">Not kept: this run touched special-category material, so no record of the conversation is stored.</p>
+      ) : run.transcriptDroppedAt || messages.length === 0 ? (
+        <p className="mt-3 max-w-2xl text-sm text-[var(--muted)]">The record of this conversation was removed after the hub&apos;s retention period. The numbers above stay.</p>
+      ) : (
+        <ol className="mt-3 flex flex-col">
+          {messages.map((m, i) => (
+            <li key={i} className="border-t border-[var(--border)] py-3">
+              <div className="text-xs font-medium uppercase tracking-[0.14em] text-[var(--muted)]">{m.role === "assistant" ? "Agent" : i === 0 ? "Request" : "Tools"}</div>
+              <div className="mt-1.5 flex flex-col gap-2">{blocksOf(m).map((b, j) => <BlockView key={j} block={b} />)}</div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </section>
+  );
+}
+
+function blocksOf(m: Message): Block[] {
+  if (typeof m.content === "string") return [{ type: "text", text: m.content }];
+  return Array.isArray(m.content) ? m.content : [];
+}
+
+function BlockView({ block }: { block: Block }) {
+  if (block.type === "text") return <p className="whitespace-pre-wrap text-sm">{page(block.text ?? "")}</p>;
+  if (block.type === "tool_use") {
+    return (
+      <div className="inset p-3 text-xs">
+        <div>
+          Called <span className="mono font-medium">{block.name}</span>
+        </div>
+        <pre className="mono mt-1 whitespace-pre-wrap">{page(JSON.stringify(block.input ?? {}, null, 1))}</pre>
+      </div>
+    );
+  }
+  if (block.type === "tool_result") {
+    const body = resultText(block.content);
+    return (
+      <div className="inset p-3 text-xs">
+        <div className="text-[var(--muted)]">Returned</div>
+        <pre className="mono mt-1 whitespace-pre-wrap">{page(body)}</pre>
+      </div>
+    );
+  }
+  // Thinking blocks hold no content as stored; anything else is not shown.
+  return null;
+}
+
+function resultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.map((c) => (typeof c === "string" ? c : typeof (c as Block)?.text === "string" ? (c as Block).text : "")).join("\n");
+  return "";
+}
+
+function page(s: string): string {
+  return s.length > PAGE ? `${s.slice(0, PAGE)}\n… ${(s.length - PAGE).toLocaleString("en-GB")} more characters` : s;
 }

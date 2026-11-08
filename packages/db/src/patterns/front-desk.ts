@@ -1,4 +1,4 @@
-import type { Pattern } from "./index";
+import { CHEAPER_MODEL, type Pattern } from "./index";
 
 /*
  * One door — the front desk.
@@ -16,6 +16,7 @@ export const FRONT_DESK: Pattern = {
   nickname: "Front desk",
   summary:
     "One agent people ask, which routes each question to the one specialist it is for and returns the answer with the specialist's name on it.",
+  question: "Should people be able to ask one place without knowing which agent their question is for?",
   when: [
     "People should not have to know which agent to ask.",
     "The areas are distinct enough that a question belongs to one of them.",
@@ -69,8 +70,9 @@ ${roster}
 
 1. memory_list: who asked about what before, and what nobody covers.
 2. Decide which ONE specialist the question is for. Pass it on with
-   agents_ask: the question as asked, plus the context the asker gave
-   (copied in — the specialist sees nothing else).
+   agents_ask: objective (the question as asked), context (what the asker
+   said, copied in — the specialist sees nothing else), format (an answer
+   the asker can use as it is).
    - If it is plainly for two specialists, ask both, each their part, and say
      in the answer which answered which.
    - If it is about this desk itself (what can you do, who is there), answer
@@ -81,6 +83,13 @@ ${roster}
    it. If they said something was missing, say so and what.
 4. memory_write what helps you route next time: a kind of question that
    belongs to an area it did not look like, and who tends to ask about what.
+
+## How many asks
+
+Almost every question is one ask, to the one specialist it is for. Only a
+question that plainly spans two areas is two asks, each its part. Before you ask,
+say in one line which specialists you will ask and why; then ask exactly
+those. Asking everyone "to be safe" is slow and buries the answer.
 
 ## Rules
 
@@ -102,6 +111,7 @@ ${roster}
         description: `The ${s.name} specialist of {{instance}}: ${s.text}.`,
         keepsMemory: true,
         maxIterations: 12,
+        model: CHEAPER_MODEL,
         instructions: `You are the ${s.name} specialist of "{{instance}}". Your area:
 ${s.text}
 

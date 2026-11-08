@@ -146,6 +146,12 @@ export interface GateContext {
    * the memory server's own default (the run's person, else shared).
    */
   memory?: RunMemoryScope;
+  /**
+   * A trial of a test case (docs/skill-tests.md): nothing it does may
+   * outlast it. Every write is held whatever the entry allows, and memory
+   * writes are refused outright — a trial must not teach the agent anything.
+   */
+  trial?: boolean;
 }
 
 /** The argument the gate sets on memory_write; never the model's. */
@@ -161,6 +167,9 @@ export const MEMORY_PLACE_ARG = "__place";
  */
 export const MEMORY_WRITE_TOOLS: ReadonlySet<string> = new Set(["memory_write", "memory_set_active", "memory_forget"]);
 
+/** The memory server's reads; it marks none of its tools, so they are known by name. */
+export const MEMORY_READ_TOOLS: ReadonlySet<string> = new Set(["memory_list", "memory_search"]);
+
 /** Tools that write a memory's content: refused when it carries an identifier. */
 const REMEMBERING_TOOLS: ReadonlySet<string> = new Set(["memory_write", "knowledge_remember_for"]);
 
@@ -171,10 +180,22 @@ const REMEMBERING_TOOLS: ReadonlySet<string> = new Set(["memory_write", "knowled
  * whose calls will be held carries the reason line in its schema — the two
  * halves agree because they are decided by the same `needsApproval`.
  */
-export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; execute: ConnectedMcp["execute"] } {
+export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; execute: ConnectedMcp["execute"]; parallelSafe: (name: string) => boolean } {
   const byName = new Map(mcp.details.map((t) => [t.name, t]));
   const entryFor = (server: string) => ctx.entries?.find((e) => entryName(e) === server);
-  const isHeld = (tool: McpToolInfo | undefined) => Boolean(tool && needsApproval(tool, entryFor(tool.server)));
+  // In a trial the entry's "writes allowed" does not apply: no entry, so the default, ask.
+  const isHeld = (tool: McpToolInfo | undefined) => Boolean(tool && needsApproval(tool, ctx.trial ? undefined : entryFor(tool.server)));
+  // Calls the loop may run side by side when the model makes several in one
+  // turn (docs/effective-agents-review.md, C2): a read the server marks
+  // read-only, or one of the memory server's reads, which carry no
+  // annotations. A write is never one, held or not: a held one becomes a
+  // proposal, an allowed one changes something, and order can matter to both.
+  const parallelSafe = (name: string) => {
+    const tool = byName.get(name);
+    if (!tool || isHeld(tool)) return false;
+    if (tool.server === "memory") return MEMORY_READ_TOOLS.has(tool.name);
+    return isReadOnlyTool(tool);
+  };
 
   const tools = mcp.tools.map((t) => {
     const detail = byName.get(t.name);
@@ -188,6 +209,9 @@ export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; e
   const execute: ConnectedMcp["execute"] = async (name, rawInput) => {
     const tool = byName.get(name);
     let input = rawInput;
+    if (tool?.server === "memory" && ctx.trial && MEMORY_WRITE_TOOLS.has(tool.name)) {
+      return "Not remembered: this is a test run, and nothing from a test run is kept.";
+    }
     if (tool?.server === "memory") {
       // Whatever the model put there is dropped; the hub's place goes in.
       const rest = { ...((rawInput ?? {}) as Record<string, unknown>) };
@@ -225,7 +249,7 @@ export function gate(mcp: ConnectedMcp, ctx: GateContext): { tools: ToolDef[]; e
     }
     return out;
   };
-  return { tools, execute };
+  return { tools, execute, parallelSafe };
 }
 
 function withoutPlaceArg(t: ToolDef): ToolDef {

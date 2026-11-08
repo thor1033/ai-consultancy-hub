@@ -58,7 +58,7 @@ function check(label, ok, detail = "") {
 // `pace` slows the stream down by kind — before the first block, inside a
 // thinking block, inside a text block — so the timeline's split can be checked
 // against delays the fixture chose.
-const plan = { calls: 0, answerOn: Infinity, textEachTurn: false, thinkOnly: false, thinkFirst: false, pace: null, requests: [] };
+const plan = { calls: 0, answerOn: Infinity, textEachTurn: false, thinkOnly: false, thinkFirst: false, pace: null, requests: [], fan: null, web: null };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /**
@@ -101,6 +101,11 @@ async function writeStream(res, blocks, stopReason) {
       for (const piece of halves(JSON.stringify(block.input))) {
         send({ type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: piece } });
       }
+    } else if (block.type === "server_tool_use") {
+      send({ type: "content_block_start", index, content_block: { type: "server_tool_use", id: block.id, name: block.name, input: {} } });
+      send({ type: "content_block_delta", index, delta: { type: "input_json_delta", partial_json: JSON.stringify(block.input) } });
+    } else if (block.type === "web_search_tool_result") {
+      send({ type: "content_block_start", index, content_block: { type: "web_search_tool_result", tool_use_id: block.tool_use_id, content: block.content } });
     } else if (block.type === "thinking") {
       send({ type: "content_block_start", index, content_block: { type: "thinking", thinking: "", signature: "" } });
       send({ type: "content_block_delta", index, delta: { type: "thinking_delta", thinking: block.thinking } });
@@ -111,7 +116,7 @@ async function writeStream(res, blocks, stopReason) {
     send({ type: "content_block_stop", index });
   }
 
-  send({ type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 20 } });
+  send({ type: "message_delta", delta: { stop_reason: stopReason, stop_sequence: null }, usage: { output_tokens: 20, ...(plan.web ? { server_tool_use: { web_search_requests: 1 } } : {}) } });
   send({ type: "message_stop" });
   res.end();
 }
@@ -125,7 +130,17 @@ const http = createServer(async (req, res) => {
   const answering = plan.calls >= plan.answerOn;
   const blocks = [];
   let stopReason;
-  if (plan.thinkOnly) {
+  if (plan.web) {
+    // The web scenario: the API searched inside the request (server_tool_use
+    // + web_search_tool_result), paused once, then answered with a citation.
+    blocks.push({ type: "server_tool_use", id: `st_${plan.calls}`, name: "web_search", input: { query: "competitors" } });
+    blocks.push({ type: "web_search_tool_result", tool_use_id: `st_${plan.calls}`, content: [{ type: "web_search_result", url: "https://example.com/a", title: "A", encrypted_content: "x", page_age: null }] });
+    if (plan.calls === 1) stopReason = "pause_turn";
+    else {
+      blocks.push({ type: "text", text: "Two competitors, per https://example.com/a." });
+      stopReason = "end_turn";
+    }
+  } else if (plan.thinkOnly) {
     // The whole budget spent reasoning over a large tool result: a thinking
     // block, no text, and the API's own verdict that the output limit was hit.
     blocks.push({ type: "thinking", thinking: "Reading a 94KB project state against the transcript…" });
@@ -136,12 +151,15 @@ const http = createServer(async (req, res) => {
     stopReason = "end_turn";
   } else {
     if (plan.textEachTurn) blocks.push({ type: "text", text: `Checking the calendar (round ${plan.calls})…` });
-    blocks.push({
-      type: "tool_use",
-      id: `tu_${plan.calls}`,
-      name: "probe",
-      input: { round: plan.calls, note: "assembled from two partial-JSON deltas" },
-    });
+    // `fan` names several tools asked for in one turn (the parallel scenario).
+    for (const [i, name] of (plan.fan ?? ["probe"]).entries()) {
+      blocks.push({
+        type: "tool_use",
+        id: plan.fan ? `tu_${plan.calls}_${i}` : `tu_${plan.calls}`,
+        name,
+        input: { round: plan.calls, note: "assembled from two partial-JSON deltas" },
+      });
+    }
     stopReason = "tool_use";
   }
   writeStream(res, blocks, stopReason);
@@ -161,6 +179,7 @@ const TOOLS = [
 
 let toolCalls = 0;
 let lastToolInput = null;
+let toolOrder = [];
 /** Runs one scenario with a fresh fixture state. */
 async function run({
   answerOn = Infinity,
@@ -172,7 +191,14 @@ async function run({
   pace = null,
   toolMs = 0,
   tools = TOOLS,
+  parallelSafe,
+  fan = null,
+  clearToolResultsAfter,
+  web = null,
+  prompt = "What is on tomorrow?",
 } = {}) {
+  plan.web = web;
+  plan.fan = fan;
   plan.thinkFirst = thinkFirst;
   plan.pace = pace;
   plan.calls = 0;
@@ -182,15 +208,20 @@ async function run({
   plan.requests = [];
   toolCalls = 0;
   lastToolInput = null;
+  toolOrder = [];
   const result = await runAgent({
-    prompt: "What is on tomorrow?",
+    prompt,
     tools,
-    toolExecutor: async (_name, input) => {
+    toolExecutor: async (name, input) => {
       toolCalls++;
       lastToolInput = input;
       if (toolMs) await sleep(toolMs);
+      toolOrder.push(name);
       return "two events";
     },
+    ...(parallelSafe ? { parallelSafe } : {}),
+    ...(clearToolResultsAfter ? { clearToolResultsAfter } : {}),
+    ...(web ? { web } : {}),
     ...(maxIterations === undefined ? {} : { maxIterations }),
     ...(maxTokens === undefined ? {} : { maxTokens }),
   });
@@ -322,6 +353,62 @@ try {
     plan.calls === 14 && generous.exhausted === false,
     `${plan.calls} model calls`,
   );
+
+  // ── several tools in one turn ────────────────────────────────────────────
+  // The model asks for three tools at once, each taking ~300ms. The ones the
+  // caller marks parallel-safe run side by side; the rest one at a time,
+  // after them; and the results go back in the model's order whatever
+  // finished first (the API requires every tool_use answered, in order).
+  const FAN = ["read_a", "read_b", "write_c"];
+  const fanTools = FAN.map((name) => ({ name, description: name, input_schema: { type: "object", properties: {} } }));
+  const serialFan = await run({ answerOn: 2, fan: FAN, tools: fanTools, toolMs: 300 });
+  const serialWall = serialFan.timeline.turns[0].toolsWallMs;
+  check("without parallelSafe, three 300ms tools take three times as long, in the model's order", serialWall >= 850 && toolOrder.join() === FAN.join(), `${serialWall}ms, ran ${toolOrder.join(" ")}`);
+  const parallelFan = await run({ answerOn: 2, fan: FAN, tools: fanTools, toolMs: 300, parallelSafe: (name) => name.startsWith("read_") });
+  const parallelWall = parallelFan.timeline.turns[0].toolsWallMs;
+  check("with the two reads parallel-safe, the turn's tools take about two tools' time, not three", parallelWall >= 550 && parallelWall < 850, `${parallelWall}ms`);
+  check("the write ran after the reads, on its own", toolOrder[2] === "write_c" && toolOrder.slice(0, 2).sort().join() === "read_a,read_b", toolOrder.join(" "));
+  const answered = plan.requests[1]?.messages.at(-1)?.content;
+  check("the results went back in the model's order, one per call", Array.isArray(answered) && answered.map((b) => b.tool_use_id).join() === "tu_1_0,tu_1_1,tu_1_2" && answered.every((b) => b.type === "tool_result"), JSON.stringify(answered?.map((b) => b.tool_use_id)));
+  check("the timeline charges the turn the wall time, not the sum", parallelFan.timeline.toolMs < 850 && parallelFan.timeline.turns[0].tools.length === 3, `${parallelFan.timeline.toolMs}ms over ${parallelFan.timeline.turns[0].tools.length} calls`);
+  check("the turn's tools each carry their own time", parallelFan.timeline.turns[0].tools.every((t) => t.ms >= 250 && t.ms < 600), JSON.stringify(parallelFan.timeline.turns[0].tools.map((t) => t.ms)));
+
+  // ── clearing old tool results ────────────────────────────────────────────
+  // Five turns of tools, clearing results older than two turns: by the fifth
+  // call the first two results are a line each, the last two are whole, and
+  // the model is told what was there. Nothing is cleared when the setting is
+  // off, and the stored transcript carries the cleared lines, as sent.
+  const { CLEARED_MARK } = await import("./src/runAgent.ts");
+  const kept = await run({ answerOn: 5 });
+  const keptLast = plan.requests[4].messages.filter((m) => m.role === "user" && Array.isArray(m.content));
+  check("with no setting, every tool result stays whole in every call", keptLast.length === 4 && keptLast.every((m) => m.content[0].content === "two events") && !kept.cleared);
+  const trimmed = await run({ answerOn: 5, clearToolResultsAfter: 2 });
+  const results = plan.requests[4].messages.filter((m) => m.role === "user" && Array.isArray(m.content)).map((m) => m.content[0].content);
+  check("clearing after two turns: by the fifth call the two oldest results are a line each, the two newest are whole", results.length === 4 && results.slice(0, 2).every((c) => c.startsWith(CLEARED_MARK)) && results.slice(2).every((c) => c === "two events"), JSON.stringify(results.map((c) => c.slice(0, 40))));
+  check("the line says how much was there and that the tool can be called again", /10 characters, cleared from the conversation.*Call the tool again/.test(results[0]), results[0]);
+  check("the third call, with two results so far, cleared nothing yet; the fourth cleared the first", plan.requests[2].messages.filter((m) => m.role === "user" && Array.isArray(m.content)).every((m) => m.content[0].content === "two events") && plan.requests[3].messages.filter((m) => m.role === "user" && Array.isArray(m.content))[0].content[0].content.startsWith(CLEARED_MARK));
+  check("the result counts what was cleared, once each", trimmed.cleared?.results === 2 && trimmed.cleared.chars === 20, JSON.stringify(trimmed.cleared));
+  check("the tool_use ids are untouched, so the API still pairs each result with its call", plan.requests[4].messages.filter((m) => m.role === "user" && Array.isArray(m.content)).every((m, i) => m.content[0].tool_use_id === `tu_${i + 1}`));
+
+  // ── the web ──────────────────────────────────────────────────────────────
+  // The run is allowed the web: the request carries the API's own search and
+  // fetch tools with the bounds asked for; the API searches inside the
+  // request and pauses once; the loop resumes it with nothing added, counts
+  // the searches, names the tools as used and charges them.
+  const { webTools, cleanDomains, WEB_SEARCH_USD } = await import("./src/web.ts");
+  const webbed = await run({ web: { maxSearches: 5, allowedDomains: ["Example.com", "https://g2.com/x", "not a site"] }, tools: [] });
+  const sent = plan.requests[0]?.tools ?? [];
+  check("with the web, the request carries the API's search and fetch tools and no client tool", sent.length === 2 && sent[0].type === "web_search_20260209" && sent[0].name === "web_search" && sent[1].type === "web_fetch_20260209", JSON.stringify(sent.map((t) => t.type)));
+  check("with the bounds asked for: five searches, the sites cleaned to hostnames, junk dropped", sent[0].max_uses === 5 && JSON.stringify(sent[0].allowed_domains) === '["example.com","g2.com"]' && JSON.stringify(sent[1].allowed_domains) === '["example.com","g2.com"]', JSON.stringify(sent[0]));
+  check("a paused turn is resumed as is: two calls, the second with the first's content appended and no new user message", plan.calls === 2 && plan.requests[1].messages.length === 2 && plan.requests[1].messages[1].role === "assistant" && plan.requests[1].messages[1].content.some((b) => b.type === "server_tool_use"), `${plan.calls} calls, ${plan.requests[1]?.messages.length} messages`);
+  check("the answer is the text, and the run is not exhausted", webbed.text === "Two competitors, per https://example.com/a." && webbed.exhausted === false && webbed.stopReason === "end_turn");
+  check("the searches are counted, per turn and for the run, and the tools named as used", webbed.web?.searches === 2 && webbed.web.fetches === 0 && webbed.timeline.turns[0].web?.searches === 1 && webbed.toolsUsed.join() === "web_search", JSON.stringify(webbed.web));
+  check("and charged beyond the tokens", webbed.costUsd >= 2 * WEB_SEARCH_USD && webbed.costUsd < 2 * WEB_SEARCH_USD + 0.01, String(webbed.costUsd));
+  check("an older model gets the basic search only, no fetch", webTools("claude-haiku-4-5", {}).map((t) => t.type).join() === "web_search_20250305");
+  check("search off leaves fetch; fetch off leaves search; both lists given, only wins", webTools("claude-opus-4-8", { search: false }).map((t) => t.name).join() === "web_fetch" && webTools("claude-opus-4-8", { fetch: false }).map((t) => t.name).join() === "web_search" && !("blocked_domains" in webTools("claude-opus-4-8", { allowedDomains: ["a.com"], blockedDomains: ["b.com"] })[0]));
+  check("cleanDomains keeps hostnames only", JSON.stringify(cleanDomains(["A.com", "https://b.org/path", "localhost", "", "c.dk"])) === '["a.com","b.org","c.dk"]' && cleanDomains(undefined) === undefined && cleanDomains(["nope"]) === undefined);
+  const dry = await run({ answerOn: 1 });
+  check("without the web, nothing is sent and nothing counted", !plan.requests[0].tools?.some((t) => /web/.test(t.type)) && !dry.web);
 
   // ── clamping ─────────────────────────────────────────────────────────────
   // The row is editable, so the runtime — not the form — has to hold the line.

@@ -30,10 +30,13 @@ what it was, by whom and when.
 
 Two things are never touched: **a run still running and a pending proposal.**
 
-The transcript window is short on purpose. Nothing a person reads uses the
-transcript; it is there for debugging and for the Context Steward, which reads
-recent conversations. After 7 days the Steward reads the question and answer
-instead.
+The transcript window is short on purpose. It is there for debugging, for the
+Context Steward, which reads recent conversations, and for the run's own
+person: in the Expert view, a run's page shows what was said — the request,
+each tool call and what it returned, the answer — to the person whose run it
+is and to admins, while the window lasts (docs/effective-agents-review.md,
+E2). After 7 days the page says the record was removed, and the Steward
+reads the question and answer instead.
 
 ## The clean-up
 
@@ -53,6 +56,12 @@ It runs where the scheduler runs (`HUB_SCHEDULER=1`).
 A sweep applies to the whole database, as it should. **Backups** are a
 separate matter: Neon's point-in-time restore keeps old states for the
 project's restore window, so set that window to match what you promise.
+
+Test cases on a skill (`skill_cases`, [skill-tests.md](skill-tests.md)) are
+kept on purpose: a case saved from a run is that run's request, chosen as a
+test fixture, the skill's and not the person's. Trial sets (`skill_trials`)
+hold check details, costs and run ids, never an answer. Erasing a person
+removes the sets they started and their name from the cases they wrote.
 
 ## A person's rights
 

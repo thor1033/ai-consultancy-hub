@@ -1,5 +1,6 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ModelId } from "./models";
+import type { WebAccess } from "./web";
 
 export interface RunAgentInput {
   /** The user's request for this turn (MVP: a single text message). */
@@ -24,8 +25,25 @@ export interface RunAgentInput {
   tools?: Anthropic.Tool[];
   /** Executes a tool call by name and returns its text result. */
   toolExecutor?: (name: string, input: unknown) => Promise<string>;
+  /**
+   * Which tool calls may run at the same time as each other within one turn
+   * (docs/effective-agents-review.md, C2): reads, and asks of other agents.
+   * Everything else runs one after another, after them, in the model's order.
+   * Absent ⇒ everything in order, as before.
+   */
+  parallelSafe?: (name: string) => boolean;
   /** Arbitrary metadata attached to the Langfuse trace (e.g. skillId, tenantId). */
   metadata?: Record<string, unknown>;
+  /**
+   * Clear tool results older than this many tool turns (docs/agents.md,
+   * "Long runs"): their text is replaced by a line saying what was there
+   * and that the tool can be called again. The lightest compaction in
+   * Anthropic's context-engineering advice: a run's N-th turn need not
+   * reread a 40 KB result from turn 2. Undefined ⇒ nothing is cleared.
+   */
+  clearToolResultsAfter?: number;
+  /** Let the run search the web and read pages, through the Claude API's own tools (docs/web.md). */
+  web?: WebAccess;
   /**
    * False: send nothing to Langfuse for this run — not even its shape. For a
    * run that touched special-category material (docs/sensitivity.md), whose
@@ -42,6 +60,10 @@ export interface RunAgentResult {
   iterations: number;
   /** The cap this run actually ran under, after clamping. */
   maxIterations: number;
+  /** Old tool results cleared from the prompt during the run (clearToolResultsAfter), and how much text that was. */
+  cleared?: { results: number; chars: number };
+  /** The web reading the run did, when it was allowed any (docs/web.md). Searches are billed beyond tokens. */
+  web?: { searches: number; fetches: number };
   /**
    * True when the run stopped because it hit `maxIterations` with the model
    * still asking for tools — i.e. the task was not finished. `text` carries a
@@ -118,6 +140,14 @@ export interface TurnTiming {
   thinkingMs: number;
   /** Time writing text. */
   writingMs: number;
+  /**
+   * Wall-clock time of this turn's tool calls together. Less than the sum
+   * of each tool's `ms` when some ran at the same time; absent on runs from
+   * before that.
+   */
+  toolsWallMs?: number;
+  /** Searches and page fetches the model made inside this call, when the run had the web. */
+  web?: { searches: number; fetches: number };
   /** Time writing tool calls' arguments. */
   toolInputMs: number;
   /** The whole model call. */

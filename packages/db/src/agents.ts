@@ -14,6 +14,40 @@ import type { ImportSource } from "./skillmd";
 export type McpEntry = Record<string, unknown>;
 
 /**
+ * The web, as an entry on an agent (docs/web.md): no process, the Claude
+ * API's own search and fetch tools, built in runSession from the entry.
+ *   {"name":"web"}                                    search and read, the defaults
+ *   {"name":"web","only":["acme.com"],"searches":12}  only these sites, up to 12 searches
+ *   {"name":"web","never":["example.org"],"fetch":false}
+ */
+export const WEB_SERVER = "web";
+
+export interface WebEntryOptions {
+  search?: boolean;
+  fetch?: boolean;
+  maxSearches?: number;
+  maxFetches?: number;
+  allowedDomains?: string[];
+  blockedDomains?: string[];
+}
+
+/** What a web entry asks for; junk is ignored, so a mistake on the row narrows nothing and widens nothing. */
+export function webOptionsFrom(entry: unknown): WebEntryOptions {
+  if (!entry || typeof entry !== "object") return {};
+  const e = entry as Record<string, unknown>;
+  const list = (v: unknown) => (Array.isArray(v) ? v.filter((d): d is string => typeof d === "string" && d.trim() !== "").map((d) => d.trim()) : undefined);
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 1 ? Math.trunc(v) : undefined);
+  return {
+    ...(e.search === false ? { search: false } : {}),
+    ...(e.fetch === false ? { fetch: false } : {}),
+    ...(num(e.searches) !== undefined ? { maxSearches: num(e.searches) } : {}),
+    ...(num(e.fetches) !== undefined ? { maxFetches: num(e.fetches) } : {}),
+    ...(list(e.only)?.length ? { allowedDomains: list(e.only) } : {}),
+    ...(list(e.never)?.length ? { blockedDomains: list(e.never) } : {}),
+  };
+}
+
+/**
  * Where an agent runs: on the hub's runtime, in a Claude Code session as a
  * synced sub-agent, or both. See docs/local-agents.md.
  */
@@ -68,6 +102,8 @@ export interface Agent extends AgentSummary {
   knowledgeAll: boolean;
   /** Rounds of tool use one run may take. Null ⇒ the runtime default. */
   maxIterations: number | null;
+  /** Clear tool results older than this many turns from a run's prompt. Null ⇒ never (docs/agents.md, "Long runs"). */
+  clearToolResultsAfter: number | null;
   /**
    * Whether it keeps memory between runs. False is for a worker meant to start
    * clean every time (the goldfish of docs/agent-patterns.md): no memory
@@ -202,6 +238,7 @@ export interface AgentInput {
   knowledgeCollections?: string[];
   knowledgeAll?: boolean;
   maxIterations?: number | null;
+  clearToolResultsAfter?: number | null;
   enabled?: boolean;
   placement?: Placement;
   functionName?: string;
@@ -217,6 +254,7 @@ const AGENT_COLUMNS = `
   id, slug, name, description, instructions, model, effort,
   mcp_servers as "mcpServers", knowledge_collections as "knowledgeCollections",
   knowledge_all as "knowledgeAll", max_iterations as "maxIterations",
+  clear_tool_results_after as "clearToolResultsAfter",
   enabled, placement, function_name as "functionName", owner,
   keeps_memory as "keepsMemory", pattern, source,
   created_at as "createdAt", updated_at as "updatedAt"
@@ -258,12 +296,13 @@ export async function createAgent(input: AgentInput): Promise<Agent> {
   const rows = await sql<Agent[]>`
     insert into agents (slug, name, description, instructions, model, effort,
                         mcp_servers, knowledge_collections, knowledge_all, max_iterations,
+                        clear_tool_results_after,
                         enabled, placement, function_name, owner, keeps_memory, pattern, source)
     values (${input.slug}, ${input.name}, ${input.description ?? ""},
             ${input.instructions ?? ""}, ${input.model ?? null}, ${input.effort ?? null},
             ${sql.json((input.mcpServers ?? []) as Parameters<typeof sql.json>[0])},
             ${cleanNames(input.knowledgeCollections)}::text[], ${input.knowledgeAll ?? false},
-            ${input.maxIterations ?? null}, ${input.enabled ?? true}, ${input.placement ?? "hub"},
+            ${input.maxIterations ?? null}, ${input.clearToolResultsAfter ?? null}, ${input.enabled ?? true}, ${input.placement ?? "hub"},
             ${(input.functionName ?? "").trim()}, ${(input.owner ?? "").trim()},
             ${input.keepsMemory ?? true}, ${sql.json((input.pattern ?? null) as never)},
             ${sql.json((input.source ?? null) as never)})
@@ -303,6 +342,7 @@ export async function updateAgent(
       knowledge_collections = ${cleanNames(next.knowledgeCollections)}::text[],
       knowledge_all = ${next.knowledgeAll ?? false},
       max_iterations = ${next.maxIterations ?? null},
+      clear_tool_results_after = ${next.clearToolResultsAfter ?? null},
       enabled = ${next.enabled ?? true},
       placement = ${next.placement ?? "hub"},
       function_name = ${(next.functionName ?? "").trim()},

@@ -37,11 +37,11 @@ export default async function NewAgentPage() {
         {expert ? (
           <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
             Give it a name, a brief and the tools it may use. It starts remembering from its first conversation, and
-            every connected client can call it the moment it is saved. Hiring several that work together?{" "}
-            <Link href="/agents/patterns" className="text-[var(--text)] underline underline-offset-2">
-              Start from a pattern
-            </Link>
-            . Found a brief or a SKILL.md on GitHub?{" "}
+            every connected client can call it the moment it is saved. One agent is right for most jobs; when it is not,{" "}
+            <Link href="/agents/choose" className="text-[var(--text)] underline underline-offset-2">
+              which shape?
+            </Link>{" "}
+            names the pattern. Found a brief or a SKILL.md on GitHub?{" "}
             <Link href="/agents/import" className="text-[var(--text)] underline underline-offset-2">
               Import it
             </Link>
@@ -52,12 +52,12 @@ export default async function NewAgentPage() {
             <p className="mt-2 max-w-2xl text-sm text-[var(--muted)]">
               Fill in what it is called and what it should do, in plain words. It remembers what it learns from its first conversation.
             </p>
-            {/* The quickest start for most people is a ready-made team; say so before the blank form. */}
-            <Link href="/agents/patterns" className="panel panel-hover mt-4 flex max-w-2xl items-center justify-between gap-4 p-4">
+            {/* One agent is right for most jobs (docs/effective-agents-review.md, A1); the chooser says when it is not. */}
+            <Link href="/agents/choose" className="panel panel-hover mt-4 flex max-w-2xl items-center justify-between gap-4 p-4">
               <span>
-                <span className="block font-bold">Not sure where to start? Use a ready-made team</span>
+                <span className="block font-bold">Not sure one agent is enough?</span>
                 <span className="block text-sm text-[var(--muted)]">
-                  A few agents already set up to work together — you only give them names and say what they are for.
+                  Six questions, in plain words. Most jobs stop at the first; the rest point to a ready-made team.
                 </span>
               </span>
               <span aria-hidden className="text-[var(--muted)]">→</span>
@@ -84,6 +84,7 @@ export default async function NewAgentPage() {
             knowledge: "none",
             knowledgeCollections: [],
             maxIterations: "",
+            clearToolResultsAfter: "",
             servers: [],
             enabled: true,
             placement: "hub",
@@ -93,6 +94,8 @@ export default async function NewAgentPage() {
             writesAllowed: [],
             keepsMemory: true,
             asks: [],
+            webOnly: "",
+            webSearches: "",
           }}
           agents={agents.map((a) => ({ slug: a.slug, name: a.name, description: a.description }))}
           functions={orgLabels.functions}

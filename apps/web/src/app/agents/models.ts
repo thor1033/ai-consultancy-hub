@@ -1,9 +1,9 @@
 // The models an agent can be pinned to. Empty id means the runtime default.
 export const MODELS = [
   { id: "", label: "Default", note: "Whatever the hub runs by default" },
-  { id: "claude-opus-4-8", label: "Opus", note: "Most capable; slower and costlier" },
-  { id: "claude-sonnet-4-6", label: "Sonnet", note: "Balanced" },
-  { id: "claude-haiku-4-5", label: "Haiku", note: "Fast and cheap" },
+  { id: "claude-opus-4-8", label: "Opus", note: "Most capable; slower and costlier. For an agent that plans, delegates or reconciles" },
+  { id: "claude-sonnet-4-6", label: "Sonnet", note: "Balanced. Right for a worker, a specialist, a stage or a reviewer — a ready-made team puts those here" },
+  { id: "claude-haiku-4-5", label: "Haiku", note: "Fast and cheap. For a bounded job with a short answer" },
 ];
 
 // Bundled servers that take a per-agent mailbox. Mirrors MAILBOX_SERVER_NAMES
@@ -19,6 +19,17 @@ export const serverMailboxes = (entries: unknown): Record<string, string> => {
     const mailbox = (e as { mailbox?: unknown })?.mailbox;
     if (typeof name === "string" && typeof mailbox === "string" && mailbox.trim()) out[name] = mailbox.trim();
   }
+  return out;
+};
+
+/** The web entry's bounds, as the form holds them (docs/web.md): sites one per line, searches per run as text. */
+export const webEntryValues = (entries: unknown): { webOnly: string; webSearches: string } => {
+  const out = { webOnly: "", webSearches: "" };
+  if (!Array.isArray(entries)) return out;
+  const e = entries.find((x) => (x as { name?: unknown })?.name === "web") as { only?: unknown; searches?: unknown } | undefined;
+  if (!e) return out;
+  if (Array.isArray(e.only)) out.webOnly = e.only.filter((s) => typeof s === "string").join("\n");
+  if (typeof e.searches === "number") out.webSearches = String(e.searches);
   return out;
 };
 

@@ -738,3 +738,54 @@ create table if not exists source_syncs (
   summary      text not null default '',
   error        text
 );
+
+-- Checks on a skill (docs/effective-agents-review.md, D1): what a good answer
+-- must pass, written by whoever owns the skill, and run by the hub on the
+-- answer before the run is recorded. [{ "kind": "mentions" | "avoids" |
+-- "maxWords" | "writes" | "judge", "value": "…", "tool": "pm_create_task" }].
+-- The verdicts are stored on the run beside the answer, so "Your answers" can
+-- say what passed; they hold the check and a line about it, never the answer.
+alter table agent_skills add column if not exists checks jsonb not null default '[]'::jsonb;
+alter table agent_sessions add column if not exists checks jsonb;
+
+-- Test cases on a skill and the trial sets that ran them
+-- (docs/skill-tests.md, docs/effective-agents-review.md E1). A case is the
+-- skill's, not a person's: a colleague's failure becomes everyone's test. A
+-- trial set is one comparison of setups (variants) over the cases, k times
+-- each, with the brief as it was, so a later set shows what a change did.
+create table if not exists skill_cases (
+  id          uuid primary key default gen_random_uuid(),
+  skill_id    uuid not null references agent_skills(id) on delete cascade,
+  name        text not null,
+  args        jsonb not null default '{}'::jsonb,
+  prompt      text,
+  checks      jsonb not null default '[]'::jsonb,
+  reference   text,
+  from_run_id uuid,
+  created_by  text,
+  created_at  timestamptz not null default now(),
+  updated_at  timestamptz not null default now()
+);
+create index if not exists skill_cases_skill_idx on skill_cases (skill_id, created_at);
+
+create table if not exists skill_trials (
+  id           uuid primary key default gen_random_uuid(),
+  skill_id     uuid not null references agent_skills(id) on delete cascade,
+  label        text not null default '',
+  principal_id text,
+  variants     jsonb not null default '[]'::jsonb,
+  k            int  not null default 1,
+  setup_hash   text,
+  status       text not null default 'running',
+  error        text,
+  results      jsonb,
+  summary      jsonb,
+  started_at   timestamptz not null default now(),
+  finished_at  timestamptz
+);
+create index if not exists skill_trials_skill_idx on skill_trials (skill_id, started_at desc);
+
+alter table agent_sessions add column if not exists trial_id uuid;
+
+-- Long runs: clear tool results older than this many turns (docs/agents.md, "Long runs"). Null ⇒ never.
+alter table agents add column if not exists clear_tool_results_after int;

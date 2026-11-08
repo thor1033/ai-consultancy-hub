@@ -122,6 +122,10 @@ question with no answer yet, and anything knowledge_find already returns.
   should have been.
 - **knowledge_retire_document** when a filed document is wrong or superseded
   and you can point at what replaced it.
+- **knowledge_set_aside** when a memory an agent reads before every answer
+  is about work that is finished, paused or superseded: a closed engagement,
+  a decision since replaced, a deadline long past. It stays searchable; it
+  stops being loaded. Say in the reason what makes it finished.
 - Every proposal carries its **source** (the chat, the note, the agent) and a
   **reason** written for the reviewer: one or two sentences saying what this
   is and why it should be kept. The reviewer decides from the reason and the

@@ -6,7 +6,9 @@
   "main": "./src/index.ts",
   "types": "./src/index.ts",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./checks": "./src/checks.ts",
+    "./trials": "./src/trialScore.ts"
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
@@ -17,7 +19,8 @@
     "seed:product-owner": "node --experimental-transform-types seed-product-owner.mjs",
     "seed:project-manager": "node --experimental-transform-types seed-project-manager.mjs",
     "seed:context-steward": "node --experimental-transform-types seed-context-steward.mjs",
-    "seeds:check": "node --experimental-transform-types seed-secretary.mjs --check && node --experimental-transform-types seed-project-manager.mjs --check && node --experimental-transform-types seed-product-owner.mjs --product hub --check && node --experimental-transform-types seed-product-owner.mjs --product atlas --check && node --experimental-transform-types seed-context-steward.mjs --check",
+    "seed:market-scout": "node --experimental-transform-types seed-market-scout.mjs",
+    "seeds:check": "node --experimental-transform-types seed-secretary.mjs --check && node --experimental-transform-types seed-project-manager.mjs --check && node --experimental-transform-types seed-product-owner.mjs --product hub --check && node --experimental-transform-types seed-product-owner.mjs --product atlas --check && node --experimental-transform-types seed-context-steward.mjs --check && node --experimental-transform-types seed-market-scout.mjs --check",
     "seeds:apply": "node --experimental-transform-types release-seeds.mjs",
     "verify:seeds": "node --experimental-transform-types verify-seeds.mjs",
     "verify:patterns": "node --experimental-transform-types --env-file=../../apps/web/.env.local verify-patterns.mjs"

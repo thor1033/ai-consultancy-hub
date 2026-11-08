@@ -56,7 +56,7 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
-const { parseAgentFile, githubTarget, rawUrl, licenseFromText, skillTemplateFrom, HUB_RULES_ADDENDUM } = await import("../../packages/db/src/skillmd.ts");
+const { parseAgentFile, githubTarget, rawUrl, licenseFromText, skillTemplateFrom, skillToSkillMd, HUB_RULES_ADDENDUM } = await import("../../packages/db/src/skillmd.ts");
 const { fetchAgentFile, MAX_FILE_BYTES } = await import("./src/lib/importAgentFile.ts");
 const db = await import("../../packages/db/src/index.ts");
 const sql = db.getSql();
@@ -178,6 +178,15 @@ try {
   check("and fills as a skill does: the instructions, then the request", !("error" in filled) && filled.prompt.startsWith("# Brand review") && /The request:\nCheck the deck\.$/.test(filled.prompt));
   const listed = (await db.listSkills(host.id)).find((s) => s.id === skill.id);
   check("the skills list carries the source for the page", listed?.source?.url === "https://github.com/acme/skills/tree/main/skills/brand");
+  // ── export: a skill written back as a SKILL.md (docs/skill-import.md, "Export") ──
+  const out = skillToSkillMd(
+    { slug: "weekly-update", name: "Weekly update", description: "Draft the weekly\n  update.", promptTemplate: "Write the update for {{client}} covering {{week}}.", parameters: [{ name: "client", description: "Who", required: true }, { name: "week", description: "Which", required: false, options: ["W38", "W39"] }], checks: [{ kind: "maxWords", value: "400" }, { kind: "writes", value: "0", tool: "pm_create_task" }, { kind: "judge", value: "1. Names the client.\n2. Ends with a decision." }] },
+    { name: "Delivery lead", slug: "delivery-lead" },
+  );
+  const readBack = parseAgentFile(out);
+  check("a skill exports as a SKILL.md the hub's own parser reads back: name, description on one line, the prompt as the body's start", readBack.name === "weekly-update" && readBack.description === "Draft the weekly update." && readBack.body.startsWith("# Weekly update\n\nWrite the update for {{client}} covering {{week}}.") && !readBack.bare, JSON.stringify({ name: readBack.name, description: readBack.description }));
+  check("with the parameters and checks as sections a person can read", /## Parameters[\s\S]*`client` \(required\): Who[\s\S]*`week` \(optional, one of W38, W39\): Which/.test(out) && /## Checks on every answer[\s\S]*At most this many words: 400[\s\S]*Proposes this many changes of pm_create_task: 0[\s\S]*Meets this standard:\n  1\. Names the client\.\n  2\. Ends with a decision\./.test(out), out);
+  check("and names the agent that carries it out, as metadata and a closing line", /hub-agent: delivery-lead/.test(out) && /Delivery lead carries it out/.test(out));
   const roster = (await db.agentRoster()).find((a) => a.id === agent.id);
   check("a hand-made agent and the roster are unaffected: source is null where nothing was imported", (await db.getAgent(host.id)).source === null && Boolean(roster));
 } finally {

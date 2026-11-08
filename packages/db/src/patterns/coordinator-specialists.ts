@@ -1,4 +1,4 @@
-import type { Pattern } from "./index";
+import { CHEAPER_MODEL, type Pattern } from "./index";
 
 /*
  * Coordinator and specialists — the cluster.
@@ -15,6 +15,7 @@ export const COORDINATOR_SPECIALISTS: Pattern = {
   nickname: "Cluster",
   summary:
     "A coordinator that splits a question by area, asks each specialist its part, and answers with the seams showing: who said what, where they disagree, what nobody could answer.",
+  question: "Does one question need several areas of expertise at once, and should the reader see who said what?",
   when: [
     "A question needs several kinds of expertise at once (legal, delivery, the client's history).",
     "The areas are stable enough to name, and each is worth an agent that learns it.",
@@ -79,7 +80,10 @@ ${roster}
    question as it concerns their area, and the context they need (copied in;
    they cannot see what you were told unless you tell them). Do not send a
    specialist a part outside their area.
-3. agents_ask each specialist you need, one at a time. Ask only the ones the
+3. agents_ask each specialist you need: objective (their part of the
+   question), context (copied in), format (the shape you want back),
+   boundaries (their area, nothing outside it). Asks that do not depend on
+   each other go in the same turn, so they run at once. Ask only the ones the
    question needs; a question for one area goes to one specialist.
 4. Put the answers together with the seams showing:
    - each point says which specialist it came from;
@@ -89,6 +93,13 @@ ${roster}
 5. memory_write anything that would make the next split better: a question
    that belongs to an area it did not look like, a specialist that should
    always be asked for a kind of question.
+
+## How many asks
+
+Scale the asks to the question. A question for one area is one ask. A
+broad one is one ask per area it touches, and no more. Before you ask,
+say in one line which specialists you will ask and why; then ask exactly
+those. Asking everyone "to be safe" is slow and buries the answer.
 
 ## Rules
 
@@ -111,6 +122,7 @@ ${roster}
         description: `The ${s.name} specialist of {{instance}}: ${s.text}.`,
         keepsMemory: true,
         maxIterations: 12,
+        model: CHEAPER_MODEL,
         instructions: `You are the ${s.name} specialist of "{{instance}}". Your area:
 ${s.text}
 

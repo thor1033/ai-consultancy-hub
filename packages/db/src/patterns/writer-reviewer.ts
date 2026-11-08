@@ -1,4 +1,4 @@
-import type { Pattern } from "./index";
+import { CHEAPER_MODEL, type Pattern } from "./index";
 
 /*
  * Writer and reviewer — the critic loop.
@@ -16,6 +16,7 @@ export const WRITER_REVIEWER: Pattern = {
   nickname: "Critic loop",
   summary:
     "A writer drafts, a reviewer judges the draft against a written standard and names what fails, the writer revises — up to three rounds — and delivers with the verdict attached.",
+  question: "Is there a standard the answer must meet that you can write down as a checklist?",
   when: [
     "The output has a standard you can write down (a checklist, a house style, a client's format).",
     "A second reading catches what the first writer cannot see in their own draft.",
@@ -68,8 +69,10 @@ ${v.standard}
 
 1. memory_list: what earlier reviews taught you.
 2. Draft the piece, from the facts you were given and your tools.
-3. agents_ask the Reviewer with the whole draft and the standard, both in
-   full. Ask for a verdict.
+3. agents_ask the Reviewer: objective "review this draft against the
+   standard", context the whole draft and the standard in full, format "a
+   verdict: APPROVED or NOT YET on the first line, then the numbered points
+   that fail".
 4. If the first line of the verdict is APPROVED, deliver.
    If it is NOT YET: revise exactly the numbered points it names — not the
    rest — and ask again. At most three rounds in all.
@@ -91,6 +94,7 @@ ${v.standard}
       description: "Judges a draft of {{work}} against the standard and names what fails. Never rewrites.",
       keepsMemory: false,
       maxIterations: 3,
+      model: CHEAPER_MODEL,
       instructions: `You are the Reviewer of "{{instance}}". You judge drafts of
 ${v.work} against a standard, and nothing else. You have no memory between
 reviews, on purpose: every draft gets the same reading.

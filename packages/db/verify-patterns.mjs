@@ -55,12 +55,14 @@ const EXAMPLES = {
   pipeline: { input: "A client's email", stages: "Extract: list every request\nCheck: say what the board has\nReply: draft the reply" },
   "writer-reviewer": { work: "Proposals, in Danish", standard: "1. Opens with the client's problem.\n2. Names a price." },
   "front-desk": { askers: "Colleagues in Teams", specialists: "IT: laptops and access\nHR: leave and expenses" },
+  "checklist-runner": { work: "Reviewing every supplier contract for the new terms.", done: "1. The clause is quoted.\n2. Marked compliant or not." },
+  "second-opinion": { job: "Whether to accept a contract change.", readers: "Cautious: worst case first\nCommercial: what it is worth\nClient's eyes: how they read it" },
 };
 
 // ── 1. the previews, pure ───────────────────────────────────────────────────
 console.log("— every pattern, previewed —");
-check("five patterns, each with a slug, a nickname, a diagram and decisions", patterns.PATTERNS.length === 5 && patterns.PATTERNS.every((p) => p.slug && p.nickname && p.diagram.includes("▶") && p.decisions.length >= 2 && p.when.length >= 2));
-check("their slugs are distinct", new Set(patterns.PATTERNS.map((p) => p.slug)).size === 5);
+check("seven patterns, each with a slug, a nickname, a diagram and decisions", patterns.PATTERNS.length === 7 && patterns.PATTERNS.every((p) => p.slug && p.nickname && p.diagram.includes("▶") && p.decisions.length >= 2 && p.when.length >= 2));
+check("their slugs are distinct", new Set(patterns.PATTERNS.map((p) => p.slug)).size === 7);
 const previews = {};
 for (const p of patterns.PATTERNS) {
   const pv = patterns.previewPattern(p, { instance: "Research & Insight", owner: "Thor Simonsen", functionName: "Delivery", ...EXAMPLES[p.slug] });
@@ -73,6 +75,12 @@ for (const p of patterns.PATTERNS) {
   check(`${p.nickname}: every agent carries the pattern tag with its role`, pv.agents.every((a) => a.pattern?.slug === p.slug && a.pattern.instance === "research-insight" && a.slug.endsWith(`-${a.pattern.role}`)));
   check(`${p.nickname}: owner and function land on every agent`, pv.agents.every((a) => a.owner === "Thor Simonsen" && a.functionName === "Delivery"));
 }
+check("every pattern carries the one question the chooser asks", patterns.PATTERNS.every((p) => /\?$/.test(p.question)));
+// Bounded roles run on the cheaper model; the roles that plan, delegate or reconcile stay on the default (docs/effective-agents-review.md, A3).
+const cheap = (pv, role) => pv.agents.find((a) => a.pattern.role === role)?.model;
+check("workers, specialists, stages and the reviewer are pinned to the cheaper model", cheap(previews["long-memory-short-hands"], "worker") === patterns.CHEAPER_MODEL && cheap(previews["coordinator-specialists"], "legal") === patterns.CHEAPER_MODEL && previews.pipeline.agents.every((a) => a.model === patterns.CHEAPER_MODEL) && cheap(previews["writer-reviewer"], "reviewer") === patterns.CHEAPER_MODEL && cheap(previews["front-desk"], "it") === patterns.CHEAPER_MODEL);
+check("the archivist, coordinator, writer and front desk stay on the deployment's default", [cheap(previews["long-memory-short-hands"], "archivist"), cheap(previews["coordinator-specialists"], "coordinator"), cheap(previews["writer-reviewer"], "writer"), cheap(previews["front-desk"], "front-desk")].every((m) => m === null));
+check("the coordinator and the front desk are told to scale their asks to the question", /How many asks/.test(previews["coordinator-specialists"].agents[0].instructions) && /one ask per area it touches/.test(previews["coordinator-specialists"].agents[0].instructions) && /Almost every question is one ask/.test(previews["front-desk"].agents[0].instructions));
 const lm = previews["long-memory-short-hands"];
 check("elephant & goldfish: the archivist remembers and reads everything; the worker neither", lm.agents.find((a) => a.slug.endsWith("-archivist")).keepsMemory === true && lm.agents.find((a) => a.slug.endsWith("-archivist")).knowledgeAll === true && lm.agents.find((a) => a.slug.endsWith("-worker")).keepsMemory === false && lm.agents.find((a) => a.slug.endsWith("-worker")).knowledgeAll === false);
 check("the archivist may ask the worker, and the worker may ask nobody", JSON.stringify(patterns.askedAgents(lm.agents[0].mcpServers)) === '["research-insight-worker"]' && patterns.askedAgents(lm.agents[1].mcpServers).length === 0);
@@ -93,6 +101,13 @@ check("critic loop: the writer remembers and asks the reviewer; the reviewer rem
 check("both briefs carry the standard; the writer's caps the rounds at three", /Names a price/.test(wr.agents[0].instructions) && /Names a price/.test(wr.agents[1].instructions) && /At most three rounds/.test(wr.agents[0].instructions) && /never rewrite/.test(wr.agents[1].instructions));
 const fd = previews["front-desk"];
 check("front desk: routes to ONE specialist and keeps a 'nobody-covers' memory", patterns.askedAgents(fd.agents[0].mcpServers).length === 2 && /which ONE specialist/.test(fd.agents[0].instructions) && fd.memories.some((m) => m.key === "nobody-covers"));
+const cr = previews["checklist-runner"];
+check("checklist runner: the runner remembers and asks the reviewer; the reviewer remembers nothing, on the cheaper model", cr.agents[0].keepsMemory && patterns.askedAgents(cr.agents[0].mcpServers).join() === "research-insight-reviewer" && !cr.agents[1].keepsMemory && cr.agents[1].model === patterns.CHEAPER_MODEL && cr.agents[0].model === null);
+check("the runner has a Plan skill with the goal and a Next skill with no blanks, and an induction memory", cr.skills.map((s) => s.slug).join() === "research-insight-runner-plan,research-insight-runner-next" && cr.skills[1].parameters.length === 0 && /\{\{goal\}\}/.test(cr.skills[0].promptTemplate) && cr.memories.some((m) => m.key === "how-i-work"));
+check("its brief does one item per run, never marks an item done itself, and carries what done means", /One item per run/.test(cr.agents[0].instructions) && /Never mark an item done on your own say-so/.test(cr.agents[0].instructions) && /The clause is quoted/.test(cr.agents[0].instructions) && /The clause is quoted/.test(cr.agents[1].instructions));
+const so = previews["second-opinion"];
+check("second opinion: an asker plus one reader per line; the asker asks all of them, the readers nobody", so.agents.length === 4 && patterns.askedAgents(so.agents[0].mcpServers).length === 3 && so.agents.slice(1).every((a) => patterns.askedAgents(a.mcpServers).length === 0 && !a.keepsMemory && a.model === patterns.CHEAPER_MODEL));
+check("the asker is told to ask every reader in the same turn, and each reader carries its stance", /EVERY reader in the SAME turn/.test(so.agents[0].instructions) && /worst case first/.test(so.agents[1].instructions) && /how they read it/.test(so.agents[3].instructions) && so.agents[3].slug === "research-insight-client-s-eyes");
 
 console.log("\n— previews that must refuse —");
 const noName = patterns.previewPattern(patterns.PATTERNS[0], { instance: "", domain: "x" });
@@ -115,7 +130,7 @@ try {
     made.push(out);
     cleanupSlugs.push(...out.agents.map((a) => a.id));
     const pv = patterns.previewPattern(p, values);
-    check(`${p.nickname}: creates every agent of its preview, with memory switch and tag`, out.agents.length === pv.agents.length && out.agents.every((a, i) => a.slug === pv.agents[i].slug && a.keepsMemory === pv.agents[i].keepsMemory && a.pattern?.role === pv.agents[i].pattern.role));
+    check(`${p.nickname}: creates every agent of its preview, with memory switch, model and tag`, out.agents.length === pv.agents.length && out.agents.every((a, i) => a.slug === pv.agents[i].slug && a.keepsMemory === pv.agents[i].keepsMemory && a.model === pv.agents[i].model && a.pattern?.role === pv.agents[i].pattern.role));
     const skills = (await Promise.all(out.agents.map((a) => db.listSkills(a.id)))).flat();
     check(`${p.nickname}: its skills and hand-offs are rows`, skills.length === pv.skills.length && out.handoffs.length === pv.handoffs.length, `${skills.length} skills, ${out.handoffs.length} hand-offs`);
     const again = await patterns.instantiatePattern(p, values).then(() => null, (e) => e.message);

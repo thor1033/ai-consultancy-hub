@@ -200,9 +200,9 @@ try {
   mcp = await connectMcpServers([builtinServerConfig("knowledge")]);
   const details = mcp.details;
   const names = details.map((t) => t.name).sort();
-  check("ten tools", names.length === 10, names.join(", "));
+  check("eleven tools", names.length === 11, names.join(", "));
   const reads = ["knowledge_recent_chats", "knowledge_chat_get", "knowledge_recent_notes", "knowledge_document_get", "knowledge_agent_memories", "knowledge_find", "knowledge_collections"];
-  const writes = ["knowledge_file_document", "knowledge_remember_for", "knowledge_retire_document"];
+  const writes = ["knowledge_file_document", "knowledge_remember_for", "knowledge_set_aside", "knowledge_retire_document"];
   check(
     "every read declares readOnlyHint: true, so the gate lets it through",
     reads.every((n) => details.find((t) => t.name === n)?.annotations?.readOnlyHint === true),
@@ -306,6 +306,17 @@ try {
   check("its own memory is refused here (memory_write is for that)", /Tool error/.test(selfMem) && /memory_write/.test(selfMem));
   const noAgent = await mcp.execute("knowledge_remember_for", { agentSlug: "no-such-agent", key: "x", content: "y", source: { kind: "memory", id: `verify-target-${RUN}` } });
   check("an unknown agent is refused", /Tool error/.test(noAgent) && /No agent/.test(noAgent));
+
+  // ── set aside ──────────────────────────────────────────────────────────────
+  const aside = parse(await mcp.execute("knowledge_set_aside", { agentSlug: `verify-target-${RUN}`, key: "standup-day" }));
+  const [afterAside] = await sql`select active from agent_memories where agent_id = ${targetId} and key = 'standup-day'`;
+  check("set_aside keeps the memory and stops it loading", aside.setAside === true && aside.already === false && afterAside.active === false);
+  const again = parse(await mcp.execute("knowledge_set_aside", { agentSlug: `verify-target-${RUN}`, key: "standup-day" }));
+  check("setting it aside again says it already is", again.already === true);
+  const selfAside = await mcp.execute("knowledge_set_aside", { agentSlug: "context-steward", key: "x" });
+  check("its own memory is refused here too", /Tool error/.test(selfAside) && /memory_set_active/.test(selfAside));
+  const noKey = await mcp.execute("knowledge_set_aside", { agentSlug: `verify-target-${RUN}`, key: "no-such-key" });
+  check("a key the agent has no shared memory under is refused", /Tool error/.test(noKey) && /no shared memory/.test(noKey));
 
   // ── retire ─────────────────────────────────────────────────────────────────
   const keepSynced = await mcp.execute("knowledge_retire_document", { documentId: synced });

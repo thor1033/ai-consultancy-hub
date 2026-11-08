@@ -75,6 +75,18 @@ apps/web/src/app/agents/import        the page, the form, previewImportAction / 
 agents.source · agent_skills.source   where a row came from (jsonb, null for everything hand-made)
 ```
 
+## Export
+
+The hub writes the standard back as well as reading it. **Download SKILL.md**
+on a skill (under Skills, for those who manage agents; the route
+`/agents/<slug>/skills/<skill>/SKILL.md`, for anyone who may run agents)
+gives the skill as a `SKILL.md`: the frontmatter's `name` and `description`,
+the prompt with its `{{blanks}}` as the body, then the parameters and the
+checks as sections a person or another hub can read, and the agent that
+carries it out as metadata. The hub's own parser reads it back
+(`verify:import`), so a skill built here can be given to another hub,
+another firm, or Claude Code directly (docs/effective-agents-review.md, G1).
+
 ## Verify
 
 ```bash

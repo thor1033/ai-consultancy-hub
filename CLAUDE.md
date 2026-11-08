@@ -20,7 +20,7 @@ npm-workspaces + Turborepo monorepo, TypeScript throughout:
   agents, `src/patterns/*`), hand-off rows and the SKILL.md parser live here too (docs/agent-patterns.md,
   docs/skill-import.md).
   Agents that live in code are seeded from `src/seeds/*` (`seed:secretary`, `seed:product-owner`,
-  `seed:project-manager`, `seed:context-steward`), listed in `src/seeds/all.ts`, and applied on every release
+  `seed:project-manager`, `seed:context-steward`, `seed:market-scout`), listed in `src/seeds/all.ts`, and applied on every release
   (`release.mjs`: migrate, then seeds — keeping what was changed on an agent's page).
 - `packages/rag` — ingest, chunking, Voyage embeddings, principal-aware retrieval.
 - `packages/authz` — bearer principals, OAuth, credentials, policy engine.
@@ -62,7 +62,7 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds`, `verify:patterns` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access`, `verify:sharepoint` (rag), `verify:credentials` (authz),
   `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing`,
-  `verify:import`, `verify:views`, `verify:design-tools`, `verify:connections`, `verify:data-protection`, `verify:memory-scopes`, `verify:retention`, `verify:sensitivity`, `verify:deployment` (web). verify:retention sweeps the whole
+  `verify:import`, `verify:views`, `verify:design-tools`, `verify:checks`, `verify:skill-tests`, `verify:web`, `verify:connections`, `verify:data-protection`, `verify:memory-scopes`, `verify:retention`, `verify:sensitivity`, `verify:deployment` (web). verify:retention sweeps the whole
   database by the default policy, as production does, and verify:sensitivity sweeps audit and read-log entries over a year old — run
   them on a development database.
 - `bench:prompt` (agent) calls the real model and spends money; it says how many calls first. See

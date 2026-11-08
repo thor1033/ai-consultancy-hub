@@ -28,6 +28,10 @@ export function MemoryPanel({
 }) {
   const loaded = memories.filter((m) => m.active);
   const aside = memories.filter((m) => !m.active);
+  // What the loaded memories cost: read before every answer, every run
+  // (docs/effective-agents-review.md, B3). Words, which anyone can picture.
+  const loadedWords = loaded.reduce((n, m) => n + `${m.key} ${m.content}`.trim().split(/\s+/).length, 0);
+  const heavy = loadedWords > 1500 || loaded.length > 20;
 
   if (memories.length === 0) {
     return (
@@ -42,6 +46,13 @@ export function MemoryPanel({
   }
 
   return (
+    <div className="flex flex-col gap-4">
+    <p className={`text-sm ${heavy ? "panel notice-warning p-3" : "text-[var(--muted)]"}`}>
+      {loaded.length === 0
+        ? "Nothing is loaded, so every run starts from the brief alone."
+        : `${loaded.length} ${loaded.length === 1 ? "memory is" : "memories are"} read before every answer — about ${loadedWords.toLocaleString("en-GB")} words, on every turn of every run.`}
+      {heavy && " That is a lot to carry. Set aside what is not in flight: the agent can still find it when it searches its memory."}
+    </p>
     <div className="grid gap-6 lg:grid-cols-2">
       <Column
         title="Loaded every run"
@@ -61,6 +72,7 @@ export function MemoryPanel({
         canShare={canShare}
         empty="Nothing set aside."
       />
+    </div>
     </div>
   );
 }

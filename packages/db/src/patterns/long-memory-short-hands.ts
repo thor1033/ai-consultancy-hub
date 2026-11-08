@@ -1,4 +1,4 @@
-import type { Pattern } from "./index";
+import { CHEAPER_MODEL, type Pattern } from "./index";
 
 /*
  * Long memory, short hands — the elephant and the goldfish.
@@ -18,6 +18,7 @@ export const LONG_MEMORY_SHORT_HANDS: Pattern = {
   nickname: "Elephant & goldfish",
   summary:
     "An archivist that remembers everything and briefs a worker that remembers nothing. The worker runs on a few hundred words, fast and cheap; the archivist decides what each job taught the firm.",
+  question: "Does the context for a recurring job keep growing, and must one job never colour the next?",
   when: [
     "The same kind of job comes up again and again, and the context for it has grown large.",
     "You want speed on the job and a long memory of the work, and one agent cannot give you both.",
@@ -87,7 +88,10 @@ What this pair works on:
    - what it must not do.
    Under 400 words. If you cannot say what the job needs in 400 words, the
    job is two jobs: split it, and brief each.
-3. agents_ask the Worker with the brief as the task. One ask per job.
+3. agents_ask the Worker: the job as the objective, the facts as the
+   context, the shape wanted as the format, what it must not do as the
+   boundaries. One ask per job; jobs that do not depend on each other go in
+   the same turn.
 4. Check the answer against what you know. If it contradicts a fact you have,
    say so in your reply rather than passing it on.
 5. memory_write what the job changed — a decision, a new fact about the
@@ -131,6 +135,7 @@ What this pair works on:
         knowledgeAll: false,
         servers,
         maxIterations: 8,
+        model: CHEAPER_MODEL,
         instructions: `You are the Worker of "{{instance}}". You start every job with nothing but
 the brief in front of you, on purpose: you have no memory and no knowledge
 base, and that is what makes you fast. The Archivist ({{name:archivist}})

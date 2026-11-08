@@ -66,6 +66,13 @@ everyone makes — a `{{placeholder}}` with no argument behind it — because th
 failure it causes is a literal `{{client}}` in something a client reads, which
 surfaces a long way from its cause.
 
+A skill can carry **checks** on its answer (docs/effective-agents-review.md,
+D1): a phrase it must or must not contain, a word limit, how many changes it
+should propose, or a standard a second model reads the answer against. The
+answer is delivered either way; the verdict comes with it — `checked:
+"Checked: 4 of 5 · missing a price"` and the checks not passed — so the
+calling model can say so instead of presenting the answer as checked.
+
 ## Large arguments
 
 A tool call is written out by the *calling* model, token by token, inside one

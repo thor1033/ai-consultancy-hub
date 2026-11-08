@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SkillParameter } from "@ai-hub/db";
 import { runSkillAction, runStatusAction, type SkillRunResult } from "@/app/agents/actions";
 import { Markdown } from "./Markdown";
+import { CheckVerdict } from "./CheckVerdict";
 
 // A skill as a short form: its arguments become fields, "Run" runs it as you,
 // and the answer appears beneath (docs/views.md). A long run is polled, and
@@ -141,6 +142,7 @@ export function SkillRunner({
             </button>
           </div>
           <Markdown>{result.output}</Markdown>
+          <CheckVerdict checks={result.checks} />
         </div>
       )}
     </div>

@@ -1,12 +1,15 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
 import type { Principal } from "@ai-hub/authz";
-import { ASK_SERVER, getAgent, listSkills, type McpEntry, type SkillParameter } from "@ai-hub/db";
+import { ASK_SERVER, CHECK_KINDS, CHECK_WORDS, getAgent, listSkills, listCases, createCase, deleteCase, getCase, getTrialSet, listTrialSets, summarizeTrials, type McpEntry, type SkillParameter, type SkillCheck, type CheckKind } from "@ai-hub/db";
+import { planTrials, startTrials, cleanVariants, currentSetupHash, MAX_TRIAL_RUNS } from "@/lib/skillTests";
 import { saveAgentAs, saveSkillAs } from "@/lib/agentDesign";
 import { knownServers } from "@/lib/runSession";
 import { resolveLargeArgs } from "@/lib/mcp/largeArgs";
 import { text } from "@/lib/mcp/memoryTools";
 import { MODELS } from "@/app/agents/models";
+import { briefHealth } from "@/app/agents/briefHealth";
+import { toolCatalog } from "@/app/agents/catalog";
 
 /*
  * Designing agents and skills from an MCP client (docs/agent-design-tools.md).
@@ -37,6 +40,12 @@ const parameterSchema = z.object({
   options: z.array(z.string()).optional().describe("When set, the value must be one of these."),
 });
 
+const checkSchema = z.object({
+  kind: z.enum(CHECK_KINDS as unknown as [CheckKind, ...CheckKind[]]).describe(CHECK_KINDS.map((k) => `${k}: ${CHECK_WORDS[k].label.toLowerCase()}`).join("; ")),
+  value: z.string().describe("The phrase, the number, or for judge the numbered points of the standard."),
+  tool: z.string().optional().describe("For writes: count only this tool's proposals."),
+});
+
 const agentFields = {
   description: z.string().optional().describe("One line: what this agent is for. Every connected client shows it in its tool list."),
   instructions: z
@@ -61,6 +70,7 @@ const agentFields = {
   function: z.string().optional().describe("Its column on the org chart, e.g. Delivery."),
   owner: z.string().optional().describe("The person it reports to, on the org chart."),
   maxIterations: z.number().int().optional().describe("Most tool rounds one run may take before it stops and says so."),
+  clearToolResultsAfter: z.number().int().optional().describe("For an agent working through a queue: clear tool results older than this many turns from the prompt, 1–50. Omit for never."),
   enabled: z.boolean().optional(),
 };
 
@@ -123,6 +133,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         function: a.functionName,
         owner: a.owner,
         maxIterations: a.maxIterations,
+        clearToolResultsAfter: a.clearToolResultsAfter,
         enabled: a.enabled,
         placement: a.placement,
         page: pageOf(a.slug),
@@ -132,6 +143,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
           description: s.description,
           prompt: s.promptTemplate,
           parameters: s.parameters,
+          ...(s.checks?.length ? { checks: s.checks } : {}),
           enabled: s.enabled,
         })),
       });
@@ -166,14 +178,17 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         functionName: args.function ?? "",
         owner: args.owner ?? "",
         maxIterations: args.maxIterations ?? null,
+        clearToolResultsAfter: args.clearToolResultsAfter ?? null,
         enabled: args.enabled ?? true,
       });
       if ("error" in out) return text(`Not created: ${out.error}`);
-      const dropped = droppedTools(args.tools, await getAgent(out.id));
+      const created = await getAgent(out.id);
+      const dropped = droppedTools(args.tools, created);
       return text(
         [
           `Created "${args.name}" (slug ${out.slug}).`,
           dropped.length ? `Left out, because this hub has no tool server by that name: ${dropped.join(", ")}.` : null,
+          await hintsFor(created),
           `Run it now with hub_run_agent (agent "${out.slug}"); its own hub_agent_* tool appears when your client reconnects.`,
           `Its page: ${pageOf(out.slug)}`,
         ]
@@ -214,15 +229,18 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         functionName: args.function ?? a.functionName,
         owner: args.owner ?? a.owner,
         maxIterations: args.maxIterations === undefined ? a.maxIterations : args.maxIterations,
+        clearToolResultsAfter: args.clearToolResultsAfter === undefined ? a.clearToolResultsAfter : args.clearToolResultsAfter,
         enabled: args.enabled ?? a.enabled,
         placement: a.placement,
       });
       if ("error" in out) return text(`Not changed: ${out.error}`);
+      const hints = await hintsFor(await getAgent(a.id));
       const dropped = droppedTools(args.tools, await getAgent(out.id));
       return text(
         [
           `Saved "${args.name ?? a.name}".`,
           dropped.length ? `Left out, because this hub has no tool server by that name: ${dropped.join(", ")}.` : null,
+          hints,
           `Its page: ${pageOf(out.slug)}`,
         ]
           .filter(Boolean)
@@ -236,7 +254,9 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
     {
       description:
         "Give an agent a skill: a named task with a prompt and the blanks a person fills in. It appears as a form with a Run " +
-        "button on the agent's page, and as a hub_skill_* tool in every connected client. The prompt refers to each parameter as {{name}}.",
+        "button on the agent's page, and as a hub_skill_* tool in every connected client. The prompt refers to each parameter as {{name}}. " +
+        "Checks are judged on every answer and shown with it: a phrase it must or must not contain, a word limit, how many changes it should propose, " +
+        "or a standard a second model reads the answer against.",
       inputSchema: {
         agent: z.string().min(1).describe("The slug of the agent that carries it out."),
         name: z.string().min(1).describe("What a person sees, e.g. \"Review a contract\"."),
@@ -244,6 +264,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         description: z.string().default("").describe("One line: what it produces."),
         prompt: z.string().min(1).describe("What the agent is asked to do, with {{parameter}} blanks. Long prompts go through hub_put_text first."),
         parameters: z.array(parameterSchema).default([]),
+        checks: z.array(checkSchema).default([]).describe("Checks on every answer (see the description)."),
       },
     },
     async (args) => {
@@ -259,6 +280,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         description: args.description,
         promptTemplate: String(big.args.prompt),
         parameters: args.parameters as SkillParameter[],
+        checks: args.checks as SkillCheck[],
       });
       if ("error" in out) return text(`Not created: ${out.error}`);
       return text(
@@ -272,7 +294,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
     "hub_skill_update",
     {
       description:
-        "Change one of an agent's skills. Only the fields you send change; parameters, when sent, replace the list. enabled: false hides it everywhere without deleting it.",
+        "Change one of an agent's skills. Only the fields you send change; parameters and checks, when sent, replace the list. enabled: false hides it everywhere without deleting it.",
       inputSchema: {
         agent: z.string().min(1).describe("The agent's slug."),
         skill: z.string().min(1).describe("The skill's slug."),
@@ -280,6 +302,7 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         description: z.string().optional(),
         prompt: z.string().min(1).optional(),
         parameters: z.array(parameterSchema).optional(),
+        checks: z.array(checkSchema).optional().describe("Checks on every answer, as in hub_skill_create. Replaces the list; [] removes them."),
         enabled: z.boolean().optional(),
       },
     },
@@ -298,12 +321,144 @@ export function registerDesignTools(server: McpServer, principal: Principal, bas
         description: args.description ?? current.description,
         promptTemplate: args.prompt === undefined ? current.promptTemplate : String(big.args.prompt),
         parameters: (args.parameters as SkillParameter[] | undefined) ?? current.parameters,
+        checks: (args.checks as SkillCheck[] | undefined) ?? current.checks,
         enabled: args.enabled,
       });
       if ("error" in out) return text(`Not changed: ${out.error}`);
       return text(`Saved "${out.saved.name}"${out.saved.enabled ? "" : " (switched off)"}.`);
     },
   );
+
+  // ── tests on a skill (docs/skill-tests.md) ───────────────────────────────
+  const skillOf = async (agentRef: string, skillRef: string) => {
+    const a = await getAgent(agentRef);
+    if (!a) return { error: `There is no agent "${agentRef}". hub_list_agents lists them.` };
+    const skill = (await listSkills(a.id)).find((s) => s.slug === skillRef || s.id === skillRef);
+    if (!skill) return { error: `${a.name} has no skill "${skillRef}". hub_agent_get lists its skills.` };
+    return { agent: a, skill };
+  };
+
+  server.registerTool(
+    "hub_skill_cases",
+    {
+      description:
+        "A skill's test cases: what it was asked and what a good answer passes (on top of the skill's own checks). " +
+        "List them, add one (the skill's arguments, or the exact request of a run that went wrong), or remove one. " +
+        "Five to ten cases from real failures are worth more than fifty invented ones.",
+      inputSchema: {
+        agent: z.string().min(1).describe("The agent's slug."),
+        skill: z.string().min(1).describe("The skill's slug."),
+        add: z
+          .object({
+            name: z.string().min(1).describe("What it is about, or what went wrong."),
+            args: z.record(z.string(), z.string()).optional().describe("The skill's arguments, by parameter name."),
+            prompt: z.string().optional().describe("Or the exact request. Wins over args."),
+            checks: z.array(checkSchema).optional().describe("Checks of its own, as in hub_skill_create."),
+            reference: z.string().optional().describe("What a good answer looked like, for whoever reads a failure."),
+          })
+          .optional(),
+        remove: z.string().optional().describe("The id of a case to remove."),
+      },
+    },
+    async (args) => {
+      const found = await skillOf(args.agent, args.skill);
+      if ("error" in found) return text(found.error);
+      if (args.remove) {
+        const c = await getCase(args.remove);
+        if (!c || c.skillId !== found.skill.id) return text(`No case ${args.remove} on "${found.skill.name}".`);
+        await deleteCase(c.id);
+        return text(`Removed the case "${c.name}".`);
+      }
+      if (args.add) {
+        const big = resolveLargeArgs(principal.id, args.add.prompt === undefined ? {} : { prompt: args.add.prompt });
+        if ("error" in big) return text(big.error);
+        const prompt = args.add.prompt === undefined ? null : String(big.args.prompt);
+        if (!prompt?.trim() && !Object.keys(args.add.args ?? {}).length) return text("A case needs the skill's arguments, or the exact request.");
+        const made = await createCase({ skillId: found.skill.id, name: args.add.name, args: args.add.args, prompt, checks: args.add.checks as SkillCheck[] | undefined, reference: args.add.reference, createdBy: principal.id });
+        return text(`Added the case "${made.name}" (id ${made.id}) to "${found.skill.name}". hub_skill_test runs the cases.`);
+      }
+      const cases = await listCases(found.skill.id);
+      return text({
+        skill: found.skill.slug,
+        cases: cases.map((c) => ({ id: c.id, name: c.name, ...(c.prompt ? { prompt: c.prompt } : { args: c.args }), checks: c.checks, ...(c.reference ? { reference: c.reference } : {}) })),
+        ...(cases.length ? {} : { hint: "No cases yet. Add one from a run that went wrong." }),
+      });
+    },
+  );
+
+  server.registerTool(
+    "hub_skill_test",
+    {
+      description:
+        "Run a skill's test cases k times each, under one setup or several, and compare: which setup passed every case every time, and what each cost. " +
+        "Every trial is a real run of the real model as you, with every write held and nothing remembered. Without confirm: true it only says how many runs " +
+        `it would make (at most ${MAX_TRIAL_RUNS}). With set: an id, it reads that set's result instead. Runs take minutes; poll with set every half minute.`,
+      inputSchema: {
+        agent: z.string().min(1).describe("The agent's slug."),
+        skill: z.string().min(1).describe("The skill's slug."),
+        set: z.string().optional().describe("Read this set's result instead of starting one."),
+        k: z.number().int().min(1).max(10).optional().describe("Times each case runs under each setup. Default 3."),
+        variants: z
+          .array(
+            z.object({
+              label: z.string().min(1),
+              model: z.string().optional().describe(`One of ${MODEL_IDS.join(", ")}; omitted, the agent's.`),
+              effort: z.enum(["low", "medium", "high", "max"]).optional(),
+              instructions: z.string().optional().describe("A brief to run with instead of the agent's. Long briefs go through hub_put_text first."),
+              agent: z.string().optional().describe("Another agent's slug, given the same request: one agent against a team's coordinator."),
+            }),
+          )
+          .optional()
+          .describe("Setups to compare. Omitted: the skill's agent as it is."),
+        cases: z.array(z.string()).optional().describe("Only these case ids. Omitted: every case."),
+        confirm: z.boolean().optional().describe("true to run. Without it, nothing runs and the answer says what would."),
+      },
+    },
+    async (args) => {
+      const found = await skillOf(args.agent, args.skill);
+      if ("error" in found) return text(found.error);
+      if (args.set) {
+        const set = await getTrialSet(args.set);
+        if (!set || set.skillId !== found.skill.id) return text(`No set ${args.set} on "${found.skill.name}".`);
+        const done = (set.results ?? []).reduce((n, r) => n + r.runs.length, 0);
+        return text({
+          status: set.status,
+          ...(set.error ? { error: set.error } : {}),
+          ...(set.status === "running" ? { done, hint: "Still running. Check again in half a minute." } : {}),
+          ...(set.summary ? { verdict: summarizeTrials(set.summary), summary: set.summary } : {}),
+          ...(set.status === "done" && set.setupHash && (await currentSetupHash(found.skill)) !== set.setupHash ? { note: "The brief, model, template or checks have changed since this ran." } : {}),
+          notPassed: (set.results ?? []).flatMap((r) => r.runs.filter((x) => !x.passed).map((x) => ({ case: r.caseName, setup: r.variant, why: x.error ?? (x.checks ?? []).filter((c) => c.ok !== true).map((c) => c.detail).join(" · "), runId: x.runId || undefined }))),
+        });
+      }
+      const variants = cleanVariants(args.variants ?? []);
+      for (const v of variants) {
+        if (v.instructions) {
+          const big = resolveLargeArgs(principal.id, { instructions: v.instructions });
+          if ("error" in big) return text(big.error);
+          v.instructions = String(big.args.instructions);
+        }
+      }
+      const plan = await planTrials({ skillRef: found.skill.id, caseIds: args.cases, k: args.k, variants });
+      if ("error" in plan) return text(`Not run: ${plan.error}`);
+      if (!args.confirm) return text({ wouldRun: plan.runs, sentence: plan.sentence, hint: "Call again with confirm: true to run it." });
+      const set = await startTrials(plan, principal);
+      return text({ started: set.id, runs: plan.runs, next: `Call hub_skill_test with set "${set.id}" in half a minute or so; a set of ${plan.runs} runs takes minutes.` });
+    },
+  );
+
+  // Past sets, for hub_agent_get's reader: the latest verdict per skill is enough here.
+  void listTrialSets;
+}
+
+/** What Anthropic's advice would say about the saved brief (briefHealth.ts), as lines; null when nothing. */
+async function hintsFor(saved: Awaited<ReturnType<typeof getAgent>>): Promise<string | null> {
+  if (!saved) return null;
+  const catalog = (await toolCatalog().catch(() => [])).map((t) => ({ name: t.name, label: t.label }));
+  const entries = (saved.mcpServers ?? []) as McpEntry[];
+  const servers = entries.map((e) => String((e as { name?: unknown }).name ?? "")).filter(Boolean);
+  const asks = (entries.find((e) => (e as { name?: unknown }).name === ASK_SERVER) as { agents?: string[] } | undefined)?.agents ?? [];
+  const { hints } = briefHealth({ instructions: saved.instructions ?? "", servers, catalog, keepsMemory: saved.keepsMemory !== false, asks });
+  return hints.length ? `About the brief (hints, not refusals):\n${hints.map((h) => `- ${h}`).join("\n")}` : null;
 }
 
 /** Tool servers asked for that the save left out, so the caller is told rather than finding out at run time. */
