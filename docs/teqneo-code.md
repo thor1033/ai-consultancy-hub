@@ -80,3 +80,25 @@ makes that one command; deciding what to do when upstream moves a line stays
 a person's job.
 
 Layer 1 still applies to anyone using stock T3 Code.
+
+## Delivery by the BMAD method
+
+Teqneo Code opens on a project's **Delivery** page: BMAD's four phases as a
+rail (Analyse → Plan → Solution → Build), each showing the document it wrote
+under `docs/bmad/` and a button that opens the phase's role as a draft.
+"Set up BMAD" puts six role skills in the project's `.claude/skills/`.
+
+| Phase | Role | Writes | Played by |
+|---|---|---|---|
+| Analyse | Analyst | `product-brief.md` | the hub agent `bmad-analyst` drafts |
+| Plan | PM | `prd.md` | the hub agent `bmad-pm` drafts |
+| Solution | Architect | `architecture.md`, `epics.md` | the hub agent `bmad-architect` drafts |
+| Build | Scrum Master, Dev, QA | `stories/*.md`, code, PRs | Teqneo Code |
+
+The three hub agents are seeded (`src/seeds/bmad.ts`, `seed:bmad`), read
+the knowledge base and read-only PM tool or GitHub, and write nothing: they
+return a draft, and the person in Teqneo Code writes the file. The Scrum
+Master makes each epic a PM-tool milestone (`pm_create_milestone`) and each
+story a task under it; the Dev's pull request carries `PM-Task:`, so its merge
+proposes closing the task on `/approvals`. Documents reach the knowledge base
+once pushed, through the GitHub source for the repository's `docs/`.
