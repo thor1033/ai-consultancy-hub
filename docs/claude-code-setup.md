@@ -83,7 +83,9 @@ Claude Code, it is in every T3 Code thread too.
 Add `--with-t3` to the setup command and it checks that T3 Code is installed,
 printing the install command for the machine when it is not
 (`winget install T3Tools.T3Code` on Windows, `brew install --cask t3-code` on a
-Mac). It never installs anything itself.
+Mac). It never installs anything itself. When T3 Code is there, it also
+publishes the Teqneo theme and makes it T3 Code's default on that machine
+([teqneo-code.md](teqneo-code.md)); choosing another theme afterwards sticks.
 
 ```bash
 node scripts/setup-claude-code.mjs --token hub_sk_… --with-pm-tool --with-t3

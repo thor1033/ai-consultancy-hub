@@ -30,7 +30,7 @@
 // else in your settings untouched. A backup of settings.json is kept as
 // settings.json.before-hub.
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, renameSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -172,6 +172,40 @@ say(sync.stdout?.trim() ? `\n${sync.stdout.trim()}` : "\nNo agents are set to ru
 if (sync.stderr?.trim()) say(sync.stderr.trim());
 
 // ── 7. T3 Code ──────────────────────────────────────────────────────────────
+//
+// The Teqneo look (t3/teqneo.json, docs/teqneo-code.md) is published as a
+// T3 Code environment theme: a file in ~/.t3/userdata/themes/, then
+// `t3 theme set teqneo`, which switches this machine's T3 Code to it once.
+// Choosing another theme afterwards sticks — it is a default, not a lock.
+// Written to a temporary file and renamed, as T3 Code asks, so it never
+// reads half a theme.
+async function installTeqneoTheme() {
+  const themesDir = join(homedir(), ".t3", "userdata", "themes");
+  const target = join(themesDir, "teqneo.json");
+  const local = scriptsDir ? join(scriptsDir, "..", "t3", "teqneo.json") : null;
+  let json;
+  if (local && existsSync(local)) json = readFileSync(local, "utf8");
+  else {
+    const res = await fetch(`${RAW.replace(/\/scripts$/, "")}/t3/teqneo.json`).catch(() => null);
+    if (!res?.ok) {
+      say("  • Could not fetch the Teqneo theme; T3 Code keeps its own look.");
+      return;
+    }
+    json = await res.text();
+  }
+  try {
+    JSON.parse(json);
+  } catch {
+    say("  • The Teqneo theme file is not valid JSON; T3 Code keeps its own look.");
+    return;
+  }
+  mkdirSync(themesDir, { recursive: true });
+  writeFileSync(`${target}.tmp`, json);
+  renameSync(`${target}.tmp`, target);
+  const set = spawnSync("t3", ["theme", "set", "teqneo"], { encoding: "utf8", shell: process.platform === "win32" });
+  if (set.status === 0) say(`  ✓ Teqneo theme published (${target}) and set as T3 Code's default`);
+  else say(`  • Teqneo theme saved to ${target}; switch to it with: t3 theme set teqneo${set.stderr?.trim() ? `\n    (${set.stderr.trim().split("\n")[0]})` : ""}`);
+}
 // Found by its `t3` command, which the desktop app and the CLI install both
 // put on PATH. Installing software is the person's call, so a missing one is
 // a printed command, never a download.
@@ -181,6 +215,7 @@ if (withT3) {
   t3Found = t3.status === 0;
   if (t3Found) {
     say(`\n  ✓ T3 Code found (${(t3.stdout || "").trim() || "t3"}) — it uses this Claude Code setup, hub and PM tool included`);
+    await installTeqneoTheme();
   } else {
     const install = {
       win32: "winget install T3Tools.T3Code",
