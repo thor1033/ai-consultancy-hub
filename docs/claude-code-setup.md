@@ -72,6 +72,23 @@ SessionStart hook and the work log as SessionStart + SessionEnd hooks
 scope, and runs the first sync. Re-running it replaces its own entries and
 leaves the rest of the file alone.
 
+## T3 Code
+
+[T3 Code](https://t3.codes) is where a PM task goes when someone presses
+**Start in T3 Code** on it ([code-handoff.md](code-handoff.md)). It drives
+Claude Code with the same user-level configuration everything above writes, so
+it needs no setup of its own: once the hub (and the PM-tool, if wanted) is in
+Claude Code, it is in every T3 Code thread too.
+
+Add `--with-t3` to the setup command and it checks that T3 Code is installed,
+printing the install command for the machine when it is not
+(`winget install T3Tools.T3Code` on Windows, `brew install --cask t3-code` on a
+Mac). It never installs anything itself.
+
+```bash
+node scripts/setup-claude-code.mjs --token hub_sk_… --with-pm-tool --with-t3
+```
+
 ## Revoking
 
 Disable the person in **/admin → Access** (or in WorkOS): OAuth sign-ins are

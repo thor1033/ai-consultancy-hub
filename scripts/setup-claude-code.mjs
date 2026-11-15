@@ -20,6 +20,11 @@
 //   5. optionally (--with-pm-tool) adds the PM-tool's MCP server, which signs
 //      in with your own account through WorkOS the first time it is used
 //   6. runs the first sync
+//   7. optionally (--with-t3) checks that T3 Code is installed, for the PM
+//      tool's "Start in T3 Code" (docs/code-handoff.md). T3 Code runs Claude
+//      Code with this same user-level configuration, so steps 2–5 are all it
+//      needs; this step only finds it, and says how to install it if it is
+//      missing. It never installs anything itself.
 //
 // Re-running it is safe: it replaces its own entries and leaves everything
 // else in your settings untouched. A backup of settings.json is kept as
@@ -42,6 +47,7 @@ const flag = (name) => {
 };
 const hubUrl = (flag("--hub-url") || process.env.HUB_URL || "https://hub.teqneo.co").replace(/\/+$/, "");
 const withPmTool = args.includes("--with-pm-tool");
+const withT3 = args.includes("--with-t3");
 
 const claudeHome = join(homedir(), ".claude");
 const settingsPath = join(claudeHome, "settings.json");
@@ -165,10 +171,31 @@ const sync = spawnSync(process.execPath, [syncTarget, "--user"], {
 say(sync.stdout?.trim() ? `\n${sync.stdout.trim()}` : "\nNo agents are set to run locally yet — they will appear as soon as an admin switches one to Local or Both.");
 if (sync.stderr?.trim()) say(sync.stderr.trim());
 
+// ── 7. T3 Code ──────────────────────────────────────────────────────────────
+// Found by its `t3` command, which the desktop app and the CLI install both
+// put on PATH. Installing software is the person's call, so a missing one is
+// a printed command, never a download.
+let t3Found = false;
+if (withT3) {
+  const t3 = spawnSync("t3", ["--version"], { encoding: "utf8", shell: process.platform === "win32" });
+  t3Found = t3.status === 0;
+  if (t3Found) {
+    say(`\n  ✓ T3 Code found (${(t3.stdout || "").trim() || "t3"}) — it uses this Claude Code setup, hub and PM tool included`);
+  } else {
+    const install = {
+      win32: "winget install T3Tools.T3Code",
+      darwin: "brew install --cask t3-code",
+    }[process.platform] ?? "see https://t3.codes/download";
+    say(`\n  • T3 Code is not installed. To use "Start in T3 Code" from the PM tool, install it:\n      ${install}\n    then open it once and sign in to Claude Code there (it uses your existing login).`);
+  }
+}
+
 say(`
 Done. Start a new Claude Code session to pick everything up.
   • Hub agents set to Local or Both appear as hub-<name> sub-agents, in every project.
   • The hub's own tools (knowledge search, hub_agent_*, hub_skill_*) come from the "ai-hub" server.${
   withPmTool ? '\n  • The first PM-tool call opens a browser to sign in (or run /mcp and pick "pm-tool").' : ""
+}${
+  withT3 && t3Found ? '\n  • In the PM tool, "Start in T3 Code" on a task opens it as a draft in T3 Code; nothing runs until you press Send.' : ""
 }
 Your credential is stored in ${settingsPath}; keep that file private.`);
