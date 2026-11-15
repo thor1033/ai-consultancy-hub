@@ -6,8 +6,8 @@ points that matter: pressing Send on the brief, and approving the task as
 done. Nothing in between needs babysitting.
 
 ```
-PM tool: "Start in T3 Code" on a task
-  └── T3 Code opens a DRAFT: the brief, in the track's repository, on Claude
+PM tool: "Start in Teqneo Code" on a task
+  └── Teqneo Code opens a DRAFT: the brief, in the track's repository, on Claude
         └── you read it and press Send
               └── the agent works on a branch, reads the hub and the PM tool,
                   and opens a pull request with "PM-Task: <project>/<task>"
@@ -16,18 +16,20 @@ PM tool: "Start in T3 Code" on a task
                                 └── /approvals: a person approves or rejects
 ```
 
-## The way out: T3 Code
+## The way out: Teqneo Code
 
-[T3 Code](https://t3.codes) is an open-source app that drives the coding
+Teqneo Code ([teqneo-code.md](teqneo-code.md)) is Teqneo's build of the
+open-source [T3 Code](https://t3.codes): a desktop app that drives the coding
 agents a person is already signed in to (Claude Code, Codex), with threads,
 worktrees and one-button pull requests. It runs Claude Code with the person's
 own configuration, so the hub's and the PM tool's MCP servers are available in
 every thread without setup.
 
 The PM tool's button (`lib/code-handoff.ts` in the PM-tool repository) opens a
-T3 Code **prompt link**. A prompt link never runs anything: T3 Code opens it as
-a draft and waits for Send, with the person's own permission defaults. So the
-button needs no server, no tunnel and no T3 account.
+Teqneo Code **prompt link**, `teqneo-code://new?prompt=…`, which the installed
+app registers with the operating system. A prompt link never runs anything:
+the app opens it as a draft and waits for Send, with the person's own
+permission defaults. So the button needs no server, no tunnel and no account.
 
 The brief carries the task, its subtasks and dependencies, and the project and
 task ids, so the agent reads the live task itself. It asks the agent to search
@@ -97,8 +99,8 @@ button's side: the brief, the link, and the repository setting.
 
 ## Not done yet
 
-- **One page for everything waiting.** T3 Code's own approvals (a command the
-  agent wants to run) live in T3 Code and its phone app; the hub's live on
+- **One page for everything waiting.** Teqneo Code's own approvals (a command
+  the agent wants to run) live in Teqneo Code; the hub's live on
   `/approvals`. They are not yet in one place.
 - **Who merged is not who decides.** The proposals go to admins; mapping a
   GitHub login to a hub person, so they go to whoever merged, is not built.

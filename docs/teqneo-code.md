@@ -3,8 +3,8 @@
 "Teqneo Code" is [T3 Code](https://t3.codes) — the open-source app that drives
 the coding agents a person is already signed in to — set up and dressed for
 Teqneo: tied to the PM tool and the hub ([code-handoff.md](code-handoff.md)),
-and in the Teqneo look. It is built in two layers, the first of which needs no
-fork and is done.
+and in the Teqneo look. It comes in two layers: a theme for stock T3 Code, and
+Teqneo's own build of the app. Both are done.
 
 ## Layer 1 — the look, on stock T3 Code (done)
 
@@ -48,32 +48,35 @@ themes, which is the route the setup script uses — but the square corners and
 Helvetica are **not yet seen working** until it runs on a machine with T3 Code
 installed.
 
-## Layer 2 — the name and the icon (a fork; not started)
+## Layer 2 — the app itself (the fork; built)
 
-A theme cannot rename the app or change its icon: the window, the dock and the
-installer still say "T3 Code". That needs a fork — allowed by its MIT licence,
-which also asks that the licence and copyright notice travel with the code.
+Teqneo Code is also a fork of T3 Code, kept on the `teqneo` branch of
+`thor1033/teqneo-code` (to be created; until then it is a local clone).
+Everything that differs from T3 Code lives in its `teqneo/` folder and is
+applied by one script, `teqneo/apply-branding.py`, so it can be re-applied
+after each upstream update (`teqneo/sync-upstream.sh`). `--check` reports
+anything missing, and the script stops rather than half-apply when upstream
+has moved a line it changes.
 
-Measured on T3 Code's source, the fork's own changes are small and few:
+| | |
+|---|---|
+| Name and icon | "Teqneo Code" everywhere a person reads it; the Teqneo mark in the app, the window and the installer |
+| Look | the Teqneo Design System (paper, black, red on hover, AI-blue focus, square corners, Helvetica, micro-caps buttons) in one stylesheet the fork owns |
+| Its own environment | `~/.teqneo`, its own app-data folder, the `teqneo` command, the `teqneo-code://` link scheme and app id `co.teqneo.code`, so it can sit beside a T3 Code install |
+| Nothing to T3 | a built-in Teqneo policy turns off T3's hosted relay and usage data ("Managed by Teqneo"); the GitHub-star prompt is off; links point at Teqneo |
+| Updates | off until Teqneo publishes its own releases |
 
-- **Name.** The app's name is central — `APP_BASE_NAME` in
-  `apps/web/src/branding.ts`, the desktop branding resolver, `productName` in
-  `apps/desktop/package.json`, `APP_DISPLAY_NAME` in the Electron launcher, and
-  the page title. The ~1,000 other "T3 Code" strings are the marketing site,
-  translations, help text and test fixtures; a Teqneo build ships few of them.
-- **Icons.** `assets/prod` holds the sources. Regenerating every platform's
-  icons uses Apple's Icon Composer, so it needs a Mac once per icon change.
-- **Updates — the one that matters.** T3 Code updates itself with
-  `electron-updater` from T3's releases. A fork must point that at Teqneo's own
-  releases or switch it off; left alone, the next update silently turns Teqneo
-  Code back into T3 Code.
+The PM tool's **Start in Teqneo Code** opens `teqneo-code://new?prompt=…`,
+which the installed app registers with the operating system.
 
-What the changes are not is the cost. The cost is keeping up: T3 Code is about
-7,000 TypeScript files and merges dozens of changes a day, needs Node 26 and
-pnpm 12 to build, and a desktop release means signing installers for Windows and
-macOS. A fork is someone's standing job — rebasing the branding onto each
-upstream release, building, signing, publishing — or it falls behind within
-weeks.
+**Building it** needs Node 26 and pnpm 12 (`pnpm install`, `pnpm dev:desktop`,
+`pnpm dist:desktop:win`); the fork's `teqneo/README.md` has the steps.
+Unsigned installers warn on first run until Teqneo has Windows and Apple
+signing certificates.
 
-**Recommendation:** use Layer 1, and decide on Layer 2 when the name in the
-title bar is worth a person's time every week.
+**The cost** is unchanged: T3 Code moves fast, so someone re-applies the
+branding to each upstream release, builds it and publishes it. The script
+makes that one command; deciding what to do when upstream moves a line stays
+a person's job.
+
+Layer 1 still applies to anyone using stock T3 Code.
