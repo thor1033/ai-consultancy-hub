@@ -58,7 +58,7 @@ Run them with the package script, e.g. `npm run verify:loop -w @ai-hub/agent`.
 
 - No DB needed: `verify:loop`, `verify:tracing`, `verify:bench` (agent; the bench's skill half runs when `DATABASE_URL` is set), `verify:remote`, `verify:m365`, `verify:teams` (mcp),
   `verify:github` (rag; its sync half runs when `DATABASE_URL` is set), `verify:large-args`,
-  `verify:work-log` (web).
+  `verify:work-log`, `verify:github-merge` (web; drives the webhook route when `DATABASE_URL` is set).
 - Need `DATABASE_URL` + a migrated DB: `verify:agents`, `verify:schedules`, `verify:seeds`, `verify:patterns` (db),
   `verify:memory`, `verify:knowledge` (mcp), `verify:access`, `verify:sharepoint` (rag), `verify:credentials` (authz),
   `verify:hub-memory`, `verify:agent-tools`, `verify:scheduler`, `verify:handoff`, `verify:asks`, `verify:run-timing`,

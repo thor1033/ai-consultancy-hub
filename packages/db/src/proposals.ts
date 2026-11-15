@@ -219,3 +219,22 @@ export async function rejectProposal(id: string, decidedBy: string, note?: strin
   `;
   return rows.count > 0;
 }
+
+/**
+ * A proposal for exactly this call that is still waiting or already ran —
+ * for callers that must not hold the same write twice (a webhook GitHub
+ * redelivers). A rejected or failed one does not count: proposing again
+ * after a "no" is a new question.
+ */
+export async function findLiveProposal(server: string, tool: string, args: Record<string, unknown>): Promise<Proposal | null> {
+  const sql = getSql();
+  const rows = await sql<Proposal[]>`
+    select ${sql.unsafe(COLUMNS)} ${sql.unsafe(JOINS)}
+     where p.server = ${server} and p.tool = ${tool}
+       and p.args = ${sql.json(args as Parameters<typeof sql.json>[0])}::jsonb
+       and p.status in ('pending', 'approved', 'executed')
+     order by p.created_at desc
+     limit 1
+  `;
+  return rows[0] ?? null;
+}

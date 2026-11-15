@@ -94,6 +94,7 @@ export {
   claimProposal,
   finishProposal,
   rejectProposal,
+  findLiveProposal,
 } from "./proposals";
 export type { Proposal, ProposalInput, ProposalFilter, ProposalStatus } from "./proposals";
 export type {

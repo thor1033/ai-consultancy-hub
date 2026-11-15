@@ -28,7 +28,8 @@
     "verify:retention": "node --experimental-transform-types --env-file=.env.local verify-retention.mjs",
     "verify:sensitivity": "node --experimental-transform-types --env-file=.env.local verify-sensitivity.mjs",
     "deploy:check": "node --experimental-transform-types --disable-warning=ExperimentalWarning deploy-check.mjs",
-    "verify:deployment": "node --experimental-transform-types --env-file=.env.local verify-deployment.mjs"
+    "verify:deployment": "node --experimental-transform-types --env-file=.env.local verify-deployment.mjs",
+    "verify:github-merge": "node --experimental-transform-types --env-file-if-exists=.env.local verify-github-merge.mjs"
   },
   "dependencies": {
     "@ai-hub/agent": "*",
