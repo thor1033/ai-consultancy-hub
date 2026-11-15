@@ -25,6 +25,9 @@
 //      Code with this same user-level configuration, so steps 2–5 are all it
 //      needs; this step only finds it, and says how to install it if it is
 //      missing. It never installs anything itself.
+//   8. optionally (--with-teqneo-code) the same for Teqneo Code, Teqneo's own
+//      build (docs/teqneo-code.md): the look and the BMAD Delivery page are
+//      built in, so it only finds the app and says where to get it.
 //
 // Re-running it is safe: it replaces its own entries and leaves everything
 // else in your settings untouched. A backup of settings.json is kept as
@@ -48,6 +51,7 @@ const flag = (name) => {
 const hubUrl = (flag("--hub-url") || process.env.HUB_URL || "https://hub.teqneo.co").replace(/\/+$/, "");
 const withPmTool = args.includes("--with-pm-tool");
 const withT3 = args.includes("--with-t3");
+const withTeqneoCode = args.includes("--with-teqneo-code");
 
 const claudeHome = join(homedir(), ".claude");
 const settingsPath = join(claudeHome, "settings.json");
@@ -225,6 +229,24 @@ if (withT3) {
   }
 }
 
+// Teqneo Code (docs/teqneo-code.md): Teqneo's own build, with the look, the
+// BMAD Delivery page and the teqneo-code:// links built in, so there is no
+// theme to publish. Found by the `teqneo` command its desktop app can put on
+// PATH (Settings → command line); not installed means a link to the releases,
+// never a download.
+const TEQNEO_CODE_RELEASES = "https://github.com/thor1033/teqneo-code/releases";
+let teqneoFound = false;
+if (withTeqneoCode) {
+  const teqneo = spawnSync("teqneo", ["--version"], { encoding: "utf8", shell: process.platform === "win32" });
+  teqneoFound = teqneo.status === 0;
+  if (teqneoFound) {
+    say(`\n  ✓ Teqneo Code found (${(teqneo.stdout || "").trim() || "teqneo"}) — it uses this Claude Code setup, hub and PM tool included`);
+  } else {
+    say(`\n  • The teqneo command was not found. If Teqneo Code is installed, turn its command on in Settings;\n    otherwise install it from ${TEQNEO_CODE_RELEASES}, open it once, and sign in to Claude Code there.`);
+  }
+  say(`    In each project, press "Set up BMAD" on the Delivery page to add the BMAD role skills.`);
+}
+
 say(`
 Done. Start a new Claude Code session to pick everything up.
   • Hub agents set to Local or Both appear as hub-<name> sub-agents, in every project.
@@ -232,5 +254,7 @@ Done. Start a new Claude Code session to pick everything up.
   withPmTool ? '\n  • The first PM-tool call opens a browser to sign in (or run /mcp and pick "pm-tool").' : ""
 }${
   withT3 && t3Found ? '\n  • In the PM tool, "Start in T3 Code" on a task opens it as a draft in T3 Code; nothing runs until you press Send.' : ""
+}${
+  withTeqneoCode ? '\n  • In the PM tool, "Start in Teqneo Code" on a task opens it as a draft in Teqneo Code; nothing runs until you press Send.' : ""
 }
 Your credential is stored in ${settingsPath}; keep that file private.`);
