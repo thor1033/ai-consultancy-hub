@@ -173,6 +173,8 @@ export {
 } from "./schedules";
 export type { Schedule, ScheduleInput, ScheduleKind, TickOutcome } from "./schedules";
 export { STEWARD_SLUG } from "./seeds/context-steward";
+// The company's own PM board, the one its seeded agents work on.
+export { PROJECT_ID as COMPANY_BOARD_PROJECT_ID } from "./seeds/secretary";
 export {
   createHandoff,
   getHandoff,

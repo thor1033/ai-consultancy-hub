@@ -22,6 +22,7 @@ import {
 import { approve, reject, resolvePeople, sendOn } from "@/lib/approvals";
 import { registerDeckTools } from "@/lib/mcp/deckTools";
 import { registerDesignTools } from "@/lib/mcp/designTools";
+import { registerTeamTools } from "@/lib/mcp/teamTools";
 import { remoteServerConfig, remoteServerInfo } from "@ai-hub/mcp";
 import { registerMemoryTools, text } from "@/lib/mcp/memoryTools";
 import { registerProxiedTools } from "@/lib/mcp/proxyTools";
@@ -665,6 +666,11 @@ export async function buildHubMcpServer(
   // Designing agents and skills from the client: the agent form's rules, as
   // tools, for whoever may manage agents (lib/mcp/designTools.ts).
   if (await may("agent:manage")) registerDesignTools(server, principal, opts.baseUrl);
+
+  // The team as a client outside the hub sees it: agents as an org chart, what
+  // waits on whom, the board per person, schedules (lib/mcp/teamTools.ts).
+  // Teqneo Code's Hub page is built on these.
+  if (canRunAgents) registerTeamTools(server, principal);
 
   // --- The person's own systems, through the one door ----------------------
   //

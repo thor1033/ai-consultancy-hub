@@ -15,14 +15,11 @@ import {
   type AgentInput,
   knowledgeScope,
   retrievalScope,
-  createSchedule,
   listSchedules,
   getSchedule,
   setScheduleEnabled,
   deleteSchedule,
-  getSkill,
   type Schedule,
-  type ScheduleKind,
   startRun,
   failRun,
   listHandoffs,
@@ -42,7 +39,7 @@ import { sessionKnowledgeAccess, sessionCan, sessionPrincipal } from "@/lib/sess
 import { saveAgentAs, saveSkillAs, type SkillDraft } from "@/lib/agentDesign";
 import { memoryReachFor } from "@/lib/memoryScope";
 import { listSkills, updateSkill, deleteSkill } from "@ai-hub/db";
-import { fillTemplate } from "@/lib/skillPrompt";
+import { createScheduleFor, scheduleChangeableBy, type ScheduleDraft } from "@/lib/scheduleRules";
 import { runAgentForPrincipal, runSkillForPrincipal, cooperation, handoffsAfter } from "@/lib/agentRuns";
 import { loadHubConnections } from "@/lib/connections";
 
@@ -354,19 +351,10 @@ export async function deleteSkillAction(id: string, agentId: string) {
 // creating one is not an admin act; taking someone else's away is, unless it is
 // your own.
 
-export interface ScheduleDraft {
-  agentId: string;
-  name: string;
-  /** Exactly one of these: a skill (with its arguments) or a prompt. */
-  skillId?: string | null;
-  skillArgs?: Record<string, unknown>;
-  prompt?: string;
-  kind: ScheduleKind;
-  intervalMinutes?: number | null;
-  atMinute?: number | null;
-  weekdays?: number[];
-  timezone?: string;
-}
+// The rules themselves live in lib/scheduleRules.ts, shared with the hub's MCP
+// tools (lib/mcp/teamTools.ts), so a schedule made from Teqneo Code is held to
+// exactly what this page holds it to.
+export type { ScheduleDraft } from "@/lib/scheduleRules";
 
 async function scheduleList(agentId: string): Promise<{ schedules: Schedule[] }> {
   return { schedules: await listSchedules(agentId) };
@@ -375,62 +363,17 @@ async function scheduleList(agentId: string): Promise<{ schedules: Schedule[] }>
 export async function createScheduleAction(input: ScheduleDraft): Promise<{ schedules: Schedule[] } | { error: string }> {
   const principal = await sessionCan("agent:run");
   if (!principal) return { error: "You are not permitted to run agents." };
-  const agent = await getAgent(input.agentId);
-  if (!agent) return { error: "That agent no longer exists." };
-  if (!runsOnHub(agent.placement)) {
-    return { error: `"${agent.name}" runs in Claude Code only, so the hub has no clock for it. Set it to "Hub" or "Both" first.` };
-  }
-
-  let prompt = (input.prompt ?? "").trim();
-  let agentSkillId: string | null = null;
-  let skillArgs: Record<string, unknown> = {};
-  if (input.skillId) {
-    const skill = await getSkill(input.skillId);
-    if (!skill || skill.agentId !== agent.id) return { error: "That skill does not belong to this agent." };
-    if (!skill.enabled) return { error: `"${skill.name}" is switched off.` };
-    // Filled once here so a schedule that could never run is refused at the
-    // door, not discovered at 07:00 as a failed run nobody was watching.
-    const args = input.skillArgs && typeof input.skillArgs === "object" ? input.skillArgs : {};
-    const filled = fillTemplate(skill.promptTemplate, skill.parameters ?? [], args);
-    if ("error" in filled) return { error: `${skill.name}: ${filled.error}` };
-    agentSkillId = skill.id;
-    skillArgs = Object.fromEntries(
-      (skill.parameters ?? [])
-        .map((p) => [p.name, args[p.name]] as const)
-        .filter(([, v]) => v !== undefined && v !== null && v !== ""),
-    );
-    const shown = Object.entries(skillArgs).map(([k, v]) => `${k} = ${String(v)}`).join(", ");
-    prompt = `Run the skill "${skill.name}"${shown ? ` with ${shown}` : ""}.`;
-  }
-
-  const created = await createSchedule({
-    agentId: agent.id,
-    name: input.name,
-    prompt,
-    agentSkillId,
-    skillArgs,
-    kind: input.kind,
-    intervalMinutes: input.intervalMinutes ?? null,
-    atMinute: input.atMinute ?? null,
-    weekdays: input.weekdays ?? [],
-    timezone: input.timezone?.trim() || process.env.HUB_TIMEZONE?.trim() || "UTC",
-    ownerPrincipalId: principal.id,
-  });
+  const created = await createScheduleFor(principal.id, input);
   if ("error" in created) return { error: created.error };
-  revalidatePath(`/agents/${agent.slug}`);
-  return scheduleList(agent.id);
+  revalidatePath(`/agents/${created.agentSlug}`);
+  return scheduleList(created.schedule.agentId);
 }
 
 /** The owner, or an admin. Anyone else may look. */
 async function ownedSchedule(id: string): Promise<Schedule | { error: string }> {
   const principal = await sessionCan("agent:run");
   if (!principal) return { error: "You are not permitted to run agents." };
-  const schedule = await getSchedule(id);
-  if (!schedule) return { error: "That schedule no longer exists." };
-  if (schedule.ownerPrincipalId !== principal.id && !(await sessionCan("admin:manage"))) {
-    return { error: "Only the person who set this schedule up, or an admin, can change it." };
-  }
-  return schedule;
+  return scheduleChangeableBy(principal.id, Boolean(await sessionCan("admin:manage")), id);
 }
 
 export async function setScheduleEnabledAction(id: string, enabled: boolean): Promise<{ schedules: Schedule[] } | { error: string }> {
