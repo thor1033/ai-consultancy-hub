@@ -98,8 +98,8 @@ its `PM-Task:` line included, so the pull request's merge proposes closing the
 task on `/approvals`. **Ask** on a task meant for a hub agent opens a draft
 that hands the task to that agent through the hub; what the agent wants to
 write waits for approval, and the draft tells the thread not to approve for
-the person. The page only reads the board: a task's status is changed in the
-PM tool, or by the agent in the thread when asked.
+the person. A task shows the thread started from it on that machine, and
+where it stands (working, needs you, PR open, merged).
 
 **Meetings** shows what the Secretary proposed from recent meetings, one block
 per run: each change to the board, whether it still waits, and the agent its
@@ -121,9 +121,15 @@ Claude Code already holds):
 writes they may decide, all of them for an admin. It never returns a run's
 prompt (the transcript), and a run that read confidential material keeps its
 arguments and result in the hub ([sensitivity.md](sensitivity.md)); the page
-then shows only the reason. The hub's pass-through of the PM tool itself
-(`pm_*`) is only for a person signed in through the browser, whose own token
-it forwards; a hub credential has none to forward, so it is not used here.
+then shows only the reason.
+
+With a hub key the board is read-only. **Sign in to the hub** on Work signs
+the person in as any MCP client does (OAuth 2.1 with PKCE against the hub's
+authorization server; the tokens stay in Teqneo Code's own server). The hub
+then passes the person's own PM-tool access through (`pm_*`, their token
+forwarded), and Work offers a task's status and agent to change with
+`pm_update_task`: the change is theirs in the PM tool's audit trail. A hub
+key has no person to forward, so Teqneo Code offers no write with it.
 
 ## The hub, inside Teqneo Code
 
