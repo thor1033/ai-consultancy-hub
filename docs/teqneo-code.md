@@ -81,26 +81,49 @@ a person's job.
 
 Layer 1 still applies to anyone using stock T3 Code.
 
-## Work: PM tasks and hub agents
+## Work: meetings, tasks and the agent each is meant for
 
-Teqneo Code opens on **Work**: the open tasks on a PM-tool project (the
-person's own, or everyone's), and the hub's agents. **Start** on a task opens a
-draft with the same brief the PM tool's "Start in Teqneo Code" writes, its
-`PM-Task:` line included, so the pull request's merge proposes closing the
-task on `/approvals`. The page only reads the board; a task's status is
-changed in the PM tool, or by the agent in the thread when asked. **Ask** on
-an agent opens a draft that calls it. The approvals waiting for the person
-link to the app's Hub page.
+The flow: a meeting is transcribed, the Secretary proposes what it changed on
+the PM board ([secretary-agent.md](secretary-agent.md)), a person approves, and
+the team sees in Teqneo Code who picks up what. Teqneo Code opens on **Work**,
+which has two tabs.
+
+**Tasks** lists a PM project's open tasks, arranged by the agent each is meant
+for: Code first, then each hub agent, then "No agent yet" (or by status). The
+agent is the PM tool's `agent` on a task: a hub agent's slug, or `code`. The
+Secretary sets it when it files a task from a meeting, only on a clear fit;
+anyone can change it in the PM tool's task window. **Start** on code work
+opens a draft with the same brief the PM tool's "Start in Teqneo Code" writes,
+its `PM-Task:` line included, so the pull request's merge proposes closing the
+task on `/approvals`. **Ask** on a task meant for a hub agent opens a draft
+that hands the task to that agent through the hub; what the agent wants to
+write waits for approval, and the draft tells the thread not to approve for
+the person. The page only reads the board: a task's status is changed in the
+PM tool, or by the agent in the thread when asked.
+
+**Meetings** shows what the Secretary proposed from recent meetings, one block
+per run: each change to the board, whether it still waits, and the agent its
+task is meant for. A waiting change is approved or rejected in place; one
+already made can be started from there.
 
 The page reads through Teqneo Code's own server, which calls the hub as the
 person with their hub credential (`HUB_TOKEN`, or the `ai-hub` connection
-Claude Code already holds): `hub_team_overview` for the agents and
-approvals, `hub_team_projects` and `hub_team_tasks` for the board. The two
-board tools read through the hub's read-only PM-tool connection, as
-`hub_team_board` does. The hub's pass-through of the PM tool itself
-(`pm_*`) is only for a person signed in through the browser, whose own
-token it forwards; a hub credential has none to forward, so it is not used
-here.
+Claude Code already holds):
+
+| Tool | Gives |
+|---|---|
+| `hub_team_overview` | the agents, and the approvals waiting |
+| `hub_team_projects`, `hub_team_tasks` | the board, through the hub's read-only PM-tool connection, as `hub_team_board` reads it |
+| `hub_team_meetings` | the Secretary's held writes, grouped by run |
+| `hub_decide_proposal` | approve or reject one |
+
+`hub_team_meetings` shows a person what `hub_list_proposals` would: the
+writes they may decide, all of them for an admin. It never returns a run's
+prompt (the transcript), and a run that read confidential material keeps its
+arguments and result in the hub ([sensitivity.md](sensitivity.md)); the page
+then shows only the reason. The hub's pass-through of the PM tool itself
+(`pm_*`) is only for a person signed in through the browser, whose own token
+it forwards; a hub credential has none to forward, so it is not used here.
 
 ## The hub, inside Teqneo Code
 

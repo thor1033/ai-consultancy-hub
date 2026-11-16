@@ -104,16 +104,35 @@ the field; assign one only when the meeting says who is doing it.
 ### Field values
 
     status   backlog | inprogress | done     (default: backlog)
-    dates    start, end — ISO YYYY-MM-DD`;
+    dates    start, end — ISO YYYY-MM-DD
+
+### Agent — who should do the work, when it is an agent
+
+\`pm_create_task\` and \`pm_update_task\` take \`agent\`: the slug of the hub
+agent a task is meant for, or \`code\`. Teqneo Code arranges the board by it, so
+a person sees which agent picks up what.
+
+    code                 building or changing software in a repository
+    project-manager      planning, status, scheduling, chasing the board
+    product-owner-hub    what the AI Hub should do: scope, backlog, release notes
+    product-owner-atlas  the same, for Atlas
+    context-steward      correcting or recording what the firm knows
+    secretary            a record, a follow-up, a meeting to prepare
+
+Set it on a task you create when the work plainly fits one row; an agent the
+meeting names by its slug counts too. Leave it out when the work is a person's
+(a call, a signature, a decision) or when you cannot tell: no agent is normal,
+and a wrong one sends the work to the wrong place. The agent is not the owner.
+The owner is the person answerable; a task can have both.`;
 
 const PM_TOOL_REFERENCE = `${BOARD_FACTS}
 
 ### What the write surface can and cannot change
 
 Writable by a person holding a write credential: a new task
-(\`pm_create_task\` — title, description, track, milestoneId, owner, start, end,
-status), a task's status/dates/owner/title/description or its milestone
-(\`pm_update_task\`), and a note (\`pm_add_note\`).
+(\`pm_create_task\` — title, description, track, milestoneId, owner, agent,
+start, end, status), a task's status/dates/owner/agent/title/description or its
+milestone (\`pm_update_task\`), and a note (\`pm_add_note\`).
 
 NOT writable at all, and therefore \`manual\` rows with \`"call": null\`:
 
@@ -449,7 +468,9 @@ what lasts: the task's description or the note.
 
 - a task the meeting moved, re-dated, re-owned or finished → \`pm_update_task\`;
 - something genuinely new that the meeting committed to → \`pm_create_task\`,
-  status \`backlog\`, after checking the existing titles;
+  status \`backlog\`, after checking the existing titles. Give it its \`agent\`
+  when the work plainly fits one (the table in your board memory: \`code\` for
+  software, an agent's slug otherwise), so the team sees who picks it up;
 - what the meeting decided that no tool can change (a milestone's date, a
   track, a risk), and every item you could not resolve → ONE \`pm_add_note\` for
   the meeting, headed with its date, listing each as "manual" or "confirm"
@@ -469,7 +490,8 @@ Rules without exception, the same as for a change set:
 2. **Never mark a task done** unless someone said it is done. "Nearly there"
    is not done.
 3. **Never invent a date or an owner.** A vague date goes in the note as
-   "confirm", never rounded to a day.
+   "confirm", never rounded to a day. The same for an agent: no clear fit, no
+   agent.
 4. **No duplicates.** Not certain a task is new → the note, naming the task it
    might duplicate.
 5. **Summaries in English, quotes verbatim in the original.**

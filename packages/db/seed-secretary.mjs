@@ -42,7 +42,7 @@ function check(label, ok, detail = "") {
   console.log(`${ok ? "ok  " : "FAIL"}  ${label}${detail ? ` — ${detail}` : ""}`);
 }
 
-const { SECRETARY_AGENT, SECRETARY_SKILLS, SECRETARY_MEMORIES, PM_TOOL_SERVER, TEAMS_SERVER, TEAMS_NOTES_SERVER, FOLLOWUP_LEDGER_KEY } =
+const { SECRETARY_AGENT, SECRETARY_SKILLS, SECRETARY_MEMORIES, PM_TOOL_SERVER, TEAMS_SERVER, TEAMS_NOTES_SERVER, FOLLOWUP_LEDGER_KEY, BOARD_FACTS } =
   await import("./src/seeds/secretary.ts");
 
 // The real filler the hub will use on this template, imported rather than
@@ -93,6 +93,8 @@ check("the follow-up keeps a ledger so an hourly run never proposes a change twi
 check("the follow-up waits 45 minutes after a meeting ends", /at least 45 minutes ago/.test(followup.promptTemplate));
 check("an empty hour costs nothing: no memory write, no other tool", /Write no memory and call\nno other tool/.test(followup.promptTemplate));
 check("the follow-up says every write is held, and proposes through the tools", /each call is held for approval/.test(followup.promptTemplate) && /pm_update_task/.test(followup.promptTemplate) && /teams_notes_save/.test(followup.promptTemplate));
+check("the Secretary knows the agents a task can be meant for, and that none is normal", /product-owner-atlas/.test(BOARD_FACTS) && /^    code  /m.test(BOARD_FACTS) && /no agent is normal/.test(BOARD_FACTS));
+check("the follow-up gives a new task its agent only on a clear fit", /Give it its \`agent\`/.test(followup.promptTemplate) && /no clear fit, no\n   agent/.test(followup.promptTemplate));
 check("the follow-up never marks done, never invents a date or an owner", /Never mark a task done/.test(followup.promptTemplate) && /Never invent a date or an owner/.test(followup.promptTemplate));
 check("the change set still calls no write tool: that path is reviewed in Claude Code", /call no write tool in this\nskill/.test(skill.promptTemplate));
 check(

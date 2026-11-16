@@ -42,6 +42,8 @@ export interface OpenTask {
   end: string | null;
   overdue: boolean;
   description: string | null;
+  /** The agent the task is meant for: a hub agent's slug, or "code"; null when it is a person's. */
+  agent: string | null;
 }
 
 /** A description longer than this is cut: the list is for choosing a task, the PM tool has the rest. */
@@ -63,12 +65,112 @@ export function openTasks(tasks: ReadonlyArray<Record<string, unknown>>): OpenTa
         owner: str(t.owner)?.trim() ?? null,
         end: str(t.end),
         overdue: Boolean(t.overdue),
+        agent: str(t.agent)?.trim().toLowerCase() ?? null,
         description:
           description && description.length > TASK_DESCRIPTION_MAX
             ? `${description.slice(0, TASK_DESCRIPTION_MAX)}\n[shortened; the PM tool has the full task]`
             : description,
       };
     });
+}
+
+/** One held write as the meeting view reads it: what a proposal row gives, and nothing about the run's prompt. */
+export interface MeetingProposal {
+  id: string;
+  runId: string | null;
+  runAt: string | null;
+  createdAt: string;
+  tool: string;
+  status: string;
+  reason: string | null;
+  error: string | null;
+  result: string | null;
+  /** Null when the run read confidential material: its arguments stay in the hub. */
+  args: Record<string, unknown> | null;
+}
+
+export interface MeetingChange {
+  proposal: string;
+  kind: "create" | "update" | "note" | "other";
+  status: string;
+  /** What it is about, in the task's or note's own words; null when the arguments stay in the hub. */
+  title: string | null;
+  taskId: string | null;
+  projectId: string | null;
+  agent: string | null;
+  owner: string | null;
+  reason: string | null;
+  error: string | null;
+}
+
+export interface Meeting {
+  run: string;
+  at: string;
+  title: string | null;
+  waiting: number;
+  changes: MeetingChange[];
+}
+
+const KIND_OF_TOOL: Record<string, MeetingChange["kind"]> = {
+  pm_create_task: "create",
+  pm_update_task: "update",
+  pm_add_note: "note",
+  teams_notes_save: "note",
+};
+
+/** The id of the task a create made, from the PM tool's answer; null when it is not there to read. */
+function createdTaskId(result: string | null): string | null {
+  if (!result) return null;
+  try {
+    const row = JSON.parse(result) as { id?: unknown };
+    return typeof row?.id === "string" ? row.id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The Secretary's held writes as meetings: one per run, newest first, each
+ * with the changes it proposed (waiting first) and how many still wait. A
+ * meeting's title is its saved note's, when the run wrote one. Pure, for the
+ * verify script.
+ */
+export function meetingsFrom(rows: ReadonlyArray<MeetingProposal>): Meeting[] {
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim() : null);
+  const runs = new Map<string, MeetingProposal[]>();
+  for (const row of rows) {
+    const key = row.runId ?? row.id;
+    runs.set(key, [...(runs.get(key) ?? []), row]);
+  }
+  return [...runs.entries()]
+    .map(([run, list]) => {
+      const note = list.find((p) => p.tool === "teams_notes_save") ?? list.find((p) => p.tool === "pm_add_note");
+      const changes = list
+        .map((p): MeetingChange => {
+          const kind = KIND_OF_TOOL[p.tool] ?? "other";
+          return {
+            proposal: p.id,
+            kind,
+            status: p.status,
+            title: str(p.args?.title) ?? str(p.args?.subject),
+            taskId: str(p.args?.taskId) ?? (kind === "create" ? createdTaskId(p.result) : null),
+            projectId: str(p.args?.projectId),
+            agent: str(p.args?.agent)?.toLowerCase() ?? null,
+            owner: str(p.args?.owner),
+            reason: p.reason,
+            error: p.error,
+          };
+        })
+        .sort((a, b) => Number(b.status === "pending") - Number(a.status === "pending"));
+      return {
+        run,
+        at: list[0]!.runAt ?? list.map((p) => p.createdAt).sort()[0]!,
+        title: str(note?.args?.title) ?? str(note?.args?.subject),
+        waiting: changes.filter((c) => c.status === "pending").length,
+        changes,
+      };
+    })
+    .sort((a, b) => b.at.localeCompare(a.at));
 }
 
 /** The PM tool's projects as a picker needs them: id, name, open count; most recently touched first, as given. */

@@ -8,10 +8,11 @@
  *   hub_team_board .......... the open work on the PM board, per person
  *   hub_team_projects ....... the PM tool's projects, to choose one
  *   hub_team_tasks .......... one project's open tasks, to pick one up
+ *   hub_team_meetings ....... what the Secretary proposed from recent meetings
  *   hub_schedule_create ..... set an agent to run on a clock, owned by the caller
  *   hub_schedule_set_enabled  pause or resume one's own schedule (or any, as admin)
  *
- * Nothing here widens what a person may do. All six need agent:run, the same
+ * Nothing here widens what a person may do. All seven need agent:run, the same
  * as the agent pages they mirror. The board is read through the hub's own
  * read-only PM-tool connection, which any agent:run caller already reaches by
  * asking the Project Manager. Team-wide approval counts are an admin's view;
@@ -35,12 +36,15 @@ import { connectMcpServers, type ConnectedMcp } from "@ai-hub/mcp";
 import { mayDecide } from "@/lib/approvals";
 import { resolveServer } from "@/lib/runSession";
 import { createScheduleFor, pauseOrResumeSchedule, scheduleChangeableBy } from "@/lib/scheduleRules";
-import { connectionsKeptInside } from "@/lib/sensitivity";
-import { boardByOwner, describeSchedule, openTasks, projectChoices } from "@/lib/teamView";
+import { connectionsKeptInside, mayLeave } from "@/lib/sensitivity";
+import { boardByOwner, describeSchedule, meetingsFrom, openTasks, projectChoices } from "@/lib/teamView";
 import { text } from "@/lib/mcp/memoryTools";
 
 /** The board the team view reads: a deployment's own (HUB_BOARD_PROJECT_ID), else the company's. */
 const boardProject = () => process.env.HUB_BOARD_PROJECT_ID?.trim() || COMPANY_BOARD_PROJECT_ID;
+
+/** The agent whose runs are meetings: it reads the transcripts and proposes what they changed. */
+const MEETING_AGENT = "secretary";
 
 /** The hub's read-scoped PM-tool connection, the one the product owners hold. */
 const PM_READ_SERVER = "pm-tool-read";
@@ -209,6 +213,47 @@ export function registerTeamTools(server: McpServer, principal: Principal): void
       if (!read.ok) return text(read.why);
       const parsed = read.data as { tasks?: Record<string, unknown>[] };
       return text({ projectId: id, tasks: openTasks(parsed.tasks ?? []) });
+    },
+  );
+
+  server.registerTool(
+    "hub_team_meetings",
+    {
+      description:
+        "What the Secretary proposed from recent meetings, one entry per meeting, newest first: each change to the board " +
+        "(a task created or updated, a note), whether it still waits for approval, and the agent a task is meant for. " +
+        "Yours: the ones you may decide (all of them, for an admin). Decide one with hub_decide_proposal.",
+      inputSchema: {
+        days: z.number().int().min(1).max(60).optional().describe("How far back to look. Default 14."),
+      },
+    },
+    async ({ days }) => {
+      if (!(await may("agent:run"))) return notAllowed();
+      const secretary = await getAgent(MEETING_AGENT);
+      if (!secretary) return text(`This hub has no "${MEETING_AGENT}" agent, so there are no meetings to show.`);
+      const admin = await may("admin:manage");
+      // The same reach as hub_list_proposals: a person's own runs and what was sent to them.
+      const rows = await listProposals({ agentId: secretary.id, ...(admin ? {} : { visibleTo: principal.id }), limit: 500 });
+      const since = Date.now() - (days ?? 14) * 86_400_000;
+      const recent = rows.filter((p) => new Date(p.runAt ?? p.createdAt).getTime() >= since);
+      return text({
+        days: days ?? 14,
+        meetings: meetingsFrom(
+          recent.map((p) => ({
+            id: p.id,
+            runId: p.runId,
+            runAt: p.runAt,
+            createdAt: p.createdAt,
+            tool: p.tool,
+            status: p.status,
+            reason: p.reason,
+            error: p.error,
+            // A run that read confidential material keeps its arguments and result in the hub (docs/sensitivity.md).
+            args: mayLeave(p.runSensitivity) ? p.args : null,
+            result: mayLeave(p.runSensitivity) ? p.result : null,
+          })),
+        ),
+      });
     },
   );
 

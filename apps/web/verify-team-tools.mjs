@@ -11,7 +11,7 @@
 // read-only PM-tool connection. Not proven here: the tools against a real
 // database and board, which need DATABASE_URL and the PM tool.
 import { readFileSync } from "node:fs";
-import { TASK_DESCRIPTION_MAX, boardByOwner, describeSchedule, openTasks, projectChoices } from "./src/lib/teamView.ts";
+import { TASK_DESCRIPTION_MAX, boardByOwner, describeSchedule, meetingsFrom, openTasks, projectChoices } from "./src/lib/teamView.ts";
 
 const checks = [];
 function check(label, ok, detail = "") {
@@ -53,6 +53,29 @@ const choices = projectChoices([{ id: "p1", name: "Client", taskCount: 10, doneC
 check("projects keep their order, with open counts", choices.length === 2 && choices[0].open === 6 && choices[1].name === "p2" && choices[1].open === 0);
 check("anything but a list is no projects", projectChoices("No projects.").length === 0 && projectChoices(null).length === 0);
 
+check("a task carries its agent, lower-cased; none is null", openTasks([{ id: "a", agent: " Code " }, { id: "b" }]).map((t) => t.agent).join() === "code,");
+
+console.log("\n— meetings: the Secretary's held writes, per run —");
+const held = (over) => ({ id: "p", runId: "r1", runAt: "2026-11-14T10:00:00Z", createdAt: "2026-11-14T10:05:00Z", tool: "pm_update_task", status: "pending", reason: null, error: null, result: null, args: {}, ...over });
+const meetings = meetingsFrom([
+  held({ id: "p1", tool: "pm_create_task", status: "executed", args: { projectId: "proj", title: "Build export", agent: "Code", owner: "Thor" }, result: JSON.stringify({ id: "t9" }) }),
+  held({ id: "p2", args: { projectId: "proj", taskId: "t1", status: "done" }, reason: "Said done at 00:31" }),
+  held({ id: "p3", tool: "teams_notes_save", args: { title: "Weekly, 14 Nov" } }),
+  held({ id: "p4", runId: "r2", runAt: "2026-11-15T09:00:00Z", tool: "pm_add_note", status: "rejected", args: { title: "Board review" } }),
+  held({ id: "p5", runId: "r3", runAt: "2026-11-10T09:00:00Z", args: null, reason: "Kept inside" }),
+  held({ id: "p6", runId: null, runAt: null, createdAt: "2026-11-01T09:00:00Z", tool: "pm_create_task", status: "failed", error: "No track", result: "not json" }),
+]);
+check("one meeting per run, newest first; a write without a run stands alone", meetings.map((m) => m.run).join() === "r2,r1,r3,p6");
+const weekly = meetings.find((m) => m.run === "r1");
+check("a meeting is titled by its saved note", weekly.title === "Weekly, 14 Nov" && meetings[0].title === "Board review");
+check("it counts what still waits, and lists that first", weekly.waiting === 2 && weekly.changes[0].status === "pending" && weekly.changes.at(-1).proposal === "p1");
+const made = weekly.changes.find((c) => c.proposal === "p1");
+check("a created task is found by the id the PM tool answered", made.kind === "create" && made.taskId === "t9" && made.agent === "code" && made.owner === "Thor");
+check("an update names its task; its reason is kept", weekly.changes.find((c) => c.proposal === "p2").taskId === "t1" && weekly.changes.find((c) => c.proposal === "p2").reason === "Said done at 00:31");
+const kept = meetings.find((m) => m.run === "r3").changes[0];
+check("arguments kept inside the hub give no title, task or agent", kept.title === null && kept.taskId === null && kept.agent === null && kept.reason === "Kept inside");
+check("a failed create with an unreadable answer has no task id, and keeps its error", meetings.at(-1).changes[0].taskId === null && meetings.at(-1).changes[0].error === "No track");
+
 console.log("\n— schedules, as a person reads them —");
 const base = { intervalMinutes: null, atMinute: null, weekdays: [], timezone: "Europe/Copenhagen" };
 check("every 30 min", describeSchedule({ ...base, kind: "every", intervalMinutes: 30 }) === "every 30 min");
@@ -64,14 +87,17 @@ check("named days", describeSchedule({ ...base, kind: "daily", atMinute: 0, week
 console.log("\n— what the tools may not do —");
 const src = readFileSync(new URL("./src/lib/mcp/teamTools.ts", import.meta.url), "utf8");
 const toolBodies = src.split("server.registerTool(").slice(1);
-check("six tools", toolBodies.length === 6);
+check("seven tools", toolBodies.length === 7);
 check("every tool checks agent:run first", toolBodies.every((b) => /if \(!\(await may\("agent:run"\)\)\) return notAllowed\(\);/.test(b)));
 check("team-wide approval counts only for an admin", /if \(!admin\) continue;/.test(src) && /\.\.\.\(admin\s*\?\s*\{ waitingOn/.test(src));
 check("non-admins list only proposals visible to them", /visibleTo: principal\.id/.test(src));
 check("the board is read through the read-only PM connection", /PM_READ_SERVER = "pm-tool-read"/.test(src) && !/"pm-tool"[^-]/.test(src));
 check("and only through the one guarded read", (src.match(/mcp\.execute\(/g) ?? []).length === 1 && /async function readPm\(tool: "pm_list_tasks" \| "pm_list_projects"/.test(src));
 check("a PM connection labelled above internal is not read from outside", /\(await connectionsKeptInside\(\)\)\.has\(PM_READ_SERVER\)/.test(src));
-check("no tool here writes to the PM tool", !/pm_(update|create|add)_/.test(src));
+check("no tool here writes to the PM tool", !/execute\("pm_(update|create|add)_/.test(src) && /readPm\(tool: "pm_list_tasks" \| "pm_list_projects"/.test(src));
+check("meetings show only what the caller may decide, unless an admin", /agentId: secretary\.id, \.\.\.\(admin \? \{\} : \{ visibleTo: principal\.id \}\)/.test(src));
+check("a confidential run\'s arguments and result stay in the hub", /args: mayLeave\(p\.runSensitivity\) \? p\.args : null/.test(src) && /result: mayLeave\(p\.runSensitivity\) \? p\.result : null/.test(src));
+check("the meeting view never returns a run\'s prompt", !/runPrompt/.test(src));
 check("schedules use the page's rules, not a copy", /createScheduleFor\(principal\.id/.test(src) && /scheduleChangeableBy\(principal\.id/.test(src));
 check("an agent's own credential cannot own a schedule", /principal\.agentId\) return text\(/.test(src));
 const hub = readFileSync(new URL("./src/lib/mcp/hubServer.ts", import.meta.url), "utf8");
