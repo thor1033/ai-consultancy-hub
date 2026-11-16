@@ -87,14 +87,20 @@ Teqneo Code opens on **Work**: the open tasks on a PM-tool project (the
 person's own, or everyone's), and the hub's agents. **Start** on a task opens a
 draft with the same brief the PM tool's "Start in Teqneo Code" writes, its
 `PM-Task:` line included, so the pull request's merge proposes closing the
-task on `/approvals`. A task's status can be changed from the page, as the
-person, through the hub. **Ask** on an agent opens a draft that calls it. The
-approvals waiting for the person link to the app's Hub page.
+task on `/approvals`. The page only reads the board; a task's status is
+changed in the PM tool, or by the agent in the thread when asked. **Ask** on
+an agent opens a draft that calls it. The approvals waiting for the person
+link to the app's Hub page.
 
 The page reads through Teqneo Code's own server, which calls the hub as the
-person with their `HUB_TOKEN`: `hub_team_overview` for the agents and
-approvals, and the PM tool as the hub serves it (`pm_list_projects`,
-`pm_list_tasks`, `pm_update_task`).
+person with their hub credential (`HUB_TOKEN`, or the `ai-hub` connection
+Claude Code already holds): `hub_team_overview` for the agents and
+approvals, `hub_team_projects` and `hub_team_tasks` for the board. The two
+board tools read through the hub's read-only PM-tool connection, as
+`hub_team_board` does. The hub's pass-through of the PM tool itself
+(`pm_*`) is only for a person signed in through the browser, whose own
+token it forwards; a hub credential has none to forward, so it is not used
+here.
 
 ## The hub, inside Teqneo Code
 

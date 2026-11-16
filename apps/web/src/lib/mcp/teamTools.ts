@@ -6,10 +6,12 @@
  *                             each runs, who decides its writes, its skills and
  *                             schedules; and what is waiting on whom
  *   hub_team_board .......... the open work on the PM board, per person
+ *   hub_team_projects ....... the PM tool's projects, to choose one
+ *   hub_team_tasks .......... one project's open tasks, to pick one up
  *   hub_schedule_create ..... set an agent to run on a clock, owned by the caller
  *   hub_schedule_set_enabled  pause or resume one's own schedule (or any, as admin)
  *
- * Nothing here widens what a person may do. All four need agent:run, the same
+ * Nothing here widens what a person may do. All six need agent:run, the same
  * as the agent pages they mirror. The board is read through the hub's own
  * read-only PM-tool connection, which any agent:run caller already reaches by
  * asking the Project Manager. Team-wide approval counts are an admin's view;
@@ -33,7 +35,8 @@ import { connectMcpServers, type ConnectedMcp } from "@ai-hub/mcp";
 import { mayDecide } from "@/lib/approvals";
 import { resolveServer } from "@/lib/runSession";
 import { createScheduleFor, pauseOrResumeSchedule, scheduleChangeableBy } from "@/lib/scheduleRules";
-import { boardByOwner, describeSchedule } from "@/lib/teamView";
+import { connectionsKeptInside } from "@/lib/sensitivity";
+import { boardByOwner, describeSchedule, openTasks, projectChoices } from "@/lib/teamView";
 import { text } from "@/lib/mcp/memoryTools";
 
 /** The board the team view reads: a deployment's own (HUB_BOARD_PROJECT_ID), else the company's. */
@@ -46,6 +49,31 @@ const toolNameFor = (slug: string) => `hub_agent_${slug.replace(/-/g, "_")}`;
 
 function nameOf(row: PrincipalRow | undefined, fallback: string): string {
   return row?.displayName?.trim() || row?.email || fallback;
+}
+
+/**
+ * One read of the PM tool through the hub's read-only connection, for the
+ * three tools that show the board. Fails closed, in words: not declared, or
+ * labelled above internal (docs/sensitivity.md: such a connection is not
+ * handed to a client outside the hub), or the PM tool's own refusal.
+ */
+async function readPm(tool: "pm_list_tasks" | "pm_list_projects", args: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; why: string }> {
+  const config = resolveServer(PM_READ_SERVER);
+  if (!config) return { ok: false, why: `The PM board is not connected to this hub ("${PM_READ_SERVER}" is not declared).` };
+  if ((await connectionsKeptInside()).has(PM_READ_SERVER)) {
+    return { ok: false, why: "The PM board is labelled confidential on this hub, so it is read in the hub, not from here." };
+  }
+  let mcp: ConnectedMcp | undefined;
+  try {
+    mcp = await connectMcpServers([config]);
+    const out = await mcp.execute(tool, args);
+    if (out.startsWith("Tool error:") || out.startsWith("Error:")) return { ok: false, why: `The PM board answered: ${out}` };
+    return { ok: true, data: JSON.parse(out) as unknown };
+  } catch (err) {
+    return { ok: false, why: `Could not read the PM board: ${err instanceof Error ? err.message : String(err)}` };
+  } finally {
+    await mcp?.close().catch(() => {});
+  }
 }
 
 export function registerTeamTools(server: McpServer, principal: Principal): void {
@@ -141,20 +169,46 @@ export function registerTeamTools(server: McpServer, principal: Principal): void
     },
     async ({ projectId }) => {
       if (!(await may("agent:run"))) return notAllowed();
-      const config = resolveServer(PM_READ_SERVER);
-      if (!config) return text(`The PM board is not connected to this hub ("${PM_READ_SERVER}" is not declared).`);
-      let mcp: ConnectedMcp | undefined;
-      try {
-        mcp = await connectMcpServers([config]);
-        const out = await mcp.execute("pm_list_tasks", { projectId: projectId ?? boardProject() });
-        if (out.startsWith("Tool error:") || out.startsWith("Error:")) return text(`The PM board answered: ${out}`);
-        const parsed = JSON.parse(out) as { tasks?: Parameters<typeof boardByOwner>[0] };
-        return text({ projectId: projectId ?? boardProject(), people: boardByOwner(parsed.tasks ?? []) });
-      } catch (err) {
-        return text(`Could not read the PM board: ${err instanceof Error ? err.message : String(err)}`);
-      } finally {
-        await mcp?.close().catch(() => {});
-      }
+      const read = await readPm("pm_list_tasks", { projectId: projectId ?? boardProject() });
+      if (!read.ok) return text(read.why);
+      const parsed = read.data as { tasks?: Parameters<typeof boardByOwner>[0] };
+      return text({ projectId: projectId ?? boardProject(), people: boardByOwner(parsed.tasks ?? []) });
+    },
+  );
+
+  server.registerTool(
+    "hub_team_projects",
+    {
+      description:
+        "The PM tool's projects, most recently touched first: id, name and how many tasks are open. " +
+        "Read through the hub's read-only PM-tool connection. Use an id with hub_team_tasks.",
+      inputSchema: {},
+    },
+    async () => {
+      if (!(await may("agent:run"))) return notAllowed();
+      const read = await readPm("pm_list_projects", {});
+      if (!read.ok) return text(read.why);
+      return text({ board: boardProject(), projects: projectChoices(read.data) });
+    },
+  );
+
+  server.registerTool(
+    "hub_team_tasks",
+    {
+      description:
+        "One PM project's open tasks, each with its id, track, owner, due date and description: what a person needs to pick one up. " +
+        "Read through the hub's read-only PM-tool connection; it changes nothing.",
+      inputSchema: {
+        projectId: z.string().optional().describe("PM project id, from hub_team_projects. Default: the company's own board."),
+      },
+    },
+    async ({ projectId }) => {
+      if (!(await may("agent:run"))) return notAllowed();
+      const id = projectId ?? boardProject();
+      const read = await readPm("pm_list_tasks", { projectId: id });
+      if (!read.ok) return text(read.why);
+      const parsed = read.data as { tasks?: Record<string, unknown>[] };
+      return text({ projectId: id, tasks: openTasks(parsed.tasks ?? []) });
     },
   );
 

@@ -31,6 +31,58 @@ export function describeSchedule(s: ScheduleTiming): string {
   return `${when} ${time} (${s.timezone})`;
 }
 
+/** One open task as a client outside the hub lists it (Teqneo Code's Work page). */
+export interface OpenTask {
+  id: string;
+  title: string;
+  status: string;
+  track: string | null;
+  priority: boolean;
+  owner: string | null;
+  end: string | null;
+  overdue: boolean;
+  description: string | null;
+}
+
+/** A description longer than this is cut: the list is for choosing a task, the PM tool has the rest. */
+export const TASK_DESCRIPTION_MAX = 4000;
+
+/** The tasks not yet done, with what a person needs to pick one up. Pure, for the verify script. */
+export function openTasks(tasks: ReadonlyArray<Record<string, unknown>>): OpenTask[] {
+  const str = (v: unknown) => (typeof v === "string" && v.trim() ? v : null);
+  return tasks
+    .filter((t) => str(t.id) && t.status !== "done")
+    .map((t) => {
+      const description = str(t.description);
+      return {
+        id: String(t.id),
+        title: str(t.title) ?? "(untitled)",
+        status: str(t.status) ?? "backlog",
+        track: str(t.track),
+        priority: Boolean(t.priority),
+        owner: str(t.owner)?.trim() ?? null,
+        end: str(t.end),
+        overdue: Boolean(t.overdue),
+        description:
+          description && description.length > TASK_DESCRIPTION_MAX
+            ? `${description.slice(0, TASK_DESCRIPTION_MAX)}\n[shortened; the PM tool has the full task]`
+            : description,
+      };
+    });
+}
+
+/** The PM tool's projects as a picker needs them: id, name, open count; most recently touched first, as given. */
+export function projectChoices(projects: unknown): { id: string; name: string; open: number }[] {
+  if (!Array.isArray(projects)) return [];
+  return projects
+    .filter((p): p is Record<string, unknown> => Boolean(p) && typeof p === "object" && typeof (p as { id?: unknown }).id === "string")
+    .map((p) => ({
+      id: String(p.id),
+      name: typeof p.name === "string" && p.name.trim() ? p.name : String(p.id),
+      open: Math.max(0, Number(p.taskCount ?? 0) - Number(p.doneCount ?? 0)) || 0,
+    }));
+}
+
 /** Open PM tasks per owner, from the board's task list. Pure, for the verify script. */
 export function boardByOwner(
   tasks: ReadonlyArray<{
