@@ -102,3 +102,24 @@ Master makes each epic a PM-tool milestone (`pm_create_milestone`) and each
 story a task under it; the Dev's pull request carries `PM-Task:`, so its merge
 proposes closing the task on `/approvals`. Documents reach the knowledge base
 once pushed, through the GitHub source for the repository's `docs/`.
+
+## The hub, inside Teqneo Code
+
+The **Hub** page (the people icon in Teqneo Code's sidebar footer) gives the
+overview the hub's own pages give, as the person, from inside the code:
+
+| Tab | What | Acts |
+|---|---|---|
+| Agents | the org chart by function: each agent's owner, where it runs (hub, Claude Code, both), who decides its writes, skills, schedules | **Call** opens a draft that asks it through the hub |
+| Approvals | the writes waiting for you | Approve, Reject |
+| Schedules | every agent's schedules, yours first | pause and resume yours; set an agent on a clock |
+| Team | each person's open PM work (late first), what waits on whom (admins), who owns which agents | |
+
+It reads the hub's team tools (`lib/mcp/teamTools.ts`: `hub_team_overview`,
+`hub_team_board`, `hub_schedule_create`, `hub_schedule_set_enabled`) plus
+`hub_list_proposals` and `hub_decide_proposal`, through one route on Teqneo
+Code's own server (`POST /api/teqneo/hub`) that adds the person's hub
+credential: `HUB_TOKEN`, which the setup script stores in
+`~/.claude/settings.json`. The browser never holds it, the route passes only
+those six tools, and the hub decides what the credential may see and do.
+Without a credential the page says to run the setup.
