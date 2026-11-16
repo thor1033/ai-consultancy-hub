@@ -37,7 +37,7 @@ import { mayDecide } from "@/lib/approvals";
 import { resolveServer } from "@/lib/runSession";
 import { createScheduleFor, pauseOrResumeSchedule, scheduleChangeableBy } from "@/lib/scheduleRules";
 import { connectionsKeptInside, mayLeave } from "@/lib/sensitivity";
-import { boardByOwner, describeSchedule, meetingsFrom, openTasks, projectChoices } from "@/lib/teamView";
+import { boardByOwner, describeSchedule, meetingsFrom, openTasks, projectChoices, withTrackNames } from "@/lib/teamView";
 import { text } from "@/lib/mcp/memoryTools";
 
 /** The board the team view reads: a deployment's own (HUB_BOARD_PROJECT_ID), else the company's. */
@@ -61,7 +61,7 @@ function nameOf(row: PrincipalRow | undefined, fallback: string): string {
  * labelled above internal (docs/sensitivity.md: such a connection is not
  * handed to a client outside the hub), or the PM tool's own refusal.
  */
-async function readPm(tool: "pm_list_tasks" | "pm_list_projects", args: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; why: string }> {
+async function readPm(tool: "pm_list_tasks" | "pm_list_projects" | "pm_get_project", args: Record<string, unknown>): Promise<{ ok: true; data: unknown } | { ok: false; why: string }> {
   const config = resolveServer(PM_READ_SERVER);
   if (!config) return { ok: false, why: `The PM board is not connected to this hub ("${PM_READ_SERVER}" is not declared).` };
   if ((await connectionsKeptInside()).has(PM_READ_SERVER)) {
@@ -209,10 +209,15 @@ export function registerTeamTools(server: McpServer, principal: Principal): void
     async ({ projectId }) => {
       if (!(await may("agent:run"))) return notAllowed();
       const id = projectId ?? boardProject();
-      const read = await readPm("pm_list_tasks", { projectId: id });
+      // The track names are a second read. Without them the list still answers, with the ids.
+      const [read, project] = await Promise.all([
+        readPm("pm_list_tasks", { projectId: id }),
+        readPm("pm_get_project", { projectId: id, sections: ["tracks"] }),
+      ]);
       if (!read.ok) return text(read.why);
       const parsed = read.data as { tasks?: Record<string, unknown>[] };
-      return text({ projectId: id, tasks: openTasks(parsed.tasks ?? []) });
+      const tracks = project.ok ? (project.data as { tracks?: unknown }).tracks : [];
+      return text({ projectId: id, tasks: openTasks(withTrackNames(parsed.tasks ?? [], tracks)) });
     },
   );
 

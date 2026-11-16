@@ -11,7 +11,7 @@
 // read-only PM-tool connection. Not proven here: the tools against a real
 // database and board, which need DATABASE_URL and the PM tool.
 import { readFileSync } from "node:fs";
-import { TASK_DESCRIPTION_MAX, boardByOwner, describeSchedule, meetingsFrom, openTasks, projectChoices } from "./src/lib/teamView.ts";
+import { TASK_DESCRIPTION_MAX, boardByOwner, describeSchedule, meetingsFrom, openTasks, projectChoices, withTrackNames } from "./src/lib/teamView.ts";
 
 const checks = [];
 function check(label, ok, detail = "") {
@@ -53,6 +53,9 @@ const choices = projectChoices([{ id: "p1", name: "Client", taskCount: 10, doneC
 check("projects keep their order, with open counts", choices.length === 2 && choices[0].open === 6 && choices[1].name === "p2" && choices[1].open === 0);
 check("anything but a list is no projects", projectChoices("No projects.").length === 0 && projectChoices(null).length === 0);
 
+const named = withTrackNames([{ id: "a", track: "ct_1" }, { id: "b", track: "ct_gone" }, { id: "c" }], [{ id: "ct_1", label: " Sales " }, { id: "ct_2" }, null]);
+check("a task shows its track by name; an unknown track keeps its id", named.map((t) => t.track ?? "-").join() === "Sales,ct_gone,-");
+check("no track list at all leaves the tasks as they were", withTrackNames([{ id: "a", track: "ct_1" }], undefined)[0].track === "ct_1");
 check("a task carries its agent, lower-cased; none is null", openTasks([{ id: "a", agent: " Code " }, { id: "b" }]).map((t) => t.agent).join() === "code,");
 
 console.log("\n— meetings: the Secretary's held writes, per run —");

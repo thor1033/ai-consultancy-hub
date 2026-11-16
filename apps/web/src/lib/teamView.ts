@@ -218,3 +218,21 @@ export function boardByOwner(
     .sort((a, b) => (a.owner === "Unassigned" ? 1 : b.owner === "Unassigned" ? -1 : b.open - a.open));
 }
 
+/**
+ * The PM tool's tasks with each track's name in place of its id ("ct_m02eqk1"
+ * means nothing to a person). A track the list does not know keeps its id:
+ * an odd label is better than a task that vanishes. Pure, for the verify script.
+ */
+export function withTrackNames(
+  tasks: ReadonlyArray<Record<string, unknown>>,
+  tracks: unknown,
+): Record<string, unknown>[] {
+  const names = new Map<string, string>();
+  for (const t of Array.isArray(tracks) ? tracks : []) {
+    const row = t as { id?: unknown; label?: unknown } | null;
+    if (typeof row?.id === "string" && typeof row.label === "string" && row.label.trim()) {
+      names.set(row.id, row.label.trim());
+    }
+  }
+  return tasks.map((t) => (typeof t.track === "string" && names.has(t.track) ? { ...t, track: names.get(t.track) } : { ...t }));
+}
