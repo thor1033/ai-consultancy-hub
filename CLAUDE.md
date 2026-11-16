@@ -20,7 +20,7 @@ npm-workspaces + Turborepo monorepo, TypeScript throughout:
   agents, `src/patterns/*`), hand-off rows and the SKILL.md parser live here too (docs/agent-patterns.md,
   docs/skill-import.md).
   Agents that live in code are seeded from `src/seeds/*` (`seed:secretary`, `seed:product-owner`,
-  `seed:project-manager`, `seed:context-steward`, `seed:bmad`), listed in `src/seeds/all.ts`, and applied on every release
+  `seed:project-manager`, `seed:context-steward`), listed in `src/seeds/all.ts`, and applied on every release
   (`release.mjs`: migrate, then seeds — keeping what was changed on an agent's page).
 - `packages/rag` — ingest, chunking, Voyage embeddings, principal-aware retrieval.
 - `packages/authz` — bearer principals, OAuth, credentials, policy engine.

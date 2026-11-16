@@ -81,27 +81,20 @@ a person's job.
 
 Layer 1 still applies to anyone using stock T3 Code.
 
-## Delivery by the BMAD method
+## Work: PM tasks and hub agents
 
-Teqneo Code opens on a project's **Delivery** page: BMAD's four phases as a
-rail (Analyse → Plan → Solution → Build), each showing the document it wrote
-under `docs/bmad/` and a button that opens the phase's role as a draft.
-"Set up BMAD" puts six role skills in the project's `.claude/skills/`.
+Teqneo Code opens on **Work**: the open tasks on a PM-tool project (the
+person's own, or everyone's), and the hub's agents. **Start** on a task opens a
+draft with the same brief the PM tool's "Start in Teqneo Code" writes, its
+`PM-Task:` line included, so the pull request's merge proposes closing the
+task on `/approvals`. A task's status can be changed from the page, as the
+person, through the hub. **Ask** on an agent opens a draft that calls it. The
+approvals waiting for the person link to the app's Hub page.
 
-| Phase | Role | Writes | Played by |
-|---|---|---|---|
-| Analyse | Analyst | `product-brief.md` | the hub agent `bmad-analyst` drafts |
-| Plan | PM | `prd.md` | the hub agent `bmad-pm` drafts |
-| Solution | Architect | `architecture.md`, `epics.md` | the hub agent `bmad-architect` drafts |
-| Build | Scrum Master, Dev, QA | `stories/*.md`, code, PRs | Teqneo Code |
-
-The three hub agents are seeded (`src/seeds/bmad.ts`, `seed:bmad`), read
-the knowledge base and read-only PM tool or GitHub, and write nothing: they
-return a draft, and the person in Teqneo Code writes the file. The Scrum
-Master makes each epic a PM-tool milestone (`pm_create_milestone`) and each
-story a task under it; the Dev's pull request carries `PM-Task:`, so its merge
-proposes closing the task on `/approvals`. Documents reach the knowledge base
-once pushed, through the GitHub source for the repository's `docs/`.
+The page reads through Teqneo Code's own server, which calls the hub as the
+person with their `HUB_TOKEN`: `hub_team_overview` for the agents and
+approvals, and the PM tool as the hub serves it (`pm_list_projects`,
+`pm_list_tasks`, `pm_update_task`).
 
 ## The hub, inside Teqneo Code
 

@@ -26,7 +26,7 @@
 //      needs; this step only finds it, and says how to install it if it is
 //      missing. It never installs anything itself.
 //   8. optionally (--with-teqneo-code) the same for Teqneo Code, Teqneo's own
-//      build (docs/teqneo-code.md): the look and the BMAD Delivery page are
+//      build (docs/teqneo-code.md): the look and the Work page are
 //      built in, so it only finds the app and says where to get it.
 //
 // Re-running it is safe: it replaces its own entries and leaves everything
@@ -230,7 +230,7 @@ if (withT3) {
 }
 
 // Teqneo Code (docs/teqneo-code.md): Teqneo's own build, with the look, the
-// BMAD Delivery page and the teqneo-code:// links built in, so there is no
+// Work page and the teqneo-code:// links built in, so there is no
 // theme to publish. Found by the `teqneo` command its desktop app can put on
 // PATH (Settings → command line); not installed means a link to the releases,
 // never a download.
@@ -244,7 +244,6 @@ if (withTeqneoCode) {
   } else {
     say(`\n  • The teqneo command was not found. If Teqneo Code is installed, turn its command on in Settings;\n    otherwise install it from ${TEQNEO_CODE_RELEASES}, open it once, and sign in to Claude Code there.`);
   }
-  say(`    In each project, press "Set up BMAD" on the Delivery page to add the BMAD role skills.`);
 }
 
 say(`

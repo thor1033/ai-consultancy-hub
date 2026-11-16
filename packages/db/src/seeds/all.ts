@@ -11,7 +11,6 @@ import { SECRETARY_AGENT, SECRETARY_MEMORIES, SECRETARY_SKILLS } from "./secreta
 import { PROJECT_MANAGER_AGENT, PROJECT_MANAGER_MEMORIES, PROJECT_MANAGER_SKILLS } from "./project-manager";
 import { PRODUCTS, productOwnerAgent, productOwnerMemories, productOwnerSkills } from "./product-owner";
 import { CONTEXT_STEWARD_AGENT, CONTEXT_STEWARD_HANDOFFS, CONTEXT_STEWARD_MEMORIES } from "./context-steward";
-import { BMAD_AGENTS } from "./bmad";
 
 export const SEEDS: Seed[] = [
   { agent: SECRETARY_AGENT, skills: SECRETARY_SKILLS, memories: SECRETARY_MEMORIES },
@@ -24,9 +23,6 @@ export const SEEDS: Seed[] = [
   // listed after the Secretary: a hand-off whose other side is not there yet
   // is skipped, and said.
   { agent: CONTEXT_STEWARD_AGENT, skills: [], memories: CONTEXT_STEWARD_MEMORIES, handoffs: CONTEXT_STEWARD_HANDOFFS },
-  // The BMAD planning roles Teqneo Code's skills call (docs/teqneo-code.md):
-  // no skills, no memories to start; they draft documents on request.
-  ...BMAD_AGENTS.map((agent) => ({ agent, skills: [], memories: [] })),
 ];
 
 /**

@@ -94,11 +94,10 @@ node scripts/setup-claude-code.mjs --token hub_sk_… --with-pm-tool --with-t3
 ### Teqneo Code
 
 Teqneo's own build ([teqneo-code.md](teqneo-code.md)) needs no theme: the look,
-the BMAD Delivery page and the `teqneo-code://` links are built in. Use
+the Work page and the `teqneo-code://` links are built in. Use
 `--with-teqneo-code` instead of `--with-t3`; it checks for the `teqneo`
 command (turned on in Teqneo Code's Settings) and otherwise says where the
-releases are. In each project, **Set up BMAD** on the Delivery page adds the
-role skills.
+releases are.
 
 ```bash
 node scripts/setup-claude-code.mjs --token hub_sk_… --with-pm-tool --with-teqneo-code
